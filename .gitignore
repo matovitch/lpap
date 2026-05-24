@@ -1,0 +1,13 @@
+# pixi environments
+.pixi/*
+!.pixi/config.toml
+
+# Python and tool caches
+__pycache__/
+*.py[cod]
+.ruff_cache/
+
+# large local datasets and generated archives
+data/*.tar
+data/*.tar.*
+data/*.pt
