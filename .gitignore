@@ -7,7 +7,17 @@ __pycache__/
 *.py[cod]
 .ruff_cache/
 
+# marimo local session state
+notebooks/__marimo__/
+
 # large local datasets and generated archives
 data/*.tar
 data/*.tar.*
 data/*.pt
+
+# local model checkpoints
+checkpoints/*.pt
+
+# local training logs
+training_logs/*.sqlite
+training_logs/*.sqlite-*

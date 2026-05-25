@@ -26,6 +26,14 @@ args = [
 ]
 description = "Benchmark PyTorch and Triton LPAP implementations."
 
+[tasks.notebook-synthetic]
+cmd = "PYTHONPATH=src marimo edit notebooks/synthetic_harmonics.py --no-token"
+description = "Open the synthetic harmonic visualization marimo notebook."
+
+[tasks.notebook-surrogate]
+cmd = "PYTHONPATH=src marimo edit notebooks/train_surrogate.py --no-token"
+description = "Open the LPAP surrogate training marimo notebook."
+
 [dependencies]
 pytorch-gpu = ">=2.10.0,<3"
 python = ">=3.14.5,<3.15"
@@ -35,3 +43,4 @@ ruff = ">=0.15.14,<0.16"
 cuda-driver-dev = ">=12.9.79,<13"
 cuda-nvcc = ">=12.9.86,<13"
 cuda-cudart-dev = ">=12.9.79,<13"
+marimo = ">=0.23.5,<0.24"

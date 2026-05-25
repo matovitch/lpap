@@ -19,6 +19,30 @@ dibs:    B x C
 
 Additional leading dimensions can be treated the same way, as long as each independent item still satisfies `N % C == 0`.
 
+## Autoencoder Context
+
+The target architecture uses LPAP as a regularized projection bottleneck inside an autoencoder:
+
+```mermaid
+flowchart LR
+    image[Image]
+    encoder[Flow-matching encoder]
+    energy[Latent energy amplitudes]
+    permute[Fixed grouped permutation]
+    surrogate[RoPE LPAP surrogate transformer]
+    table[LPAP bucket table]
+    table_decoder[LPAP table decoder]
+    reverse[Reverse flow-matching decoder]
+    reconstruction[Reconstructed image]
+
+    image --> encoder --> energy --> permute --> surrogate --> table --> table_decoder --> reverse --> reconstruction
+    permute -. teacher targets .-> table
+```
+
+The grouped permutation is seeded once and fixed for training. It acts as the LPAP front end: amplitudes are scattered so each contiguous source group of size `N // C` contributes approximately uniformly to the bucket columns when viewed as `(N // C) x C`. The inverse permutation is the corresponding back end for returning values to the original energy ordering.
+
+The surrogate model consumes `C` tokens of dimension `N // C`. Its local RoPE attention mask is circular-backward: bucket token `i` can attend to the rolled source lanes that LPAP may inspect, `(i - roll) mod C` for `roll < k_max`. It predicts the selected probe index for each output bucket. The initial loss is weighted cross entropy, with per-bucket weights equal to the absolute selected amplitudes.
+
 ## Tensor View
 
 Given an input tensor with `N` elements and a bucket count `C`, LPAP views the input as:
