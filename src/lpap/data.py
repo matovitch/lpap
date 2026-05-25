@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, TypedDict
 
@@ -14,6 +15,58 @@ class SyntheticHarmonicBatch(TypedDict):
     phases: Float[torch.Tensor, "batch harmonics"]  # noqa: F722
     spikiness: Float[torch.Tensor, "batch harmonics"]  # noqa: F722
     frequencies: Float[torch.Tensor, "harmonics"]  # noqa: F722, F821
+
+
+@dataclass(frozen=True)
+class SyntheticHarmonicConfig:
+    harmonic_count: int = 16
+    gain_variance: float = 1.0
+    gain_half_life: float = 4.0
+    spikiness_range: tuple[float, float] = (4.0, 8.0)
+    dtype: torch.dtype = torch.float32
+
+    def validate(self) -> None:
+        if self.harmonic_count <= 0:
+            raise ValueError("harmonic_count must be positive")
+        if self.gain_variance < 0:
+            raise ValueError("gain_variance must be non-negative")
+        if self.gain_half_life <= 0:
+            raise ValueError("gain_half_life must be positive")
+
+        spikiness_min, spikiness_max = self.spikiness_range
+        if spikiness_min > spikiness_max:
+            raise ValueError("spikiness_range must be ordered as (min, max)")
+
+    def as_dict(self) -> dict[str, int | float | tuple[float, float] | str]:
+        return {
+            "harmonic_count": self.harmonic_count,
+            "gain_variance": self.gain_variance,
+            "gain_half_life": self.gain_half_life,
+            "spikiness_range": self.spikiness_range,
+            "dtype": str(self.dtype),
+        }
+
+    def sample_batch(
+        self,
+        *,
+        batch_size: int,
+        n: int,
+        generator: torch.Generator | None = None,
+        device: str | torch.device | None = None,
+        return_parameters: bool = False,
+    ) -> Float[torch.Tensor, "batch n"] | SyntheticHarmonicBatch:  # noqa: F722
+        return sample_synthetic_harmonic_batch(
+            batch_size=batch_size,
+            n=n,
+            harmonic_count=self.harmonic_count,
+            gain_variance=self.gain_variance,
+            gain_half_life=self.gain_half_life,
+            spikiness_range=self.spikiness_range,
+            generator=generator,
+            device=device,
+            dtype=self.dtype,
+            return_parameters=return_parameters,
+        )
 
 
 class ImageTensorDataset(Dataset[tuple[torch.Tensor, str]]):
@@ -119,43 +172,45 @@ def sample_synthetic_harmonic_batch(
         raise ValueError("batch_size must be positive")
     if n <= 0:
         raise ValueError("n must be positive")
-    if harmonic_count <= 0:
-        raise ValueError("harmonic_count must be positive")
-    if gain_variance < 0:
-        raise ValueError("gain_variance must be non-negative")
-    if gain_half_life <= 0:
-        raise ValueError("gain_half_life must be positive")
 
-    spikiness_min, spikiness_max = spikiness_range
-    if spikiness_min > spikiness_max:
-        raise ValueError("spikiness_range must be ordered as (min, max)")
+    config = SyntheticHarmonicConfig(
+        harmonic_count=harmonic_count,
+        gain_variance=gain_variance,
+        gain_half_life=gain_half_life,
+        spikiness_range=spikiness_range,
+        dtype=dtype,
+    )
+    config.validate()
+    spikiness_min, spikiness_max = config.spikiness_range
 
     target_device = torch.device("cpu") if device is None else torch.device(device)
-    frequencies = torch.arange(1, harmonic_count + 1, device=target_device, dtype=dtype)
-    x = torch.linspace(0.0, 1.0, n, device=target_device, dtype=dtype)
+    frequencies = torch.arange(
+        1, config.harmonic_count + 1, device=target_device, dtype=config.dtype
+    )
+    x = torch.linspace(0.0, 1.0, n, device=target_device, dtype=config.dtype)
 
-    variances = gain_variance * torch.pow(
-        torch.tensor(0.5, device=target_device, dtype=dtype),
-        (frequencies - 1) / gain_half_life,
+    variances = config.gain_variance * torch.pow(
+        torch.tensor(0.5, device=target_device, dtype=config.dtype),
+        (frequencies - 1) / config.gain_half_life,
     )
     gain_std = torch.sqrt(variances)
     gains = (
         torch.randn(
-            (batch_size, harmonic_count),
+            (batch_size, config.harmonic_count),
             generator=generator,
             device=target_device,
-            dtype=dtype,
+            dtype=config.dtype,
         )
         * gain_std
     )
     phases = torch.rand(
-        (batch_size, harmonic_count),
+        (batch_size, config.harmonic_count),
         generator=generator,
         device=target_device,
-        dtype=dtype,
+        dtype=config.dtype,
     )
     spikiness = torch.empty(
-        (batch_size, harmonic_count), device=target_device, dtype=dtype
+        (batch_size, config.harmonic_count), device=target_device, dtype=config.dtype
     ).uniform_(spikiness_min, spikiness_max, generator=generator)
 
     angles = (

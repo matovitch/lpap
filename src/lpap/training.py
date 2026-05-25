@@ -29,8 +29,9 @@ class TrainingRunConfig:
     monitor: str = "loss"
     mode: CheckpointMode = "min"
     resume: bool = True
-    checkpoint_every: int = 25
+    checkpoint_every: int | None = 25
     checkpoint_on_improvement: bool = False
+    checkpoint_at_end: bool = True
     log_every: int = 1
     display_every: int = 5
 
@@ -130,10 +131,12 @@ class TrainingRun:
         epoch: int | None = None,
         training_state: dict[str, Any] | None = None,
     ) -> TrainingStepResult:
-        current_metric = metrics[self.config.monitor]
+        current_metric = metrics.get(self.config.monitor)
         previous_best_metric = self.best_metric
-        improved = metric_improved(
-            current_metric, previous_best_metric, mode=self.config.mode
+        improved = current_metric is not None and metric_improved(
+            current_metric,
+            previous_best_metric,
+            mode=self.config.mode,
         )
         if improved:
             self.best_metric = current_metric
@@ -141,8 +144,11 @@ class TrainingRun:
 
         checkpointed = (
             (improved and self.config.checkpoint_on_improvement)
-            or step % self.config.checkpoint_every == 0
-            or step == self.config.total_steps
+            or (
+                self.config.checkpoint_every is not None
+                and step % self.config.checkpoint_every == 0
+            )
+            or (self.config.checkpoint_at_end and step == self.config.total_steps)
         )
         if checkpointed:
             checkpoint_info = save_training_checkpoint(
@@ -152,7 +158,7 @@ class TrainingRun:
                 step=step,
                 epoch=step if epoch is None else epoch,
                 metrics=metrics,
-                metric_name=self.config.monitor,
+                metric_name=self.config.monitor if current_metric is not None else None,
                 best_metric=previous_best_metric if improved else self.best_metric,
                 best_model_state=self.best_model_state,
                 mode=self.config.mode,

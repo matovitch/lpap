@@ -247,6 +247,32 @@ def train_lpap_surrogate_step(
     return metrics
 
 
+def evaluate_lpap_surrogate_batch(
+    *,
+    model: LPAPSurrogateTransformer,
+    values: Float[torch.Tensor, "batch n"],  # noqa: F722
+    bucket_count: int,
+    k_max: int,
+    permutation: Int[torch.Tensor, "n"] | None = None,  # noqa: F722, F821
+) -> LPAPSurrogateMetrics:
+    was_training = model.training
+    model.eval()
+    model_device = next(model.parameters()).device
+    values = values.to(model_device)
+    if permutation is not None:
+        permutation = permutation.to(model_device)
+    with torch.no_grad():
+        tokens = prepare_lpap_surrogate_batch(
+            values, bucket_count=bucket_count, permutation=permutation
+        )
+        targets = lpap_surrogate_targets(tokens, k_max=k_max)
+        logits = model(tokens)
+        _loss, metrics = lpap_surrogate_loss(logits, targets)
+    if was_training:
+        model.train()
+    return metrics
+
+
 def train_lpap_surrogate(
     *,
     model: LPAPSurrogateTransformer,

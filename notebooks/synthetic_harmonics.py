@@ -18,9 +18,9 @@ def _():
     if str(src_path) not in sys.path:
         sys.path.insert(0, str(src_path))
 
-    from lpap.data import sample_synthetic_harmonic_batch
+    from lpap.data import SyntheticHarmonicConfig
 
-    return html, mo, sample_synthetic_harmonic_batch, torch
+    return SyntheticHarmonicConfig, html, mo, torch
 
 
 @app.cell
@@ -32,55 +32,26 @@ def _(mo):
 
 
 @app.cell
-def _(mo):
-    seed = mo.ui.slider(0, 10_000, value=123, step=1, label="seed")
-    harmonic_count = mo.ui.slider(1, 64, value=12, step=1, label="harmonics")
-    gain_variance = mo.ui.slider(0.0, 4.0, value=1.0, step=0.05, label="gain variance")
-    gain_half_life = mo.ui.slider(
-        0.25, 16.0, value=4.0, step=0.25, label="gain half-life"
+def _(SyntheticHarmonicConfig, torch):
+    sample_count = 1024
+    seed = 1234
+    harmonics = SyntheticHarmonicConfig(
+        harmonic_count=12,
+        gain_variance=1.0,
+        gain_half_life=4.0,
+        spikiness_range=(4.0, 8.0),
+        dtype=torch.float32,
     )
-    spikiness_min = mo.ui.slider(1.0, 12.0, value=4.0, step=0.25, label="spikiness min")
-    spikiness_max = mo.ui.slider(1.0, 12.0, value=8.0, step=0.25, label="spikiness max")
-
-    mo.vstack(
-        [
-            mo.hstack([seed, harmonic_count], justify="start"),
-            mo.hstack([gain_variance, gain_half_life], justify="start"),
-            mo.hstack([spikiness_min, spikiness_max], justify="start"),
-        ]
-    )
-    return (
-        gain_half_life,
-        gain_variance,
-        harmonic_count,
-        seed,
-        spikiness_max,
-        spikiness_min,
-    )
+    return harmonics, sample_count, seed
 
 
 @app.cell
-def _(
-    gain_half_life,
-    gain_variance,
-    harmonic_count,
-    sample_synthetic_harmonic_batch,
-    seed,
-    spikiness_max,
-    spikiness_min,
-    torch,
-):
-    spikiness_low = min(float(spikiness_min.value), float(spikiness_max.value))
-    spikiness_high = max(float(spikiness_min.value), float(spikiness_max.value))
-    generator = torch.Generator().manual_seed(int(seed.value))
+def _(harmonics, sample_count, seed, torch):
+    generator = torch.Generator().manual_seed(seed)
 
-    sample = sample_synthetic_harmonic_batch(
+    sample = harmonics.sample_batch(
         batch_size=1,
-        n=1024,
-        harmonic_count=int(harmonic_count.value),
-        gain_variance=float(gain_variance.value),
-        gain_half_life=float(gain_half_life.value),
-        spikiness_range=(spikiness_low, spikiness_high),
+        n=sample_count,
         generator=generator,
         return_parameters=True,
     )
@@ -139,9 +110,10 @@ def _(amplitudes, html):
 
 
 @app.cell
-def _(amplitudes, curve_svg, image_pixels, mo):
+def _(amplitudes, curve_svg, harmonics, image_pixels, mo, sample_count, seed):
     max_abs_amplitude = float(amplitudes.abs().max())
     mean_amplitude = float(amplitudes.mean())
+    spikiness_min, spikiness_max = harmonics.spikiness_range
 
     mo.vstack(
         [
@@ -164,7 +136,12 @@ def _(amplitudes, curve_svg, image_pixels, mo):
                                             "
                                         >{image_pixels}</div>
                                         <div style="min-width: 180px;">
-                                            <div><strong>N</strong>: 1024</div>
+                                            <div><strong>N</strong>: {sample_count}</div>
+                                            <div><strong>seed</strong>: {seed}</div>
+                                            <div><strong>harmonics</strong>: {harmonics.harmonic_count}</div>
+                                            <div><strong>gain variance</strong>: {harmonics.gain_variance:.4f}</div>
+                                            <div><strong>gain half-life</strong>: {harmonics.gain_half_life:.4f}</div>
+                                            <div><strong>spikiness</strong>: {spikiness_min:.4f} to {spikiness_max:.4f}</div>
                                             <div><strong>x range</strong>: 0 to 1</div>
                                             <div><strong>image</strong>: 32 x 32</div>
                                             <div><strong>max |amplitude|</strong>: {max_abs_amplitude:.4f}</div>

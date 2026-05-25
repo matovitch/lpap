@@ -8,6 +8,7 @@ import torch
 
 from lpap.data import (
     ImageTensorDataset,
+    SyntheticHarmonicConfig,
     image_dataloader,
     load_image_tensor_dataset,
     sample_synthetic_harmonic_batch,
@@ -55,6 +56,25 @@ class ImageDatasetTest(unittest.TestCase):
 
 
 class SyntheticHarmonicDatasetTest(unittest.TestCase):
+    def test_config_samples_batch(self) -> None:
+        config = SyntheticHarmonicConfig(
+            harmonic_count=3,
+            gain_variance=0.5,
+            gain_half_life=2.0,
+            spikiness_range=(3.0, 5.0),
+        )
+
+        batch = config.sample_batch(
+            batch_size=2,
+            n=9,
+            generator=torch.Generator().manual_seed(123),
+            return_parameters=True,
+        )
+
+        self.assertEqual(batch["values"].shape, (2, 9))
+        self.assertEqual(batch["gains"].shape, (2, 3))
+        self.assertEqual(config.as_dict()["harmonic_count"], 3)
+
     def test_sample_batch_shape_and_reproducibility(self) -> None:
         generator_a = torch.Generator().manual_seed(123)
         generator_b = torch.Generator().manual_seed(123)

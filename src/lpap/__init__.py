@@ -6,6 +6,7 @@ from lpap.checkpoints import (
 )
 from lpap.data import (
     ImageTensorDataset,
+    SyntheticHarmonicConfig,
     SyntheticHarmonicDataset,
     image_dataloader,
     load_image_tensor_dataset,
@@ -26,6 +27,7 @@ from lpap.surrogate import (
     LPAPSurrogateTargets,
     LPAPSurrogateTransformer,
     circular_previous_attention_mask,
+    evaluate_lpap_surrogate_batch,
     lpap_surrogate_loss,
     lpap_surrogate_targets,
     prepare_lpap_surrogate_batch,
@@ -47,15 +49,23 @@ from lpap.training_log import (
     upsert_run,
 )
 from lpap.surrogate_training import (
+    LPAPSurrogateDataConfig,
+    LPAPSurrogateModelConfig,
+    LPAPSurrogateOptimizerConfig,
+    LPAPSurrogateRunConfig,
     LPAPSurrogateTrainingConfig,
     LPAPSurrogateTrainingSession,
+    LPAPSurrogateValidationConfig,
     create_lpap_surrogate_training_session,
     iter_lpap_surrogate_training,
+    should_validate_lpap_surrogate,
+    validate_lpap_surrogate,
 )
 from lpap.transformer import RotarySelfAttention, TransformerBlock, apply_rope
 
 __all__ = [
     "ImageTensorDataset",
+    "SyntheticHarmonicConfig",
     "SyntheticHarmonicDataset",
     "CheckpointInfo",
     "image_dataloader",
@@ -76,6 +86,7 @@ __all__ = [
     "LPAPSurrogateTargets",
     "LPAPSurrogateTransformer",
     "circular_previous_attention_mask",
+    "evaluate_lpap_surrogate_batch",
     "lpap_surrogate_loss",
     "lpap_surrogate_targets",
     "prepare_lpap_surrogate_batch",
@@ -92,9 +103,16 @@ __all__ = [
     "mark_run_status",
     "upsert_run",
     "LPAPSurrogateTrainingConfig",
+    "LPAPSurrogateDataConfig",
+    "LPAPSurrogateModelConfig",
+    "LPAPSurrogateOptimizerConfig",
+    "LPAPSurrogateRunConfig",
     "LPAPSurrogateTrainingSession",
+    "LPAPSurrogateValidationConfig",
     "create_lpap_surrogate_training_session",
     "iter_lpap_surrogate_training",
+    "should_validate_lpap_surrogate",
+    "validate_lpap_surrogate",
     "RotarySelfAttention",
     "TransformerBlock",
     "apply_rope",

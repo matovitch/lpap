@@ -91,6 +91,40 @@ class TrainingRunTest(unittest.TestCase):
             self.assertTrue(resumed.resumed)
             self.assertEqual(resumed.start_step, 3)
 
+    def test_missing_monitor_metric_does_not_update_best(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            checkpoint_path = root / "checkpoints" / "model.pt"
+            log_path = root / "training_logs" / "run.sqlite"
+            model = nn.Linear(2, 1)
+            run = TrainingRun(
+                config=TrainingRunConfig(
+                    run_id="run-a",
+                    checkpoint_path=checkpoint_path,
+                    log_path=log_path,
+                    total_steps=2,
+                    monitor="validation_loss",
+                    checkpoint_every=None,
+                    checkpoint_on_improvement=True,
+                    checkpoint_at_end=False,
+                ),
+                model=model,
+            )
+
+            run.resume_or_initialize()
+            training_only = run.record_step(step=1, metrics={"loss": 2.0})
+            validation = run.record_step(
+                step=2, metrics={"loss": 1.0, "validation_loss": 0.75}
+            )
+
+            self.assertFalse(training_only.improved)
+            self.assertFalse(training_only.checkpointed)
+            self.assertTrue(validation.improved)
+            self.assertTrue(validation.checkpointed)
+            payload = load_training_checkpoint(checkpoint_path)
+            self.assertEqual(payload["metric_name"], "validation_loss")
+            self.assertEqual(payload["best_metric"], 0.75)
+
 
 if __name__ == "__main__":
     unittest.main()
