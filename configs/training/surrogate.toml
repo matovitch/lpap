@@ -1,0 +1,42 @@
+[data]
+batch_size = 32
+bucket_count = 128
+probe_count = 8
+
+[data.harmonics]
+harmonic_count = 32
+gain_variance = 1.0
+gain_half_life = 4.0
+spikiness_range = [4.0, 6.0]
+dtype = "torch.float32"
+
+[model]
+k_max = 4
+hidden_dim = 256
+layer_count = 8
+head_count = 8
+
+[optimizer]
+learning_rate = 1.0e-3
+
+[validation]
+enabled = true
+every = 100
+batch_size = 256
+seed = 10123
+validate_at_end = true
+
+[run]
+run_training = true
+resume_from_checkpoint = true
+steps = 10000
+seed = 123
+permutation_seed = 123
+display_every = 5
+log_every = 1
+run_id = "surrogate_synthetic"
+checkpoint_name = "surrogate_synthetic.pt"
+log_name = "surrogate.sqlite"
+note = ""
+tags = ["baseline"]
+pinned = false

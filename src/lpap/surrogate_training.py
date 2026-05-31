@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import torch
 
@@ -20,6 +21,27 @@ from lpap.training import (
     TrainingRunConfig,
     TrainingStepResult,
 )
+from lpap.training_log import load_run_record
+
+
+def _torch_dtype_from_string(value: str) -> torch.dtype:
+    name = value.removeprefix("torch.")
+    dtype = getattr(torch, name, None)
+    if not isinstance(dtype, torch.dtype):
+        raise ValueError(f"unsupported torch dtype: {value}")
+    return dtype
+
+
+def _synthetic_harmonic_config_from_dict(
+    data: dict[str, Any],
+) -> SyntheticHarmonicConfig:
+    return SyntheticHarmonicConfig(
+        harmonic_count=int(data["harmonic_count"]),
+        gain_variance=float(data["gain_variance"]),
+        gain_half_life=float(data["gain_half_life"]),
+        spikiness_range=tuple(float(value) for value in data["spikiness_range"]),
+        dtype=_torch_dtype_from_string(str(data["dtype"])),
+    )
 
 
 @dataclass(frozen=True)
@@ -128,6 +150,9 @@ class LPAPSurrogateRunConfig:
     run_id: str = "surrogate_synthetic"
     checkpoint_name: str = "surrogate_synthetic.pt"
     log_name: str = "surrogate.sqlite"
+    note: str = ""
+    tags: tuple[str, ...] = ()
+    pinned: bool = False
 
     def validate(self) -> None:
         if self.steps <= 0:
@@ -147,6 +172,9 @@ class LPAPSurrogateRunConfig:
             "run_id": self.run_id,
             "checkpoint_name": self.checkpoint_name,
             "log_name": self.log_name,
+            "note": self.note,
+            "tags": self.tags,
+            "pinned": self.pinned,
         }
 
 
@@ -195,6 +223,65 @@ class LPAPSurrogateTrainingConfig:
         }
 
 
+def lpap_surrogate_training_config_from_dict(
+    data: dict[str, Any], *, resume_from_checkpoint: bool | None = None
+) -> LPAPSurrogateTrainingConfig:
+    run_data = dict(data["run"])
+    if resume_from_checkpoint is not None:
+        run_data["resume_from_checkpoint"] = resume_from_checkpoint
+    return LPAPSurrogateTrainingConfig(
+        data=LPAPSurrogateDataConfig(
+            batch_size=int(data["data"]["batch_size"]),
+            bucket_count=int(data["data"]["bucket_count"]),
+            probe_count=int(data["data"]["probe_count"]),
+            harmonics=_synthetic_harmonic_config_from_dict(data["data"]["harmonics"]),
+        ),
+        model=LPAPSurrogateModelConfig(
+            k_max=int(data["model"]["k_max"]),
+            hidden_dim=int(data["model"]["hidden_dim"]),
+            layer_count=int(data["model"]["layer_count"]),
+            head_count=int(data["model"]["head_count"]),
+        ),
+        optimizer=LPAPSurrogateOptimizerConfig(
+            learning_rate=float(data["optimizer"]["learning_rate"])
+        ),
+        validation=LPAPSurrogateValidationConfig(
+            enabled=bool(data["validation"]["enabled"]),
+            every=int(data["validation"]["every"]),
+            batch_size=int(data["validation"]["batch_size"]),
+            seed=int(data["validation"]["seed"]),
+            validate_at_end=bool(data["validation"]["validate_at_end"]),
+        ),
+        run=LPAPSurrogateRunConfig(
+            run_training=bool(run_data["run_training"]),
+            resume_from_checkpoint=bool(run_data["resume_from_checkpoint"]),
+            steps=int(run_data["steps"]),
+            seed=int(run_data["seed"]),
+            permutation_seed=int(run_data["permutation_seed"]),
+            display_every=int(run_data["display_every"]),
+            log_every=int(run_data["log_every"]),
+            run_id=str(run_data["run_id"]),
+            checkpoint_name=str(run_data["checkpoint_name"]),
+            log_name=str(run_data["log_name"]),
+            note=str(run_data.get("note", "")),
+            tags=tuple(str(tag) for tag in run_data.get("tags", ())),
+            pinned=bool(run_data.get("pinned", False)),
+        ),
+    )
+
+
+def rerun_lpap_surrogate_training_config_from_log(
+    path: str | Path,
+    *,
+    run_id: str,
+    resume_from_checkpoint: bool = False,
+) -> LPAPSurrogateTrainingConfig:
+    record = load_run_record(path, run_id=run_id)
+    return lpap_surrogate_training_config_from_dict(
+        record["config"], resume_from_checkpoint=resume_from_checkpoint
+    )
+
+
 @dataclass(frozen=True)
 class LPAPSurrogateTrainingSession:
     config: LPAPSurrogateTrainingConfig
@@ -233,6 +320,7 @@ def create_lpap_surrogate_training_session(
         device=target_device,
     )
     model = LPAPSurrogateTransformer(
+        value_count=config.value_count,
         probe_count=config.data.probe_count,
         k_max=config.model.k_max,
         hidden_dim=config.model.hidden_dim,
@@ -254,6 +342,9 @@ def create_lpap_surrogate_training_session(
             checkpoint_at_end=False,
             log_every=config.run.log_every,
             display_every=config.run.display_every,
+            note=config.run.note,
+            tags=config.run.tags,
+            pinned=config.run.pinned,
         ),
         model=model,
         optimizer=optimizer,

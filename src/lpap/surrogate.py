@@ -14,7 +14,7 @@ from lpap.transformer import TransformerBlock
 
 @dataclass(frozen=True)
 class LPAPSurrogateTargets:
-    indices: Int[torch.Tensor, "batch buckets"]  # noqa: F722
+    source_indices: Int[torch.Tensor, "batch buckets"]  # noqa: F722
     weights: Float[torch.Tensor, "batch buckets"]  # noqa: F722
     buckets: Float[torch.Tensor, "batch buckets"]  # noqa: F722
     dibs: Int[torch.Tensor, "batch buckets"]  # noqa: F722
@@ -39,6 +39,7 @@ def lpap_surrogate_targets(
     tokens: Float[torch.Tensor, "batch buckets probe"],  # noqa: F722
     *,
     k_max: int,
+    permutation: Int[torch.Tensor, "n"] | None = None,  # noqa: F722, F821
 ) -> LPAPSurrogateTargets:
     _validate_token_values(tokens)
     if k_max < 0:
@@ -105,8 +106,22 @@ def lpap_surrogate_targets(
         dibs[update] = candidate_dibs[update]
         bucket_indices[update] = selected_indices[update]
 
+    source_buckets = (bucket_indices_grid - dibs) % bucket_count
+    source_positions = bucket_indices * bucket_count + source_buckets
+    if permutation is not None:
+        if permutation.ndim != 1:
+            raise ValueError("permutation must be one-dimensional")
+        if permutation.numel() != bucket_count * probe_count:
+            raise ValueError("permutation length must match bucket_count * probe_count")
+        source_indices = permutation.to(device=tokens.device).index_select(
+            0, source_positions.reshape(-1)
+        )
+        source_indices = source_indices.reshape(batch_count, bucket_count)
+    else:
+        source_indices = source_positions
+
     return LPAPSurrogateTargets(
-        indices=bucket_indices,
+        source_indices=source_indices,
         weights=buckets.abs(),
         buckets=buckets,
         dibs=dibs,
@@ -135,6 +150,7 @@ class LPAPSurrogateTransformer(nn.Module):
     def __init__(
         self,
         *,
+        value_count: int,
         probe_count: int,
         k_max: int,
         hidden_dim: int = 128,
@@ -143,8 +159,11 @@ class LPAPSurrogateTransformer(nn.Module):
         dropout: float = 0.0,
     ) -> None:
         super().__init__()
+        if value_count <= 0:
+            raise ValueError("value_count must be positive")
         if probe_count <= 0:
             raise ValueError("probe_count must be positive")
+        self.value_count = value_count
         self.probe_count = probe_count
         self.k_max = k_max
         self.input = nn.Linear(probe_count, hidden_dim)
@@ -159,12 +178,12 @@ class LPAPSurrogateTransformer(nn.Module):
             ]
         )
         self.output_norm = nn.LayerNorm(hidden_dim)
-        self.output = nn.Linear(hidden_dim, probe_count)
+        self.output = nn.Linear(hidden_dim, value_count)
 
     def forward(
         self,
         tokens: Float[torch.Tensor, "batch buckets probe"],  # noqa: F722
-    ) -> Float[torch.Tensor, "batch buckets probe"]:  # noqa: F722
+    ) -> Float[torch.Tensor, "batch buckets n"]:  # noqa: F722
         _validate_token_values(tokens)
         if tokens.shape[-1] != self.probe_count:
             raise ValueError("tokens probe dimension must match model probe_count")
@@ -179,15 +198,15 @@ class LPAPSurrogateTransformer(nn.Module):
 
 
 def lpap_surrogate_loss(
-    logits: Float[torch.Tensor, "batch buckets probe"],  # noqa: F722
+    logits: Float[torch.Tensor, "batch buckets n"],  # noqa: F722
     targets: LPAPSurrogateTargets,
 ) -> tuple[torch.Tensor, LPAPSurrogateMetrics]:
     if logits.ndim != 3:
-        raise ValueError("logits must have shape batch x buckets x probe")
-    batch_count, bucket_count, probe_count = logits.shape
+        raise ValueError("logits must have shape batch x buckets x n")
+    batch_count, bucket_count, value_count = logits.shape
     flat_loss = torch_functional.cross_entropy(
-        logits.reshape(batch_count * bucket_count, probe_count),
-        targets.indices.reshape(batch_count * bucket_count),
+        logits.reshape(batch_count * bucket_count, value_count),
+        targets.source_indices.reshape(batch_count * bucket_count),
         reduction="none",
     ).reshape(batch_count, bucket_count)
     weights = targets.weights.to(dtype=logits.dtype)
@@ -195,7 +214,7 @@ def lpap_surrogate_loss(
     loss = (flat_loss * weights).sum() / weight_total
 
     predictions = logits.argmax(dim=-1)
-    correct = predictions.eq(targets.indices)
+    correct = predictions.eq(targets.source_indices)
     accuracy = correct.to(torch.float32).mean()
     weighted_accuracy = (correct.to(logits.dtype) * weights).sum() / weight_total
     metrics = LPAPSurrogateMetrics(
@@ -237,7 +256,9 @@ def train_lpap_surrogate_step(
     tokens = prepare_lpap_surrogate_batch(
         values, bucket_count=bucket_count, permutation=permutation
     )
-    targets = lpap_surrogate_targets(tokens.detach(), k_max=k_max)
+    targets = lpap_surrogate_targets(
+        tokens.detach(), k_max=k_max, permutation=permutation
+    )
     logits = model(tokens)
     loss, metrics = lpap_surrogate_loss(logits, targets)
 
@@ -265,7 +286,7 @@ def evaluate_lpap_surrogate_batch(
         tokens = prepare_lpap_surrogate_batch(
             values, bucket_count=bucket_count, permutation=permutation
         )
-        targets = lpap_surrogate_targets(tokens, k_max=k_max)
+        targets = lpap_surrogate_targets(tokens, k_max=k_max, permutation=permutation)
         logits = model(tokens)
         _loss, metrics = lpap_surrogate_loss(logits, targets)
     if was_training:

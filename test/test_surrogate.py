@@ -27,7 +27,7 @@ class LPAPSurrogateTest(unittest.TestCase):
 
         torch.testing.assert_close(targets.buckets, expected_buckets)
         torch.testing.assert_close(targets.dibs, expected_dibs)
-        torch.testing.assert_close(targets.indices, torch.tensor([[1, 1, 1]]))
+        torch.testing.assert_close(targets.source_indices, torch.tensor([[3, 4, 5]]))
         torch.testing.assert_close(targets.weights, expected_buckets.abs())
 
     def test_circular_previous_attention_mask_matches_roll_window(self) -> None:
@@ -54,12 +54,17 @@ class LPAPSurrogateTest(unittest.TestCase):
         )
         targets = lpap_surrogate_targets(tokens, k_max=2)
         model = LPAPSurrogateTransformer(
-            probe_count=4, k_max=2, hidden_dim=16, layer_count=1, head_count=4
+            value_count=16,
+            probe_count=4,
+            k_max=2,
+            hidden_dim=16,
+            layer_count=1,
+            head_count=4,
         )
         optimizer = torch.optim.AdamW(model.parameters(), lr=1.0e-3)
 
         logits = model(tokens)
-        self.assertEqual(logits.shape, (4, 4, 4))
+        self.assertEqual(logits.shape, (4, 4, 16))
         loss, metrics = lpap_surrogate_loss(logits, targets)
         self.assertTrue(torch.isfinite(loss))
         self.assertGreaterEqual(metrics.accuracy, 0.0)

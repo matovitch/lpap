@@ -1,0 +1,45 @@
+[data]
+batch_size = 32
+bucket_count = 128
+probe_count = 8
+
+[decoder]
+frontend_initial_temperature = 0.25
+hidden_dim = 256
+layer_count = 8
+head_count = 8
+
+[optimizer]
+learning_rate = 1.0e-3
+
+[validation]
+enabled = true
+every = 100
+batch_size = 256
+seed = 20123
+validate_at_end = true
+
+[teacher]
+checkpoint_name = "surrogate_synthetic.pt"
+load_best = true
+require_checkpoint = true
+
+[regularization]
+source_ce_weight = 0.1
+source_ce_l1_reference = 0.05
+source_ce_power = 2.0
+
+[run]
+run_training = true
+resume_from_checkpoint = true
+steps = 10000
+seed = 456
+permutation_seed = 123
+display_every = 5
+log_every = 1
+run_id = "decoder_synthetic"
+checkpoint_name = "decoder_synthetic.pt"
+log_name = "decoder.sqlite"
+note = ""
+tags = ["baseline"]
+pinned = false
