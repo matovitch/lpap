@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from numbers import Real
 
 import torch
 from jaxtyping import Float, Int
@@ -73,13 +72,13 @@ def prepare_lpap_decoder_batch(
     surrogate_logits: Float[torch.Tensor, "batch buckets classes"],  # noqa: F722
     bucket_count: int,
     k_max: int,
-    temperature: float | torch.Tensor,
+    temperature: int | float | torch.Tensor,
     permutation: Int[torch.Tensor, "n"] | None = None,  # noqa: F722, F821
 ) -> LPAPDecoderBatch:
     if values.ndim != 2:
         raise ValueError("values must have shape batch x n")
     _validate_surrogate_logits(surrogate_logits)
-    if isinstance(temperature, Real):
+    if isinstance(temperature, int | float):
         temperature_value = float(temperature)
         if temperature_value <= 0:
             raise ValueError("temperature must be positive")
@@ -92,8 +91,6 @@ def prepare_lpap_decoder_batch(
         temperature_tensor = temperature.to(
             device=surrogate_logits.device, dtype=surrogate_logits.dtype
         )
-    if bool((temperature_tensor <= 0).any().detach().cpu()):
-        raise ValueError("temperature must be positive")
 
     tokens = prepare_lpap_surrogate_batch(
         values, bucket_count=bucket_count, permutation=permutation
@@ -104,7 +101,9 @@ def prepare_lpap_decoder_batch(
     if surrogate_logits.shape[:2] != (batch_count, bucket_count):
         raise ValueError("surrogate logits batch/bucket dimensions must match values")
 
-    targets = lpap_surrogate_targets(tokens.detach(), k_max=k_max)
+    targets = lpap_surrogate_targets(
+        tokens.detach(), k_max=k_max, permutation=permutation
+    )
     probabilities = torch.softmax(surrogate_logits / temperature_tensor, dim=-1)
     entropy = -(probabilities * probabilities.clamp_min(1.0e-12).log()).sum(dim=-1)
     if surrogate_logits.shape[-1] != values.shape[-1]:
@@ -112,11 +111,6 @@ def prepare_lpap_decoder_batch(
 
     amplitudes = (probabilities * values[:, None, :]).sum(dim=-1)
     dibs = decoder_dibs_from_source_logits(surrogate_logits, bucket_count=bucket_count)
-    if permutation is not None:
-        targets = lpap_surrogate_targets(
-            tokens.detach(), k_max=k_max, permutation=permutation
-        )
-
     normalizer = max(bucket_count - 1, 1)
     decoder_tokens = torch.stack(
         (
@@ -244,13 +238,12 @@ def lpap_decoder_loss(
         reduction="none",
     ).reshape_as(batch.targets)
     source_ce = (source_ce_per_bucket * weights).sum() / weight_total
-    adaptive_ce_weight = source_ce_weight * float(
-        (reconstruction_l1.detach() / source_ce_l1_reference)
-        .clamp(0.0, 1.0)
-        .pow(source_ce_power)
-        .cpu()
-    )
+    adaptive_ce_weight = source_ce_weight * (
+        reconstruction_l1.detach() / source_ce_l1_reference
+    ).clamp(0.0, 1.0).pow(source_ce_power)
     source_ce_regularizer = source_ce * adaptive_ce_weight
+
+    source_ce_weight_metric = float(adaptive_ce_weight.detach().cpu())
     loss = reconstruction_l1 + source_ce_regularizer
 
     predictions = logits.argmax(dim=-1)
@@ -262,7 +255,7 @@ def lpap_decoder_loss(
         reconstruction_l1=float(reconstruction_l1.detach().cpu()),
         source_ce=float(source_ce.detach().cpu()),
         source_ce_regularizer=float(source_ce_regularizer.detach().cpu()),
-        source_ce_weight=adaptive_ce_weight,
+        source_ce_weight=source_ce_weight_metric,
         accuracy=float(accuracy.detach().cpu()),
         weighted_accuracy=float(weighted_accuracy.detach().cpu()),
         mean_weight=float(weights.mean().detach().cpu()),
