@@ -1,0 +1,55 @@
+[image]
+dataset_path = "data/images_32x32_gray.pt"
+batch_size = 32
+side = 32
+normalize = true
+shuffle = true
+num_workers = 0
+
+[target.harmonics]
+harmonic_count = 32
+gain_variance = 1.0
+gain_half_life = 4.0
+spikiness_range = [4.0, 6.0]
+dtype = "torch.float32"
+
+[flow]
+sequence_length = 1024
+width = 128
+time_dim = 128
+dilation_cycles = 2
+dilations = [1, 2, 4, 8, 16, 32, 64, 128]
+kernel_size = 3
+zero_init_output = true
+
+[time]
+distribution = "beta"
+beta_alpha = 0.1
+beta_beta = 0.1
+eps = 1.0e-4
+
+[optimizer]
+learning_rate = 1.0e-4
+max_grad_norm = 1.0
+
+[validation]
+enabled = true
+every = 100
+batch_size = 128
+seed = 30123
+validate_at_end = true
+euler_steps = [1, 4, 16]
+
+[run]
+run_training = true
+resume_from_checkpoint = true
+steps = 10000
+seed = 789
+display_every = 5
+log_every = 1
+run_id = "image_to_energy"
+checkpoint_name = "image_to_energy.pt"
+log_name = "image_to_energy.sqlite"
+note = ""
+tags = ["baseline"]
+pinned = false
