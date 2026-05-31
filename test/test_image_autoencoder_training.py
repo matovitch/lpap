@@ -152,9 +152,7 @@ def _build_tiny_autoencoder_session(root: Path) -> ImageAutoencoderTrainingSessi
         ),
         loss=ImageAutoencoderLossConfig(
             image_l2_weight=1.0,
-            energy_l2_weight=0.25,
-            energy_l1_weight=0.01,
-            energy_l1_reference=0.1,
+            energy_l1_weight=0.25,
             surrogate_teacher_weight=0.1,
         ),
         optimizer=ImageToEnergyOptimizerConfig(
@@ -192,8 +190,7 @@ class ImageAutoencoderTrainingTest(unittest.TestCase):
             self.assertTrue(session.checkpoint_path.exists())
             self.assertTrue(session.log_path.exists())
             self.assertIn("image_reconstruction_l2", results[-1].metrics)
-            self.assertIn("energy_reconstruction_l2", results[-1].metrics)
-            self.assertIn("energy_l1_regularizer", results[-1].metrics)
+            self.assertIn("energy_reconstruction_l1", results[-1].metrics)
             self.assertIn("surrogate_teacher_ce", results[-1].metrics)
             self.assertIn("validation_image_reconstruction_l2", results[-1].metrics)
             self.assertEqual(len(gallery), 1)

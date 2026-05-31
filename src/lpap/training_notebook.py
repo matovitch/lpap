@@ -434,9 +434,7 @@ def default_image_autoencoder_training_config() -> ImageAutoencoderTrainingConfi
         ),
         loss=ImageAutoencoderLossConfig(
             image_l2_weight=1.0,
-            energy_l2_weight=0.25,
-            energy_l1_weight=0.01,
-            energy_l1_reference=0.05,
+            energy_l1_weight=0.25,
             surrogate_teacher_weight=0.1,
             detach_energy_target=False,
         ),

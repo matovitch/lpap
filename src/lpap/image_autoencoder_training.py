@@ -110,26 +110,19 @@ class ImageAutoencoderIntegrationConfig:
 @dataclass(frozen=True)
 class ImageAutoencoderLossConfig:
     image_l2_weight: float = 1.0
-    energy_l2_weight: float = 0.25
-    energy_l1_weight: float = 0.01
-    energy_l1_reference: float = 0.05
+    energy_l1_weight: float = 0.25
     surrogate_teacher_weight: float = 0.1
     detach_energy_target: bool = False
 
     def validate(self) -> None:
         if self.image_l2_weight < 0:
             raise ValueError("image_l2_weight must be non-negative")
-        if self.energy_l2_weight < 0:
-            raise ValueError("energy_l2_weight must be non-negative")
         if self.energy_l1_weight < 0:
             raise ValueError("energy_l1_weight must be non-negative")
-        if self.energy_l1_reference <= 0:
-            raise ValueError("energy_l1_reference must be positive")
         if self.surrogate_teacher_weight < 0:
             raise ValueError("surrogate_teacher_weight must be non-negative")
         if (
             self.image_l2_weight == 0
-            and self.energy_l2_weight == 0
             and self.energy_l1_weight == 0
             and self.surrogate_teacher_weight == 0
         ):
@@ -138,9 +131,7 @@ class ImageAutoencoderLossConfig:
     def as_dict(self) -> dict[str, float | bool]:
         return {
             "image_l2_weight": self.image_l2_weight,
-            "energy_l2_weight": self.energy_l2_weight,
             "energy_l1_weight": self.energy_l1_weight,
-            "energy_l1_reference": self.energy_l1_reference,
             "surrogate_teacher_weight": self.surrogate_teacher_weight,
             "detach_energy_target": self.detach_energy_target,
         }
@@ -284,9 +275,7 @@ class ImageAutoencoderForward:
 class ImageAutoencoderMetrics:
     loss: float
     image_reconstruction_l2: float
-    energy_reconstruction_l2: float
-    energy_l1: float
-    energy_l1_regularizer: float
+    energy_reconstruction_l1: float
     surrogate_teacher_ce: float
     surrogate_weighted_accuracy: float
     encoded_energy_rms: float
@@ -425,9 +414,7 @@ def image_autoencoder_training_config_from_dict(
         ),
         loss=ImageAutoencoderLossConfig(
             image_l2_weight=float(data["loss"]["image_l2_weight"]),
-            energy_l2_weight=float(data["loss"]["energy_l2_weight"]),
             energy_l1_weight=float(data["loss"]["energy_l1_weight"]),
-            energy_l1_reference=float(data["loss"]["energy_l1_reference"]),
             surrogate_teacher_weight=float(data["loss"]["surrogate_teacher_weight"]),
             detach_energy_target=bool(data["loss"]["detach_energy_target"]),
         ),
@@ -669,23 +656,16 @@ def _forward_loss(
         if config.loss.detach_energy_target
         else output.encoded_energy
     )
-    energy_l2 = torch_functional.mse_loss(output.decoded_energy, energy_target)
-    energy_l1 = output.encoded_energy.abs().mean()
-    energy_l1_regularizer = (
-        config.loss.energy_l1_weight * energy_l1 / config.loss.energy_l1_reference
-    )
+    energy_l1 = torch_functional.l1_loss(output.decoded_energy, energy_target)
     loss = (
         config.loss.image_l2_weight * image_l2
-        + config.loss.energy_l2_weight * energy_l2
-        + energy_l1_regularizer
+        + config.loss.energy_l1_weight * energy_l1
         + config.loss.surrogate_teacher_weight * surrogate_teacher_ce
     )
     metrics = ImageAutoencoderMetrics(
         loss=float(loss.detach().cpu()),
         image_reconstruction_l2=float(image_l2.detach().cpu()),
-        energy_reconstruction_l2=float(energy_l2.detach().cpu()),
-        energy_l1=float(energy_l1.detach().cpu()),
-        energy_l1_regularizer=float(energy_l1_regularizer.detach().cpu()),
+        energy_reconstruction_l1=float(energy_l1.detach().cpu()),
         surrogate_teacher_ce=float(surrogate_teacher_ce.detach().cpu()),
         surrogate_weighted_accuracy=surrogate_metrics.weighted_accuracy,
         encoded_energy_rms=float(
@@ -752,9 +732,7 @@ def _metrics_dict(metrics: ImageAutoencoderMetrics) -> dict[str, float]:
     return {
         "loss": metrics.loss,
         "image_reconstruction_l2": metrics.image_reconstruction_l2,
-        "energy_reconstruction_l2": metrics.energy_reconstruction_l2,
-        "energy_l1": metrics.energy_l1,
-        "energy_l1_regularizer": metrics.energy_l1_regularizer,
+        "energy_reconstruction_l1": metrics.energy_reconstruction_l1,
         "surrogate_teacher_ce": metrics.surrogate_teacher_ce,
         "weighted_accuracy": metrics.surrogate_weighted_accuracy,
         "encoded_energy_rms": metrics.encoded_energy_rms,
