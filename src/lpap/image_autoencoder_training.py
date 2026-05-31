@@ -17,10 +17,10 @@ from lpap.decoder import (
 )
 from lpap.energy_to_image_training import (
     EnergyToImageSourceConfig,
-    _checkpoint_path,
-    _load_decoder_source,
-    _load_surrogate_source,
-    _validate_source_matches_config,
+    resolve_checkpoint_path,
+    load_decoder_source,
+    load_surrogate_source,
+    validate_source_matches_config,
 )
 from lpap.flow import DilatedConvFlow1d, integrate_euler_midpoint_time
 from lpap.flow_training import (
@@ -41,9 +41,9 @@ from lpap.flow_training import (
 )
 from lpap.permutation import make_grouped_permutation_indices
 from lpap.surrogate import (
+    LPAPSurrogateTargets,
     LPAPSurrogateTransformer,
     lpap_surrogate_loss,
-    lpap_surrogate_targets,
     prepare_lpap_surrogate_batch,
 )
 from lpap.training import (
@@ -186,14 +186,28 @@ class ImageAutoencoderRunConfig:
 
 @dataclass(frozen=True)
 class ImageAutoencoderTrainingConfig:
-    image: ImageAutoencoderImageConfig = field(default_factory=ImageAutoencoderImageConfig)
-    source: ImageAutoencoderSourceConfig = field(default_factory=ImageAutoencoderSourceConfig)
-    image_to_energy_flow: ImageAutoencoderFlowConfig = field(default_factory=ImageAutoencoderFlowConfig)
-    energy_to_image_flow: ImageAutoencoderFlowConfig = field(default_factory=ImageAutoencoderFlowConfig)
-    integration: ImageAutoencoderIntegrationConfig = field(default_factory=ImageAutoencoderIntegrationConfig)
+    image: ImageAutoencoderImageConfig = field(
+        default_factory=ImageAutoencoderImageConfig
+    )
+    source: ImageAutoencoderSourceConfig = field(
+        default_factory=ImageAutoencoderSourceConfig
+    )
+    image_to_energy_flow: ImageAutoencoderFlowConfig = field(
+        default_factory=ImageAutoencoderFlowConfig
+    )
+    energy_to_image_flow: ImageAutoencoderFlowConfig = field(
+        default_factory=ImageAutoencoderFlowConfig
+    )
+    integration: ImageAutoencoderIntegrationConfig = field(
+        default_factory=ImageAutoencoderIntegrationConfig
+    )
     loss: ImageAutoencoderLossConfig = field(default_factory=ImageAutoencoderLossConfig)
-    optimizer: ImageAutoencoderOptimizerConfig = field(default_factory=ImageAutoencoderOptimizerConfig)
-    validation: ImageAutoencoderValidationConfig = field(default_factory=ImageAutoencoderValidationConfig)
+    optimizer: ImageAutoencoderOptimizerConfig = field(
+        default_factory=ImageAutoencoderOptimizerConfig
+    )
+    validation: ImageAutoencoderValidationConfig = field(
+        default_factory=ImageAutoencoderValidationConfig
+    )
     run: ImageAutoencoderRunConfig = field(default_factory=ImageAutoencoderRunConfig)
 
     @property
@@ -211,8 +225,13 @@ class ImageAutoencoderTrainingConfig:
         self.run.validate()
         validate_image_flow_shape(image=self.image, flow=self.image_to_energy_flow)
         validate_image_flow_shape(image=self.image, flow=self.energy_to_image_flow)
-        if self.image_to_energy_flow.sequence_length != self.energy_to_image_flow.sequence_length:
-            raise ValueError("image_to_energy_flow and energy_to_image_flow sequence lengths must match")
+        if (
+            self.image_to_energy_flow.sequence_length
+            != self.energy_to_image_flow.sequence_length
+        ):
+            raise ValueError(
+                "image_to_energy_flow and energy_to_image_flow sequence lengths must match"
+            )
 
     def as_run_config(self) -> dict[str, object]:
         return {
@@ -258,6 +277,7 @@ class ImageAutoencoderForward:
     reconstructed_image: torch.Tensor
     surrogate_logits: torch.Tensor
     decoder_logits: torch.Tensor
+    surrogate_targets: LPAPSurrogateTargets
 
 
 @dataclass(frozen=True)
@@ -330,6 +350,7 @@ class ImageAutoencoderModel(nn.Module):
             reconstructed_image=reconstructed_image,
             surrogate_logits=surrogate_logits,
             decoder_logits=decoder_logits,
+            surrogate_targets=decoder_batch.surrogate_targets,
         )
 
 
@@ -379,14 +400,22 @@ def image_autoencoder_training_config_from_dict(
         source=ImageAutoencoderSourceConfig(
             surrogate_checkpoint_name=str(data["source"]["surrogate_checkpoint_name"]),
             decoder_checkpoint_name=str(data["source"]["decoder_checkpoint_name"]),
-            image_to_energy_checkpoint_name=str(data["source"]["image_to_energy_checkpoint_name"]),
-            energy_to_image_checkpoint_name=str(data["source"]["energy_to_image_checkpoint_name"]),
+            image_to_energy_checkpoint_name=str(
+                data["source"]["image_to_energy_checkpoint_name"]
+            ),
+            energy_to_image_checkpoint_name=str(
+                data["source"]["energy_to_image_checkpoint_name"]
+            ),
             load_best=bool(data["source"]["load_best"]),
             require_checkpoints=bool(data["source"]["require_checkpoints"]),
-            train_image_to_energy_flow=bool(data["source"]["train_image_to_energy_flow"]),
+            train_image_to_energy_flow=bool(
+                data["source"]["train_image_to_energy_flow"]
+            ),
             train_surrogate=bool(data["source"]["train_surrogate"]),
             train_decoder=bool(data["source"]["train_decoder"]),
-            train_energy_to_image_flow=bool(data["source"]["train_energy_to_image_flow"]),
+            train_energy_to_image_flow=bool(
+                data["source"]["train_energy_to_image_flow"]
+            ),
         ),
         image_to_energy_flow=flow_model_config_from_dict(data["image_to_energy_flow"]),
         energy_to_image_flow=flow_model_config_from_dict(data["energy_to_image_flow"]),
@@ -459,12 +488,16 @@ def create_image_autoencoder_training_session(
     torch.manual_seed(config.run.seed)
     checkpoint_path = root / "checkpoints" / config.run.checkpoint_name
     log_path = root / "training_logs" / config.run.log_name
-    surrogate_checkpoint_path = _checkpoint_path(root, config.source.surrogate_checkpoint_name)
-    decoder_checkpoint_path = _checkpoint_path(root, config.source.decoder_checkpoint_name)
-    image_to_energy_checkpoint_path = _checkpoint_path(
+    surrogate_checkpoint_path = resolve_checkpoint_path(
+        root, config.source.surrogate_checkpoint_name
+    )
+    decoder_checkpoint_path = resolve_checkpoint_path(
+        root, config.source.decoder_checkpoint_name
+    )
+    image_to_energy_checkpoint_path = resolve_checkpoint_path(
         root, config.source.image_to_energy_checkpoint_name
     )
-    energy_to_image_checkpoint_path = _checkpoint_path(
+    energy_to_image_checkpoint_path = resolve_checkpoint_path(
         root, config.source.energy_to_image_checkpoint_name
     )
 
@@ -474,18 +507,18 @@ def create_image_autoencoder_training_session(
         load_best=config.source.load_best,
         require_checkpoints=config.source.require_checkpoints,
     )
-    surrogate, surrogate_model_config, harmonics = _load_surrogate_source(
+    surrogate, surrogate_model_config, harmonics = load_surrogate_source(
         path=surrogate_checkpoint_path,
         load_best=surrogate_source.load_best,
         require_checkpoint=surrogate_source.require_checkpoints,
         device=target_device,
     )
-    decoder, decoder_model_config = _load_decoder_source(
+    decoder, decoder_model_config = load_decoder_source(
         path=decoder_checkpoint_path,
         load_best=surrogate_source.load_best,
         device=target_device,
     )
-    _validate_source_matches_config(
+    validate_source_matches_config(
         config=config,
         surrogate_model_config=surrogate_model_config,
         decoder_model_config=decoder_model_config,
@@ -510,7 +543,9 @@ def create_image_autoencoder_training_session(
         shuffle=True,
         seed=config.validation.seed,
     )
-    image_to_energy_flow = DilatedConvFlow1d(**config.image_to_energy_flow.as_dict()).to(target_device)
+    image_to_energy_flow = DilatedConvFlow1d(
+        **config.image_to_energy_flow.as_dict()
+    ).to(target_device)
     image_to_energy_state = load_flow_checkpoint_state(
         path=image_to_energy_checkpoint_path,
         load_best=config.source.load_best,
@@ -519,7 +554,9 @@ def create_image_autoencoder_training_session(
     )
     if image_to_energy_state is not None:
         image_to_energy_flow.load_state_dict(image_to_energy_state)
-    energy_to_image_flow = DilatedConvFlow1d(**config.energy_to_image_flow.as_dict()).to(target_device)
+    energy_to_image_flow = DilatedConvFlow1d(
+        **config.energy_to_image_flow.as_dict()
+    ).to(target_device)
     energy_to_image_state = load_flow_checkpoint_state(
         path=energy_to_image_checkpoint_path,
         load_best=config.source.load_best,
@@ -623,19 +660,8 @@ def _forward_loss(
         image_to_energy_steps=config.integration.image_to_energy_steps,
         energy_to_image_steps=config.integration.energy_to_image_steps,
     )
-    encoded_values = output.encoded_energy[:, 0]
-    surrogate_tokens = prepare_lpap_surrogate_batch(
-        encoded_values,
-        bucket_count=int(session.decoder_model_config["bucket_count"]),
-        permutation=session.permutation,
-    )
-    surrogate_targets = lpap_surrogate_targets(
-        surrogate_tokens.detach(),
-        k_max=int(session.surrogate_model_config["k_max"]),
-        permutation=session.permutation,
-    )
     surrogate_teacher_ce, surrogate_metrics = lpap_surrogate_loss(
-        output.surrogate_logits, surrogate_targets
+        output.surrogate_logits, output.surrogate_targets
     )
     image_l2 = torch_functional.mse_loss(output.reconstructed_image, image)
     energy_target = (
@@ -662,9 +688,15 @@ def _forward_loss(
         energy_l1_regularizer=float(energy_l1_regularizer.detach().cpu()),
         surrogate_teacher_ce=float(surrogate_teacher_ce.detach().cpu()),
         surrogate_weighted_accuracy=surrogate_metrics.weighted_accuracy,
-        encoded_energy_rms=float(output.encoded_energy.square().mean().sqrt().detach().cpu()),
-        decoded_energy_rms=float(output.decoded_energy.square().mean().sqrt().detach().cpu()),
-        reconstructed_image_rms=float(output.reconstructed_image.square().mean().sqrt().detach().cpu()),
+        encoded_energy_rms=float(
+            output.encoded_energy.square().mean().sqrt().detach().cpu()
+        ),
+        decoded_energy_rms=float(
+            output.decoded_energy.square().mean().sqrt().detach().cpu()
+        ),
+        reconstructed_image_rms=float(
+            output.reconstructed_image.square().mean().sqrt().detach().cpu()
+        ),
         image_rms=float(image.square().mean().sqrt().detach().cpu()),
     )
     return loss, metrics, output
@@ -676,7 +708,9 @@ def train_image_autoencoder_step(
     images: torch.Tensor,
 ) -> ImageAutoencoderMetrics:
     session.model.train()
-    image = prepare_image_sequence(images, side=session.config.image.side, device=session.device)
+    image = prepare_image_sequence(
+        images, side=session.config.image.side, device=session.device
+    )
     session.optimizer.zero_grad(set_to_none=True)
     loss, metrics, _output = _forward_loss(session=session, image=image)
     loss.backward()
@@ -750,7 +784,10 @@ def iter_image_autoencoder_training(
                 session=session, images=validation_images
             )
             step_metrics.update(
-                {f"validation_{name}": value for name, value in _metrics_dict(validation_metrics).items()}
+                {
+                    f"validation_{name}": value
+                    for name, value in _metrics_dict(validation_metrics).items()
+                }
             )
         yield session.training_run.record_step(
             step=step,
@@ -762,8 +799,12 @@ def iter_image_autoencoder_training(
                 "image_dataset_path": str(session.image_dataset_path),
                 "surrogate_checkpoint_path": str(session.surrogate_checkpoint_path),
                 "decoder_checkpoint_path": str(session.decoder_checkpoint_path),
-                "image_to_energy_checkpoint_path": str(session.image_to_energy_checkpoint_path),
-                "energy_to_image_checkpoint_path": str(session.energy_to_image_checkpoint_path),
+                "image_to_energy_checkpoint_path": str(
+                    session.image_to_energy_checkpoint_path
+                ),
+                "energy_to_image_checkpoint_path": str(
+                    session.energy_to_image_checkpoint_path
+                ),
             },
         )
 
