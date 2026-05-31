@@ -1,5 +1,7 @@
 # Linear Probing Amplitude Pooling
 
+See the [documentation index](index.md) for the full documentation map and the [glossary](glossary.md) for short definitions of LPAP terms.
+
 Linear Probing Amplitude Pooling, or LPAP, is a pooling operator for reducing a flat tensor of `N` values into a compact table of `C` buckets, where `N` is a multiple of `C`. The operator also receives a maximum roll count, `k_max`, which bounds how far the probing process may advance.
 
 The operator keeps two small table tensors. The table is always semantically full, even when it contains zeros:
@@ -19,29 +21,33 @@ dibs:    B x C
 
 Additional leading dimensions can be treated the same way, as long as each independent item still satisfies `N % C == 0`.
 
-## Autoencoder Context
+## Current Model Context
 
-The target architecture uses LPAP as a regularized projection bottleneck inside an autoencoder:
+The current training stack uses LPAP as a supervised projection target and as the front end for a decoder-projected energy distribution:
 
 ```mermaid
-flowchart LR
-    image[Image]
-    encoder[Flow-matching encoder]
-    energy[Latent energy amplitudes]
+flowchart TD
+    harmonics[Synthetic harmonics]
     permute[Fixed grouped permutation]
-    surrogate[RoPE LPAP surrogate transformer]
-    table[LPAP bucket table]
-    table_decoder[LPAP table decoder]
-    reverse[Reverse flow-matching decoder]
-    reconstruction[Reconstructed image]
+    lpap[LPAP teacher]
+    surrogate[Surrogate transformer]
+    decoder[Decoder transformer]
+    image_flow[Image to energy flow]
+    reverse_flow[Energy to image flow]
+    image[32x32 image]
 
-    image --> encoder --> energy --> permute --> surrogate --> table --> table_decoder --> reverse --> reconstruction
-    permute -. teacher targets .-> table
+    harmonics --> permute --> lpap
+    lpap --> surrogate
+    surrogate --> decoder
+    image --> image_flow --> harmonics
+    harmonics --> surrogate --> decoder --> reverse_flow --> image
 ```
 
 The grouped permutation is seeded once and fixed for training. It acts as the LPAP front end: amplitudes are scattered so each contiguous source group of size `N // C` contributes approximately uniformly to the bucket columns when viewed as `(N // C) x C`. The inverse permutation is the corresponding back end for returning values to the original energy ordering.
 
-The surrogate model consumes `C` tokens of dimension `N // C`. Its local RoPE attention mask is circular-backward: bucket token `i` can attend to the rolled source lanes that LPAP may inspect, `(i - roll) mod C` for `roll < k_max`. It predicts the selected probe index for each output bucket. The initial loss is weighted cross entropy, with per-bucket weights equal to the absolute selected amplitudes.
+The surrogate model consumes `C` tokens of dimension `N // C`. Its local RoPE attention mask is circular-backward: bucket token `i` can attend to the rolled source lanes that LPAP may inspect, `(i - roll) mod C` for `roll < k_max`. It predicts full-`N` source-index logits for each output bucket instead of only local probe indices. The training loss is weighted cross entropy, with per-bucket weights equal to the absolute selected amplitudes.
+
+The decoder consumes frozen surrogate logits and reconstructs the original source energy values. Decoder training uses a reconstruction objective plus an adaptive weighted source-logit cross-entropy regularizer. The decoder and downstream `energy_to_image` flow read harmonic source configuration from the surrogate checkpoint, keeping checkpoint payloads authoritative for source distributions.
 
 ## Tensor View
 
