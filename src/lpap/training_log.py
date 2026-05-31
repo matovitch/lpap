@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-import secrets
+import random
 import sqlite3
 from collections.abc import Iterable, Mapping
 from contextlib import closing
@@ -55,13 +55,16 @@ def _connect(path: str | Path) -> sqlite3.Connection:
     db_path = Path(path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(db_path)
-    connection.execute("PRAGMA journal_mode=WAL")
+    # ``foreign_keys`` is a per-connection setting in SQLite, so it must be
+    # issued on every connect. ``journal_mode=WAL`` persists on the database
+    # file itself and is set once during :func:`initialize_training_log`.
     connection.execute("PRAGMA foreign_keys=ON")
     return connection
 
 
 def initialize_training_log(path: str | Path) -> None:
     with closing(_connect(path)) as connection, connection:
+        connection.execute("PRAGMA journal_mode=WAL")
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS runs (
@@ -112,9 +115,9 @@ def initialize_training_log(path: str | Path) -> None:
 
 
 def make_run_display_name() -> str:
-    adjective = secrets.choice(_RUN_ADJECTIVES)
-    noun = secrets.choice(_RUN_NOUNS)
-    suffix = secrets.token_hex(3)
+    adjective = random.choice(_RUN_ADJECTIVES)
+    noun = random.choice(_RUN_NOUNS)
+    suffix = f"{random.randrange(1 << 24):06x}"
     return f"{adjective}-{noun}-{suffix}"
 
 
