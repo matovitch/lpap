@@ -112,8 +112,12 @@ class ImageToEnergyTrainingConfig:
     target: ImageToEnergyTargetConfig = field(default_factory=ImageToEnergyTargetConfig)
     flow: ImageToEnergyFlowConfig = field(default_factory=ImageToEnergyFlowConfig)
     time: ImageToEnergyTimeConfig = field(default_factory=ImageToEnergyTimeConfig)
-    optimizer: ImageToEnergyOptimizerConfig = field(default_factory=ImageToEnergyOptimizerConfig)
-    validation: ImageToEnergyValidationConfig = field(default_factory=ImageToEnergyValidationConfig)
+    optimizer: ImageToEnergyOptimizerConfig = field(
+        default_factory=ImageToEnergyOptimizerConfig
+    )
+    validation: ImageToEnergyValidationConfig = field(
+        default_factory=ImageToEnergyValidationConfig
+    )
     run: ImageToEnergyRunConfig = field(default_factory=ImageToEnergyRunConfig)
 
     @property
@@ -399,7 +403,10 @@ def iter_image_to_energy_training(
                 device=session.device,
             )
             step_metrics.update(
-                {f"validation_{name}": value for name, value in _metrics_dict(validation_metrics).items()}
+                {
+                    f"validation_{name}": value
+                    for name, value in _metrics_dict(validation_metrics).items()
+                }
             )
             step_metrics.update(
                 {f"validation_{name}": value for name, value in diagnostics.items()}

@@ -259,31 +259,33 @@ def render_signed_triplet_gallery_html(items: Sequence[Any], *, size: int = 32) 
 
 
 def render_image_to_energy_gallery_html(
-        items: Sequence[Any],
-        *,
-        steps: Sequence[int] = (64, 32, 16, 8, 4),
-        size: int = 32,
+    items: Sequence[Any],
+    *,
+    steps: Sequence[int] = (64, 32, 16, 8, 4),
+    size: int = 32,
 ) -> str:
-        if not items:
-                return "<p>No image-to-energy gallery samples are available.</p>"
+    if not items:
+        return "<p>No image-to-energy gallery samples are available.</p>"
 
-        expected_count = size * size
-        panels = []
-        for item_index, item in enumerate(items, start=1):
-                image = item.image.detach().cpu().reshape(-1)
-                if image.numel() != expected_count:
-                        raise ValueError(f"gallery images must contain {expected_count} values")
-                generated = {
-                        int(step_count): item.generated[int(step_count)].detach().cpu().reshape(-1)
-                        for step_count in steps
-                }
-                if any(tensor.numel() != expected_count for tensor in generated.values()):
-                        raise ValueError(f"generated energy tensors must contain {expected_count} values")
-                max_abs = max(
-                        float(tensor.abs().max().clamp_min(1.0e-12))
-                        for tensor in generated.values()
-                )
-                image_panel = f"""
+    expected_count = size * size
+    panels = []
+    for item_index, item in enumerate(items, start=1):
+        image = item.image.detach().cpu().reshape(-1)
+        if image.numel() != expected_count:
+            raise ValueError(f"gallery images must contain {expected_count} values")
+        generated = {
+            int(step_count): item.generated[int(step_count)].detach().cpu().reshape(-1)
+            for step_count in steps
+        }
+        if any(tensor.numel() != expected_count for tensor in generated.values()):
+            raise ValueError(
+                f"generated energy tensors must contain {expected_count} values"
+            )
+        max_abs = max(
+            float(tensor.abs().max().clamp_min(1.0e-12))
+            for tensor in generated.values()
+        )
+        image_panel = f"""
                 <div style="display: grid; gap: 6px;">
                     <div style="font-weight: 600;">image</div>
                     <div style="display: grid; grid-template-columns: repeat({size}, 6px); grid-template-rows: repeat({size}, 6px); width: {size * 6}px; height: {size * 6}px; border: 1px solid #30333a; background: #000;">
@@ -291,8 +293,8 @@ def render_image_to_energy_gallery_html(
                     </div>
                 </div>
                 """
-                energy_panels = "".join(
-                        f"""
+        energy_panels = "".join(
+            f"""
                         <div style="display: grid; gap: 6px;">
                             <div style="font-weight: 600;">{step_count} steps</div>
                             <div style="display: grid; grid-template-columns: repeat({size}, 6px); grid-template-rows: repeat({size}, 6px); width: {size * 6}px; height: {size * 6}px; border: 1px solid #30333a; background: #000;">
@@ -300,18 +302,18 @@ def render_image_to_energy_gallery_html(
                             </div>
                         </div>
                         """
-                        for step_count in steps
-                )
-                panels.append(
-                        f"""
+            for step_count in steps
+        )
+        panels.append(
+            f"""
                         <div style="display: grid; gap: 10px;">
                             <div style="font-weight: 700;">sample {item_index}</div>
                             <div style="display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-start;">{image_panel}{energy_panels}</div>
                         </div>
                         """
-                )
+        )
 
-        return f"""
+    return f"""
         <div style="display: grid; gap: 18px; font: 13px/1.4 system-ui, sans-serif; color: #d7dae0;">
             {"".join(panels)}
             <div style="display: flex; align-items: center; gap: 8px;">
@@ -323,28 +325,28 @@ def render_image_to_energy_gallery_html(
 
 
 def render_energy_to_image_gallery_html(
-        items: Sequence[Any],
-        *,
-        steps: Sequence[int] = (64, 32, 16, 8, 4),
-        size: int = 32,
-    ) -> str:
-        if not items:
-            return "<p>No energy-to-image gallery samples are available.</p>"
+    items: Sequence[Any],
+    *,
+    steps: Sequence[int] = (64, 32, 16, 8, 4),
+    size: int = 32,
+) -> str:
+    if not items:
+        return "<p>No energy-to-image gallery samples are available.</p>"
 
-        expected_count = size * size
-        panels = []
-        for item_index, item in enumerate(items, start=1):
-            source = item.source.detach().cpu().reshape(-1)
-            if source.numel() != expected_count:
-                raise ValueError(f"gallery sources must contain {expected_count} values")
-            generated = {
-                int(step_count): item.generated[int(step_count)].detach().cpu().reshape(-1)
-                for step_count in steps
-            }
-            if any(tensor.numel() != expected_count for tensor in generated.values()):
-                raise ValueError(f"generated images must contain {expected_count} values")
-            max_abs = float(source.abs().max().clamp_min(1.0e-12))
-            source_panel = f"""
+    expected_count = size * size
+    panels = []
+    for item_index, item in enumerate(items, start=1):
+        source = item.source.detach().cpu().reshape(-1)
+        if source.numel() != expected_count:
+            raise ValueError(f"gallery sources must contain {expected_count} values")
+        generated = {
+            int(step_count): item.generated[int(step_count)].detach().cpu().reshape(-1)
+            for step_count in steps
+        }
+        if any(tensor.numel() != expected_count for tensor in generated.values()):
+            raise ValueError(f"generated images must contain {expected_count} values")
+        max_abs = float(source.abs().max().clamp_min(1.0e-12))
+        source_panel = f"""
             <div style="display: grid; gap: 6px;">
                 <div style="font-weight: 600;">source</div>
                 <div style="display: grid; grid-template-columns: repeat({size}, 6px); grid-template-rows: repeat({size}, 6px); width: {size * 6}px; height: {size * 6}px; border: 1px solid #30333a; background: #000;">
@@ -352,8 +354,8 @@ def render_energy_to_image_gallery_html(
                 </div>
             </div>
             """
-            image_panels = "".join(
-                f"""
+        image_panels = "".join(
+            f"""
                 <div style="display: grid; gap: 6px;">
                     <div style="font-weight: 600;">{step_count} steps</div>
                     <div style="display: grid; grid-template-columns: repeat({size}, 6px); grid-template-rows: repeat({size}, 6px); width: {size * 6}px; height: {size * 6}px; border: 1px solid #30333a; background: #000;">
@@ -361,18 +363,18 @@ def render_energy_to_image_gallery_html(
                     </div>
                 </div>
                 """
-                for step_count in steps
-            )
-            panels.append(
-                f"""
+            for step_count in steps
+        )
+        panels.append(
+            f"""
                 <div style="display: grid; gap: 10px;">
                     <div style="font-weight: 700;">sample {item_index}</div>
                     <div style="display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-start;">{source_panel}{image_panels}</div>
                 </div>
                 """
-            )
+        )
 
-        return f"""
+    return f"""
         <div style="display: grid; gap: 18px; font: 13px/1.4 system-ui, sans-serif; color: #d7dae0;">
             {"".join(panels)}
             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
@@ -384,27 +386,27 @@ def render_energy_to_image_gallery_html(
 
 
 def render_energy_to_image_reflow_gallery_html(
-        items: Sequence[Any],
-        *,
-        size: int = 32,
+    items: Sequence[Any],
+    *,
+    size: int = 32,
 ) -> str:
-        if not items:
-                return "<p>No energy-to-image reflow gallery samples are available.</p>"
+    if not items:
+        return "<p>No energy-to-image reflow gallery samples are available.</p>"
 
-        expected_count = size * size
-        panels = []
-        for item_index, item in enumerate(items, start=1):
-                source = item.source.detach().cpu().reshape(-1)
-                target = item.target.detach().cpu().reshape(-1)
-                teacher = item.teacher.detach().cpu().reshape(-1)
-                student = item.student.detach().cpu().reshape(-1)
-                error = item.error.detach().cpu().reshape(-1)
-                tensors = (source, target, teacher, student, error)
-                if any(tensor.numel() != expected_count for tensor in tensors):
-                        raise ValueError(f"gallery tensors must contain {expected_count} values")
-                source_max_abs = float(source.abs().max().clamp_min(1.0e-12))
-                error_max_abs = float(error.abs().max().clamp_min(1.0e-12))
-                source_panel = f"""
+    expected_count = size * size
+    panels = []
+    for item_index, item in enumerate(items, start=1):
+        source = item.source.detach().cpu().reshape(-1)
+        target = item.target.detach().cpu().reshape(-1)
+        teacher = item.teacher.detach().cpu().reshape(-1)
+        student = item.student.detach().cpu().reshape(-1)
+        error = item.error.detach().cpu().reshape(-1)
+        tensors = (source, target, teacher, student, error)
+        if any(tensor.numel() != expected_count for tensor in tensors):
+            raise ValueError(f"gallery tensors must contain {expected_count} values")
+        source_max_abs = float(source.abs().max().clamp_min(1.0e-12))
+        error_max_abs = float(error.abs().max().clamp_min(1.0e-12))
+        source_panel = f"""
                 <div style="display: grid; gap: 6px;">
                     <div style="font-weight: 600;">source energy</div>
                     <div style="display: grid; grid-template-columns: repeat({size}, 6px); grid-template-rows: repeat({size}, 6px); width: {size * 6}px; height: {size * 6}px; border: 1px solid #30333a; background: #000;">
@@ -412,7 +414,7 @@ def render_energy_to_image_reflow_gallery_html(
                     </div>
                 </div>
                 """
-                target_panel = f"""
+        target_panel = f"""
                 <div style="display: grid; gap: 6px;">
                     <div style="font-weight: 600;">image sample</div>
                     <div style="display: grid; grid-template-columns: repeat({size}, 6px); grid-template-rows: repeat({size}, 6px); width: {size * 6}px; height: {size * 6}px; border: 1px solid #30333a; background: #000;">
@@ -420,7 +422,7 @@ def render_energy_to_image_reflow_gallery_html(
                     </div>
                 </div>
                 """
-                teacher_panel = f"""
+        teacher_panel = f"""
                 <div style="display: grid; gap: 6px;">
                     <div style="font-weight: 600;">teacher</div>
                     <div style="display: grid; grid-template-columns: repeat({size}, 6px); grid-template-rows: repeat({size}, 6px); width: {size * 6}px; height: {size * 6}px; border: 1px solid #30333a; background: #000;">
@@ -428,7 +430,7 @@ def render_energy_to_image_reflow_gallery_html(
                     </div>
                 </div>
                 """
-                student_panel = f"""
+        student_panel = f"""
                 <div style="display: grid; gap: 6px;">
                     <div style="font-weight: 600;">student</div>
                     <div style="display: grid; grid-template-columns: repeat({size}, 6px); grid-template-rows: repeat({size}, 6px); width: {size * 6}px; height: {size * 6}px; border: 1px solid #30333a; background: #000;">
@@ -436,7 +438,7 @@ def render_energy_to_image_reflow_gallery_html(
                     </div>
                 </div>
                 """
-                error_panel = f"""
+        error_panel = f"""
                 <div style="display: grid; gap: 6px;">
                     <div style="font-weight: 600;">student - teacher</div>
                     <div style="display: grid; grid-template-columns: repeat({size}, 6px); grid-template-rows: repeat({size}, 6px); width: {size * 6}px; height: {size * 6}px; border: 1px solid #30333a; background: #000;">
@@ -444,16 +446,16 @@ def render_energy_to_image_reflow_gallery_html(
                     </div>
                 </div>
                 """
-                panels.append(
-                        f"""
+        panels.append(
+            f"""
                         <div style="display: grid; gap: 10px;">
                             <div style="font-weight: 700;">sample {item_index}</div>
                             <div style="display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-start;">{source_panel}{target_panel}{teacher_panel}{student_panel}{error_panel}</div>
                         </div>
                         """
-                )
+        )
 
-        return f"""
+    return f"""
         <div style="display: grid; gap: 18px; font: 13px/1.4 system-ui, sans-serif; color: #d7dae0;">
             {"".join(panels)}
             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
@@ -465,39 +467,39 @@ def render_energy_to_image_reflow_gallery_html(
 
 
 def render_image_autoencoder_gallery_html(
-        items: Sequence[Any],
-        *,
-        size: int = 32,
+    items: Sequence[Any],
+    *,
+    size: int = 32,
 ) -> str:
-        if not items:
-                return "<p>No image autoencoder gallery samples are available.</p>"
+    if not items:
+        return "<p>No image autoencoder gallery samples are available.</p>"
 
-        expected_count = size * size
-        panels = []
-        for item_index, item in enumerate(items, start=1):
-                image = item.image.detach().cpu().reshape(-1)
-                reconstructed = item.reconstructed_image.detach().cpu().reshape(-1)
-                image_error = item.image_error.detach().cpu().reshape(-1)
-                encoded_energy = item.encoded_energy.detach().cpu().reshape(-1)
-                decoded_energy = item.decoded_energy.detach().cpu().reshape(-1)
-                energy_error = item.energy_error.detach().cpu().reshape(-1)
-                tensors = (
-                        image,
-                        reconstructed,
-                        image_error,
-                        encoded_energy,
-                        decoded_energy,
-                        energy_error,
-                )
-                if any(tensor.numel() != expected_count for tensor in tensors):
-                        raise ValueError(f"gallery tensors must contain {expected_count} values")
-                image_error_max_abs = float(image_error.abs().max().clamp_min(1.0e-12))
-                energy_max_abs = max(
-                        float(encoded_energy.abs().max().clamp_min(1.0e-12)),
-                        float(decoded_energy.abs().max().clamp_min(1.0e-12)),
-                )
-                energy_error_max_abs = float(energy_error.abs().max().clamp_min(1.0e-12))
-                image_panel = f"""
+    expected_count = size * size
+    panels = []
+    for item_index, item in enumerate(items, start=1):
+        image = item.image.detach().cpu().reshape(-1)
+        reconstructed = item.reconstructed_image.detach().cpu().reshape(-1)
+        image_error = item.image_error.detach().cpu().reshape(-1)
+        encoded_energy = item.encoded_energy.detach().cpu().reshape(-1)
+        decoded_energy = item.decoded_energy.detach().cpu().reshape(-1)
+        energy_error = item.energy_error.detach().cpu().reshape(-1)
+        tensors = (
+            image,
+            reconstructed,
+            image_error,
+            encoded_energy,
+            decoded_energy,
+            energy_error,
+        )
+        if any(tensor.numel() != expected_count for tensor in tensors):
+            raise ValueError(f"gallery tensors must contain {expected_count} values")
+        image_error_max_abs = float(image_error.abs().max().clamp_min(1.0e-12))
+        energy_max_abs = max(
+            float(encoded_energy.abs().max().clamp_min(1.0e-12)),
+            float(decoded_energy.abs().max().clamp_min(1.0e-12)),
+        )
+        energy_error_max_abs = float(energy_error.abs().max().clamp_min(1.0e-12))
+        image_panel = f"""
                 <div style="display: grid; gap: 6px;">
                     <div style="font-weight: 600;">image</div>
                     <div style="display: grid; grid-template-columns: repeat({size}, 6px); grid-template-rows: repeat({size}, 6px); width: {size * 6}px; height: {size * 6}px; border: 1px solid #30333a; background: #000;">
@@ -505,7 +507,7 @@ def render_image_autoencoder_gallery_html(
                     </div>
                 </div>
                 """
-                reconstructed_panel = f"""
+        reconstructed_panel = f"""
                 <div style="display: grid; gap: 6px;">
                     <div style="font-weight: 600;">reconstruction</div>
                     <div style="display: grid; grid-template-columns: repeat({size}, 6px); grid-template-rows: repeat({size}, 6px); width: {size * 6}px; height: {size * 6}px; border: 1px solid #30333a; background: #000;">
@@ -513,7 +515,7 @@ def render_image_autoencoder_gallery_html(
                     </div>
                 </div>
                 """
-                image_error_panel = f"""
+        image_error_panel = f"""
                 <div style="display: grid; gap: 6px;">
                     <div style="font-weight: 600;">image error</div>
                     <div style="display: grid; grid-template-columns: repeat({size}, 6px); grid-template-rows: repeat({size}, 6px); width: {size * 6}px; height: {size * 6}px; border: 1px solid #30333a; background: #000;">
@@ -521,7 +523,7 @@ def render_image_autoencoder_gallery_html(
                     </div>
                 </div>
                 """
-                encoded_panel = f"""
+        encoded_panel = f"""
                 <div style="display: grid; gap: 6px;">
                     <div style="font-weight: 600;">encoded energy</div>
                     <div style="display: grid; grid-template-columns: repeat({size}, 6px); grid-template-rows: repeat({size}, 6px); width: {size * 6}px; height: {size * 6}px; border: 1px solid #30333a; background: #000;">
@@ -529,7 +531,7 @@ def render_image_autoencoder_gallery_html(
                     </div>
                 </div>
                 """
-                decoded_panel = f"""
+        decoded_panel = f"""
                 <div style="display: grid; gap: 6px;">
                     <div style="font-weight: 600;">decoded energy</div>
                     <div style="display: grid; grid-template-columns: repeat({size}, 6px); grid-template-rows: repeat({size}, 6px); width: {size * 6}px; height: {size * 6}px; border: 1px solid #30333a; background: #000;">
@@ -537,7 +539,7 @@ def render_image_autoencoder_gallery_html(
                     </div>
                 </div>
                 """
-                energy_error_panel = f"""
+        energy_error_panel = f"""
                 <div style="display: grid; gap: 6px;">
                     <div style="font-weight: 600;">energy error</div>
                     <div style="display: grid; grid-template-columns: repeat({size}, 6px); grid-template-rows: repeat({size}, 6px); width: {size * 6}px; height: {size * 6}px; border: 1px solid #30333a; background: #000;">
@@ -545,16 +547,16 @@ def render_image_autoencoder_gallery_html(
                     </div>
                 </div>
                 """
-                panels.append(
-                        f"""
+        panels.append(
+            f"""
                         <div style="display: grid; gap: 10px;">
                             <div style="font-weight: 700;">sample {item_index}</div>
                             <div style="display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-start;">{image_panel}{reconstructed_panel}{image_error_panel}{encoded_panel}{decoded_panel}{energy_error_panel}</div>
                         </div>
                         """
-                )
+        )
 
-        return f"""
+    return f"""
         <div style="display: grid; gap: 18px; font: 13px/1.4 system-ui, sans-serif; color: #d7dae0;">
             {"".join(panels)}
             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">

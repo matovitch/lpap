@@ -56,7 +56,7 @@ class LPAPDecoderTrainingTest(unittest.TestCase):
                         "layer_count": 1,
                         "head_count": 4,
                         "permutation_seed": 123,
-                    }
+                    },
                 },
             )
             config = LPAPDecoderTrainingConfig(

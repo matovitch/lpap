@@ -39,7 +39,9 @@ class EnergyToImageReflowTrainingTest(unittest.TestCase):
             data_dir.mkdir(parents=True)
             torch.save(
                 {
-                    "images": torch.arange(8 * 1 * 4 * 4, dtype=torch.uint8).reshape(8, 1, 4, 4),
+                    "images": torch.arange(8 * 1 * 4 * 4, dtype=torch.uint8).reshape(
+                        8, 1, 4, 4
+                    ),
                     "names": [str(index) for index in range(8)],
                 },
                 data_dir / "images.pt",

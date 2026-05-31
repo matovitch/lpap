@@ -327,7 +327,9 @@ def default_energy_to_image_training_config() -> EnergyToImageTrainingConfig:
     )
 
 
-def default_energy_to_image_reflow_training_config() -> EnergyToImageReflowTrainingConfig:
+def default_energy_to_image_reflow_training_config() -> (
+    EnergyToImageReflowTrainingConfig
+):
     return EnergyToImageReflowTrainingConfig(
         image=ImageToEnergyImageConfig(
             dataset_path="data/images_32x32_gray.pt",
@@ -656,13 +658,17 @@ def create_training_session(
         )
     if model_kind == "image_to_energy":
         if not isinstance(config, ImageToEnergyTrainingConfig):
-            raise TypeError("image_to_energy training requires ImageToEnergyTrainingConfig")
+            raise TypeError(
+                "image_to_energy training requires ImageToEnergyTrainingConfig"
+            )
         return create_image_to_energy_training_session(
             project_root=project_root, config=config
         )
     if model_kind == "energy_to_image":
         if not isinstance(config, EnergyToImageTrainingConfig):
-            raise TypeError("energy_to_image training requires EnergyToImageTrainingConfig")
+            raise TypeError(
+                "energy_to_image training requires EnergyToImageTrainingConfig"
+            )
         return create_energy_to_image_training_session(
             project_root=project_root, config=config
         )
@@ -694,11 +700,15 @@ def iter_training(model_kind: TrainingModelKind, session: TrainingSession):
         return iter_lpap_decoder_training(session)
     if model_kind == "image_to_energy":
         if not isinstance(session, ImageToEnergyTrainingSession):
-            raise TypeError("image_to_energy training requires ImageToEnergyTrainingSession")
+            raise TypeError(
+                "image_to_energy training requires ImageToEnergyTrainingSession"
+            )
         return iter_image_to_energy_training(session)
     if model_kind == "energy_to_image":
         if not isinstance(session, EnergyToImageTrainingSession):
-            raise TypeError("energy_to_image training requires EnergyToImageTrainingSession")
+            raise TypeError(
+                "energy_to_image training requires EnergyToImageTrainingSession"
+            )
         return iter_energy_to_image_training(session)
     if model_kind == "energy_to_image_reflow":
         if not isinstance(session, EnergyToImageReflowTrainingSession):

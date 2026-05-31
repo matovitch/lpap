@@ -27,8 +27,12 @@ class TrainingNotebookConfigTest(unittest.TestCase):
 
         surrogate = training_config_from_project_file(project_root, "surrogate")
         decoder = training_config_from_project_file(project_root, "decoder")
-        image_to_energy = training_config_from_project_file(project_root, "image_to_energy")
-        energy_to_image = training_config_from_project_file(project_root, "energy_to_image")
+        image_to_energy = training_config_from_project_file(
+            project_root, "image_to_energy"
+        )
+        energy_to_image = training_config_from_project_file(
+            project_root, "energy_to_image"
+        )
         energy_to_image_reflow = training_config_from_project_file(
             project_root, "energy_to_image_reflow"
         )
@@ -45,11 +49,15 @@ class TrainingNotebookConfigTest(unittest.TestCase):
         self.assertEqual(decoder.regularization.source_ce_weight, 0.1)
         self.assertIsInstance(image_to_energy, ImageToEnergyTrainingConfig)
         self.assertEqual(image_to_energy.run.run_id, "image_to_energy")
-        self.assertEqual(image_to_energy.image.dataset_path, "data/images_32x32_gray.pt")
+        self.assertEqual(
+            image_to_energy.image.dataset_path, "data/images_32x32_gray.pt"
+        )
         self.assertEqual(image_to_energy.time.distribution, "beta")
         self.assertIsInstance(energy_to_image, EnergyToImageTrainingConfig)
         self.assertEqual(energy_to_image.run.run_id, "energy_to_image")
-        self.assertEqual(energy_to_image.source.decoder_checkpoint_name, "decoder_synthetic.pt")
+        self.assertEqual(
+            energy_to_image.source.decoder_checkpoint_name, "decoder_synthetic.pt"
+        )
         self.assertIsInstance(energy_to_image_reflow, EnergyToImageReflowTrainingConfig)
         self.assertEqual(energy_to_image_reflow.run.run_id, "energy_to_image_reflow")
         self.assertEqual(energy_to_image_reflow.reflow.student_steps, 8)
@@ -127,7 +135,9 @@ class TrainingNotebookConfigTest(unittest.TestCase):
     def test_training_config_path_uses_model_kind_filename(self) -> None:
         path = training_config_path("/tmp/project", "energy_to_image")
 
-        self.assertEqual(path, Path("/tmp/project/configs/training/energy_to_image.toml"))
+        self.assertEqual(
+            path, Path("/tmp/project/configs/training/energy_to_image.toml")
+        )
 
     def test_serializes_training_config_to_toml(self) -> None:
         project_root = Path(__file__).resolve().parents[1]

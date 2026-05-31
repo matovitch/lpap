@@ -53,7 +53,9 @@ class ImageToEnergyTrainingTest(unittest.TestCase):
             dataset_path.parent.mkdir(parents=True)
             torch.save(
                 {
-                    "images": torch.arange(8 * 1 * 4 * 4, dtype=torch.uint8).reshape(8, 1, 4, 4),
+                    "images": torch.arange(8 * 1 * 4 * 4, dtype=torch.uint8).reshape(
+                        8, 1, 4, 4
+                    ),
                     "names": [str(index) for index in range(8)],
                 },
                 dataset_path,
@@ -100,7 +102,9 @@ class ImageToEnergyTrainingTest(unittest.TestCase):
             self.assertTrue(session.log_path.exists())
             self.assertIn("loss", results[-1].metrics)
             self.assertIn("validation_loss", results[-1].metrics)
-            self.assertIn("validation_generated_energy_rms_steps_1", results[-1].metrics)
+            self.assertIn(
+                "validation_generated_energy_rms_steps_1", results[-1].metrics
+            )
 
 
 if __name__ == "__main__":

@@ -30,7 +30,8 @@ class SinusoidalTimeEmbedding(nn.Module):
         self.dim = dim
 
     def forward(
-        self, time: Float[torch.Tensor, "batch"]  # noqa: F722, F821
+        self,
+        time: Float[torch.Tensor, "batch"],  # noqa: F722, F821
     ) -> Float[torch.Tensor, "batch dim"]:  # noqa: F722
         if time.ndim != 1:
             raise ValueError("time must have shape batch")
@@ -44,7 +45,9 @@ class SinusoidalTimeEmbedding(nn.Module):
         embedding = time[:, None] * frequencies[None, :]
         embedding = torch.cat((embedding.sin(), embedding.cos()), dim=-1)
         if embedding.shape[-1] < self.dim:
-            embedding = torch.cat((embedding, torch.zeros_like(embedding[:, :1])), dim=-1)
+            embedding = torch.cat(
+                (embedding, torch.zeros_like(embedding[:, :1])), dim=-1
+            )
         return embedding
 
 

@@ -351,7 +351,9 @@ def _surrogate_model_config_from_checkpoint(
     return {name: int(model_config[name]) for name in required}, payload
 
 
-def _surrogate_harmonics_from_checkpoint(payload: dict[str, object]) -> SyntheticHarmonicConfig:
+def _surrogate_harmonics_from_checkpoint(
+    payload: dict[str, object],
+) -> SyntheticHarmonicConfig:
     training_state = payload.get("training_state", {})
     if not isinstance(training_state, dict):
         raise ValueError("surrogate checkpoint training_state must be a dictionary")
@@ -364,7 +366,9 @@ def _surrogate_harmonics_from_checkpoint(payload: dict[str, object]) -> Syntheti
         )
     data_config = run_config.get("data")
     if not isinstance(data_config, dict):
-        raise ValueError("surrogate checkpoint is missing training_state.run_config.data")
+        raise ValueError(
+            "surrogate checkpoint is missing training_state.run_config.data"
+        )
     harmonics_config = data_config.get("harmonics")
     if not isinstance(harmonics_config, dict):
         raise ValueError(
@@ -454,12 +458,14 @@ def create_lpap_decoder_training_session(
         seed=config.run.permutation_seed,
         device=target_device,
     )
-    surrogate, surrogate_loaded, surrogate_model_config, harmonics = _create_surrogate_teacher(
-        path=surrogate_checkpoint_path,
-        load_best=config.teacher.load_best,
-        require_checkpoint=config.teacher.require_checkpoint,
-        config=config,
-        device=target_device,
+    surrogate, surrogate_loaded, surrogate_model_config, harmonics = (
+        _create_surrogate_teacher(
+            path=surrogate_checkpoint_path,
+            load_best=config.teacher.load_best,
+            require_checkpoint=config.teacher.require_checkpoint,
+            config=config,
+            device=target_device,
+        )
     )
     surrogate.eval()
     for parameter in surrogate.parameters():

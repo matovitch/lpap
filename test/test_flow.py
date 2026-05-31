@@ -4,8 +4,15 @@ import unittest
 
 import torch
 
-from lpap.flow import DilatedConvFlow1d, flow_matching_loss, integrate_euler_midpoint_time
-from lpap.image_to_energy_training import ImageToEnergyTimeConfig, sample_image_to_energy_time
+from lpap.flow import (
+    DilatedConvFlow1d,
+    flow_matching_loss,
+    integrate_euler_midpoint_time,
+)
+from lpap.image_to_energy_training import (
+    ImageToEnergyTimeConfig,
+    sample_image_to_energy_time,
+)
 
 
 class FlowTest(unittest.TestCase):
@@ -24,7 +31,9 @@ class FlowTest(unittest.TestCase):
         output.square().mean().backward()
 
         self.assertEqual(output.shape, values.shape)
-        self.assertTrue(any(parameter.grad is not None for parameter in model.parameters()))
+        self.assertTrue(
+            any(parameter.grad is not None for parameter in model.parameters())
+        )
 
     def test_flow_matching_loss_is_scalar_and_finite(self) -> None:
         model = DilatedConvFlow1d(
@@ -75,7 +84,9 @@ class FlowTest(unittest.TestCase):
     def test_midpoint_integration_advances_constant_field(self) -> None:
         start = torch.zeros(2, 1, 4)
 
-        result = integrate_euler_midpoint_time(lambda values, time: torch.ones_like(values), start, 4)
+        result = integrate_euler_midpoint_time(
+            lambda values, time: torch.ones_like(values), start, 4
+        )
 
         torch.testing.assert_close(result, torch.ones_like(start))
 
