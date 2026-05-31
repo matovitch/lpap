@@ -4,20 +4,28 @@ import torch
 from torch import nn
 
 
-def apply_rope(tensor: torch.Tensor) -> torch.Tensor:
+def apply_rope(
+    tensor: torch.Tensor,
+    *,
+    cosines: torch.Tensor | None = None,
+    sines: torch.Tensor | None = None,
+) -> torch.Tensor:
     head_dim = tensor.shape[-1]
     rotary_dim = head_dim - (head_dim % 2)
     if rotary_dim == 0:
         return tensor
 
-    positions = torch.arange(tensor.shape[-2], device=tensor.device, dtype=tensor.dtype)
-    frequencies = torch.arange(
-        0, rotary_dim, 2, device=tensor.device, dtype=tensor.dtype
-    )
-    inv_frequencies = 1.0 / (10000 ** (frequencies / rotary_dim))
-    angles = positions[:, None] * inv_frequencies[None, :]
-    cosines = angles.cos()[None, None, :, :]
-    sines = angles.sin()[None, None, :, :]
+    if cosines is None or sines is None:
+        positions = torch.arange(
+            tensor.shape[-2], device=tensor.device, dtype=tensor.dtype
+        )
+        frequencies = torch.arange(
+            0, rotary_dim, 2, device=tensor.device, dtype=tensor.dtype
+        )
+        inv_frequencies = 1.0 / (10000 ** (frequencies / rotary_dim))
+        angles = positions[:, None] * inv_frequencies[None, :]
+        cosines = angles.cos()[None, None, :, :]
+        sines = angles.sin()[None, None, :, :]
 
     rotary = tensor[..., :rotary_dim]
     pass_through = tensor[..., rotary_dim:]
@@ -40,6 +48,28 @@ class RotarySelfAttention(nn.Module):
         self.head_dim = hidden_dim // head_count
         self.qkv = nn.Linear(hidden_dim, hidden_dim * 3)
         self.output = nn.Linear(hidden_dim, hidden_dim)
+        self.register_buffer("_rope_cosines", torch.empty(0), persistent=False)
+        self.register_buffer("_rope_sines", torch.empty(0), persistent=False)
+
+    def _rope_tables(
+        self, *, token_count: int, dtype: torch.dtype, device: torch.device
+    ) -> tuple[torch.Tensor | None, torch.Tensor | None]:
+        rotary_dim = self.head_dim - (self.head_dim % 2)
+        if rotary_dim == 0:
+            return None, None
+        table_shape = (1, 1, token_count, rotary_dim // 2)
+        if (
+            self._rope_cosines.shape != table_shape
+            or self._rope_cosines.device != device
+            or self._rope_cosines.dtype != dtype
+        ):
+            positions = torch.arange(token_count, device=device, dtype=dtype)
+            frequencies = torch.arange(0, rotary_dim, 2, device=device, dtype=dtype)
+            inv_frequencies = 1.0 / (10000 ** (frequencies / rotary_dim))
+            angles = positions[:, None] * inv_frequencies[None, :]
+            self._rope_cosines = angles.cos()[None, None, :, :]
+            self._rope_sines = angles.sin()[None, None, :, :]
+        return self._rope_cosines, self._rope_sines
 
     def forward(
         self, tokens: torch.Tensor, *, attention_mask: torch.Tensor | None = None
@@ -55,13 +85,18 @@ class RotarySelfAttention(nn.Module):
         value = value.reshape(
             batch_count, token_count, self.head_count, self.head_dim
         ).transpose(1, 2)
-        query = apply_rope(query)
-        key = apply_rope(key)
+        cosines, sines = self._rope_tables(
+            token_count=token_count, dtype=tokens.dtype, device=tokens.device
+        )
+        query = apply_rope(query, cosines=cosines, sines=sines)
+        key = apply_rope(key, cosines=cosines, sines=sines)
 
         scores = query @ key.transpose(-2, -1) / (self.head_dim**0.5)
         if attention_mask is not None:
+            if attention_mask.device != tokens.device:
+                attention_mask = attention_mask.to(device=tokens.device)
             scores = scores.masked_fill(
-                ~attention_mask[None, None, :, :].to(device=tokens.device),
+                ~attention_mask[None, None, :, :],
                 torch.finfo(scores.dtype).min,
             )
         attention = torch.softmax(scores, dim=-1)

@@ -42,8 +42,8 @@ def lpap_surrogate_targets(
     permutation: Int[torch.Tensor, "n"] | None = None,  # noqa: F722, F821
 ) -> LPAPSurrogateTargets:
     _validate_token_values(tokens)
-    if k_max < 0:
-        raise ValueError("k_max must be non-negative")
+    if k_max <= 0:
+        raise ValueError("k_max must be positive")
 
     batch_count, bucket_count, probe_count = tokens.shape
     work = tokens.clone()
@@ -65,12 +65,12 @@ def lpap_surrogate_targets(
         (batch_count, bucket_count), device=tokens.device, dtype=torch.long
     )
     batch_indices = torch.arange(batch_count, device=tokens.device)[:, None]
-    bucket_indices_grid = torch.arange(bucket_count, device=tokens.device)[None, :]
+    batch_grid = batch_indices.expand(batch_count, bucket_count)
+    bucket_arange = torch.arange(bucket_count, device=tokens.device)
+    bucket_indices_grid = bucket_arange[None, :]
 
     for roll_count in range(k_max):
-        source_lanes = (
-            torch.arange(bucket_count, device=tokens.device) - roll_count
-        ) % bucket_count
+        source_lanes = (bucket_arange - roll_count) % bucket_count
         lane_values = work[:, source_lanes, :]
         lane_dibs_diff = dibs_diff[:, source_lanes, :]
         lane_indices = work_indices[:, source_lanes, :]
@@ -91,7 +91,6 @@ def lpap_surrogate_targets(
         old_dibs = dibs.clone()
         old_bucket_indices = bucket_indices.clone()
         source_lane_grid = source_lanes[None, :].expand(batch_count, bucket_count)
-        batch_grid = batch_indices.expand(batch_count, bucket_count)
 
         work[
             batch_grid[update], source_lane_grid[update], candidate_positions[update]
@@ -163,9 +162,12 @@ class LPAPSurrogateTransformer(nn.Module):
             raise ValueError("value_count must be positive")
         if probe_count <= 0:
             raise ValueError("probe_count must be positive")
+        if value_count % probe_count != 0:
+            raise ValueError("value_count must be divisible by probe_count")
         self.value_count = value_count
         self.probe_count = probe_count
         self.k_max = k_max
+        self.bucket_count = value_count // probe_count
         self.input = nn.Linear(probe_count, hidden_dim)
         self.blocks = nn.ModuleList(
             [
@@ -179,6 +181,13 @@ class LPAPSurrogateTransformer(nn.Module):
         )
         self.output_norm = nn.LayerNorm(hidden_dim)
         self.output = nn.Linear(hidden_dim, value_count)
+        self.register_buffer(
+            "attention_mask",
+            circular_previous_attention_mask(
+                bucket_count=self.bucket_count, k_max=k_max
+            ),
+            persistent=False,
+        )
 
     def forward(
         self,
@@ -187,13 +196,12 @@ class LPAPSurrogateTransformer(nn.Module):
         _validate_token_values(tokens)
         if tokens.shape[-1] != self.probe_count:
             raise ValueError("tokens probe dimension must match model probe_count")
+        if tokens.shape[1] != self.bucket_count:
+            raise ValueError("tokens bucket dimension must match model bucket_count")
 
         hidden = self.input(tokens)
-        attention_mask = circular_previous_attention_mask(
-            bucket_count=tokens.shape[1], k_max=self.k_max, device=tokens.device
-        )
         for block in self.blocks:
-            hidden = block(hidden, attention_mask=attention_mask)
+            hidden = block(hidden, attention_mask=self.attention_mask)
         return self.output(self.output_norm(hidden))
 
 
