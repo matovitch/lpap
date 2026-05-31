@@ -83,7 +83,9 @@ class TrainingRunTest(unittest.TestCase):
             self.assertTrue(second.should_display)
             payload = load_training_checkpoint(checkpoint_path)
             self.assertEqual(payload["best_metric"], 2.0)
-            self.assertEqual(payload["training_state"]["run_config"], {"kind": "unit-test"})
+            self.assertEqual(
+                payload["training_state"]["run_config"], {"kind": "unit-test"}
+            )
             self.assertTrue(
                 torch.equal(payload["best_model_state"]["weight"], best_weight)
             )

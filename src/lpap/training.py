@@ -9,6 +9,7 @@ from torch import nn
 
 from lpap.checkpoints import (
     CheckpointMode,
+    state_dict_to_cpu,
     load_training_checkpoint,
     metric_improved,
     save_training_checkpoint,
@@ -20,10 +21,6 @@ from lpap.training_log import (
     make_run_instance_id,
     prune_run_history,
 )
-
-
-def _state_dict_to_cpu(state_dict: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-    return {key: value.detach().cpu().clone() for key, value in state_dict.items()}
 
 
 @dataclass(frozen=True)
@@ -191,10 +188,6 @@ class TrainingRun:
             previous_best_metric,
             mode=self.config.mode,
         )
-        if improved:
-            self.best_metric = current_metric
-            self.best_model_state = _state_dict_to_cpu(self.model.state_dict())
-
         checkpointed = (
             (improved and self.config.checkpoint_on_improvement)
             or (
@@ -203,6 +196,10 @@ class TrainingRun:
             )
             or (self.config.checkpoint_at_end and step == self.config.total_steps)
         )
+        if improved:
+            self.best_metric = current_metric
+            if not checkpointed:
+                self.best_model_state = state_dict_to_cpu(self.model.state_dict())
         if checkpointed:
             checkpoint_info = save_training_checkpoint(
                 self.config.checkpoint_path,
@@ -230,9 +227,8 @@ class TrainingRun:
                     **({} if training_state is None else dict(training_state)),
                 },
             )
-            payload = load_training_checkpoint(self.config.checkpoint_path)
-            self.best_metric = payload["best_metric"]
-            self.best_model_state = payload["best_model_state"]
+            self.best_metric = checkpoint_info.best_metric
+            self.best_model_state = checkpoint_info.best_model_state
             improved = checkpoint_info.improved
 
         logged = step % self.config.log_every == 0 or step == self.config.total_steps
