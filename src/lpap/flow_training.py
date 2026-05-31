@@ -263,7 +263,9 @@ def load_flow_checkpoint_state(
         if require_checkpoint:
             raise FileNotFoundError(f"flow checkpoint not found: {checkpoint_path}")
         return None
-    payload = load_training_checkpoint(checkpoint_path, map_location=torch.device(device))
+    payload = load_training_checkpoint(
+        checkpoint_path, map_location=torch.device(device)
+    )
     state = payload.get("best_model_state") if load_best else payload.get("model_state")
     if state is None:
         state = payload["model_state"]
@@ -302,10 +304,21 @@ def sample_flow_time(
     config.validate()
     target_device = torch.device("cpu") if device is None else torch.device(device)
     if config.distribution == "uniform":
-        base = torch.rand(batch_size, generator=generator, device=target_device, dtype=dtype)
+        base = torch.rand(
+            batch_size, generator=generator, device=target_device, dtype=dtype
+        )
     else:
-        alpha = torch.full((batch_size,), config.beta_alpha, device=target_device, dtype=dtype)
-        beta = torch.full((batch_size,), config.beta_beta, device=target_device, dtype=dtype)
+        alpha = torch.full(
+            (batch_size,), config.beta_alpha, device=target_device, dtype=dtype
+        )
+        beta = torch.full(
+            (batch_size,), config.beta_beta, device=target_device, dtype=dtype
+        )
+        # Beta(a, b) is sampled as the ratio of two Gamma draws so the result is
+        # reproducible from `generator`. `torch._standard_gamma` is intentionally
+        # used here because the public `torch.distributions` / `torch.Tensor.gamma_`
+        # samplers do not accept an explicit Generator, which would break the
+        # deterministic resume guarantees the training stack relies on.
         gamma_alpha = torch._standard_gamma(alpha, generator=generator)
         gamma_beta = torch._standard_gamma(beta, generator=generator)
         base = gamma_alpha / (gamma_alpha + gamma_beta).clamp_min(
