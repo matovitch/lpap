@@ -59,16 +59,13 @@ class LpapTorchTest(unittest.TestCase):
         )
 
     def test_rejects_invalid_shapes(self) -> None:
-        buckets, dibs, remaining = lpap_torch(torch.ones(1, 4), bucket_count=2, k_max=0)
-        torch.testing.assert_close(buckets, torch.zeros(1, 2))
-        torch.testing.assert_close(dibs, torch.zeros(1, 2, dtype=torch.int64))
-        torch.testing.assert_close(remaining, torch.ones(1, 4))
-
         with self.assertRaisesRegex(ValueError, "must be positive"):
             lpap_torch(torch.ones(1, 4), bucket_count=0, k_max=1)
         with self.assertRaisesRegex(ValueError, "must be divisible"):
             lpap_torch(torch.ones(1, 5), bucket_count=2, k_max=1)
-        with self.assertRaisesRegex(ValueError, "must be non-negative"):
+        with self.assertRaisesRegex(ValueError, "must be positive"):
+            lpap_torch(torch.ones(1, 4), bucket_count=2, k_max=0)
+        with self.assertRaisesRegex(ValueError, "must be positive"):
             lpap_torch(torch.ones(1, 4), bucket_count=2, k_max=-1)
 
 
@@ -88,6 +85,34 @@ class LpapTritonTest(unittest.TestCase):
 
         for actual_tensor, expected_tensor in zip(actual, expected, strict=True):
             torch.testing.assert_close(actual_tensor.cpu(), expected_tensor)
+
+    @unittest.skipUnless(torch.cuda.is_available(), "Triton LPAP requires CUDA")
+    def test_triton_matches_torch_for_random_shapes(self) -> None:
+        generator = torch.Generator().manual_seed(123)
+        cases = (
+            (1, 6, 3, 1),
+            (2, 8, 4, 2),
+            (3, 16, 4, 3),
+        )
+
+        for batch_count, value_count, bucket_count, k_max in cases:
+            with self.subTest(
+                batch_count=batch_count,
+                value_count=value_count,
+                bucket_count=bucket_count,
+                k_max=k_max,
+            ):
+                values = torch.randn(batch_count, value_count, generator=generator)
+
+                expected = lpap_torch(values, bucket_count=bucket_count, k_max=k_max)
+                actual = lpap_triton(
+                    values.cuda(), bucket_count=bucket_count, k_max=k_max
+                )
+
+                for actual_tensor, expected_tensor in zip(
+                    actual, expected, strict=True
+                ):
+                    torch.testing.assert_close(actual_tensor.cpu(), expected_tensor)
 
 
 if __name__ == "__main__":

@@ -11,8 +11,8 @@ def _validate_lpap_args(values: torch.Tensor, bucket_count: int, k_max: int) -> 
         raise ValueError("values must have at least one dimension")
     if bucket_count <= 0:
         raise ValueError("bucket_count must be positive")
-    if k_max < 0:
-        raise ValueError("k_max must be non-negative")
+    if k_max <= 0:
+        raise ValueError("k_max must be positive")
     if values.shape[-1] % bucket_count != 0:
         raise ValueError(
             "the last dimension of values must be divisible by bucket_count"

@@ -1,3 +1,10 @@
+"""
+Triton compiles one LPAP kernel per constexpr shape tuple: value_count,
+bucket_count, probe_count, k_max, and block_probe_count. The training configs keep
+these fixed, which is the intended fast path. Shape or k_max sweeps will pay a
+one-time JIT compile for each new combination before steady-state execution.
+"""
+
 from __future__ import annotations
 
 import math
@@ -88,8 +95,8 @@ def lpap_triton(
         raise ValueError("values must have at least one dimension")
     if bucket_count <= 0:
         raise ValueError("bucket_count must be positive")
-    if k_max < 0:
-        raise ValueError("k_max must be non-negative")
+    if k_max <= 0:
+        raise ValueError("k_max must be positive")
     if values.shape[-1] % bucket_count != 0:
         raise ValueError(
             "the last dimension of values must be divisible by bucket_count"

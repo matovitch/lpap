@@ -86,6 +86,13 @@ def main() -> int:
                 input_values, bucket_count=args.buckets, k_max=args.k_max
             )
 
+        torch_buckets, torch_dibs, torch_displacements = torch_cuda_op(cuda_values)
+        triton_buckets, triton_dibs, triton_displacements = triton_op(cuda_values)
+        torch.testing.assert_close(triton_buckets, torch_buckets)
+        torch.testing.assert_close(triton_dibs, torch_dibs)
+        torch.testing.assert_close(triton_displacements, torch_displacements)
+        print("triton/cuda parity check passed")
+
         benchmark_cuda(
             "torch/cuda", torch_cuda_op, cuda_values, args.warmup, args.iters
         )
