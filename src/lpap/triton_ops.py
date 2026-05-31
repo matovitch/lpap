@@ -80,14 +80,14 @@ def _lpap_kernel(
 
 
 def lpap_triton(
-    values: Float[torch.Tensor, "batch n"],  # noqa: F722
+    values: Float[torch.Tensor, "batch n"],
     *,
     bucket_count: int,
     k_max: int,
 ) -> tuple[
-    Float[torch.Tensor, "batch buckets"],  # noqa: F722
-    Int[torch.Tensor, "batch buckets"],  # noqa: F722
-    Float[torch.Tensor, "batch n"],  # noqa: F722
+    Float[torch.Tensor, "batch buckets"],
+    Int[torch.Tensor, "batch buckets"],
+    Float[torch.Tensor, "batch n"],
 ]:
     if not values.is_cuda:
         return lpap_torch(values, bucket_count=bucket_count, k_max=k_max)

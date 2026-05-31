@@ -35,7 +35,7 @@ def _hilbert_index_to_xy(index: int, side: int) -> tuple[int, int]:
 
 def hilbert_permutation(
     side: int = 32, *, device: str | torch.device | None = None
-) -> Int[torch.Tensor, "n"]:  # noqa: F722, F821
+) -> Int[torch.Tensor, "n"]:
     _validate_side(side)
     target_device = torch.device("cpu") if device is None else torch.device(device)
     indices = [
@@ -47,21 +47,21 @@ def hilbert_permutation(
 
 
 def inverse_permutation(
-    perm: Int[torch.Tensor, "n"],  # noqa: F722, F821
-) -> Int[torch.Tensor, "n"]:  # noqa: F722, F821
+    perm: Int[torch.Tensor, "n"],
+) -> Int[torch.Tensor, "n"]:
     return invert_permutation_indices(perm)
 
 
 def inverse_hilbert_permutation(
     side: int = 32, *, device: str | torch.device | None = None
-) -> Int[torch.Tensor, "n"]:  # noqa: F722, F821
+) -> Int[torch.Tensor, "n"]:
     return inverse_permutation(hilbert_permutation(side=side, device=device))
 
 
 def hilbert_flatten_images(
-    images: Float[torch.Tensor, "batch 1 height width"],  # noqa: F722
+    images: Float[torch.Tensor, "batch 1 height width"],
     side: int = 32,
-) -> Float[torch.Tensor, "batch 1 n"]:  # noqa: F722
+) -> Float[torch.Tensor, "batch 1 n"]:
     _validate_side(side)
     if images.ndim != 4:
         raise ValueError("images must have shape batch x 1 x side x side")
@@ -72,9 +72,9 @@ def hilbert_flatten_images(
 
 
 def hilbert_unflatten_images(
-    sequence: Float[torch.Tensor, "batch 1 n"],  # noqa: F722
+    sequence: Float[torch.Tensor, "batch 1 n"],
     side: int = 32,
-) -> Float[torch.Tensor, "batch 1 height width"]:  # noqa: F722
+) -> Float[torch.Tensor, "batch 1 height width"]:
     _validate_side(side)
     if sequence.ndim != 3:
         raise ValueError("sequence must have shape batch x 1 x n")

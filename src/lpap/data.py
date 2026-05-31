@@ -10,11 +10,11 @@ from torch.utils.data import DataLoader, Dataset, IterableDataset, get_worker_in
 
 
 class SyntheticHarmonicBatch(TypedDict):
-    values: Float[torch.Tensor, "batch n"]  # noqa: F722
-    gains: Float[torch.Tensor, "batch harmonics"]  # noqa: F722
-    phases: Float[torch.Tensor, "batch harmonics"]  # noqa: F722
-    spikiness: Float[torch.Tensor, "batch harmonics"]  # noqa: F722
-    frequencies: Float[torch.Tensor, "harmonics"]  # noqa: F722, F821
+    values: Float[torch.Tensor, "batch n"]
+    gains: Float[torch.Tensor, "batch harmonics"]
+    phases: Float[torch.Tensor, "batch harmonics"]
+    spikiness: Float[torch.Tensor, "batch harmonics"]
+    frequencies: Float[torch.Tensor, "harmonics"]
 
 
 @dataclass(frozen=True)
@@ -54,7 +54,7 @@ class SyntheticHarmonicConfig:
         generator: torch.Generator | None = None,
         device: str | torch.device | None = None,
         return_parameters: bool = False,
-    ) -> Float[torch.Tensor, "batch n"] | SyntheticHarmonicBatch:  # noqa: F722
+    ) -> Float[torch.Tensor, "batch n"] | SyntheticHarmonicBatch:
         return sample_synthetic_harmonic_batch(
             batch_size=batch_size,
             n=n,
@@ -72,7 +72,7 @@ class SyntheticHarmonicConfig:
 class ImageTensorDataset(Dataset[tuple[torch.Tensor, str]]):
     def __init__(
         self,
-        images: UInt8[torch.Tensor, "batch channel height width"],  # noqa: F722
+        images: UInt8[torch.Tensor, "batch channel height width"],
         names: list[str] | tuple[str, ...] | None = None,
         *,
         normalize: bool = False,
@@ -167,7 +167,7 @@ def sample_synthetic_harmonic_batch(
     device: str | torch.device | None = None,
     dtype: torch.dtype = torch.float32,
     return_parameters: bool = False,
-) -> Float[torch.Tensor, "batch n"] | SyntheticHarmonicBatch:  # noqa: F722
+) -> Float[torch.Tensor, "batch n"] | SyntheticHarmonicBatch:
     if batch_size <= 0:
         raise ValueError("batch_size must be positive")
     if n <= 0:
@@ -232,7 +232,7 @@ def sample_synthetic_harmonic_batch(
 
 
 class SyntheticHarmonicDataset(
-    IterableDataset[Float[torch.Tensor, "batch n"] | SyntheticHarmonicBatch]  # noqa: F722
+    IterableDataset[Float[torch.Tensor, "batch n"] | SyntheticHarmonicBatch]
 ):
     def __init__(
         self,
@@ -315,7 +315,7 @@ def synthetic_harmonic_dataloader(
     return_parameters: bool = False,
     num_workers: int = 0,
     persistent_workers: bool = False,
-) -> DataLoader[Float[torch.Tensor, "batch n"] | SyntheticHarmonicBatch]:  # noqa: F722
+) -> DataLoader[Float[torch.Tensor, "batch n"] | SyntheticHarmonicBatch]:
     dataset = SyntheticHarmonicDataset(
         n=n,
         harmonic_count=harmonic_count,

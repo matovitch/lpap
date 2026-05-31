@@ -10,7 +10,7 @@ def make_grouped_permutation_indices(
     bucket_count: int,
     seed: int,
     device: str | torch.device | None = None,
-) -> Int[torch.Tensor, "n"]:  # noqa: F722, F821
+) -> Int[torch.Tensor, "n"]:
     if value_count <= 0:
         raise ValueError("value_count must be positive")
     if bucket_count <= 0:
@@ -49,8 +49,8 @@ def make_grouped_permutation_indices(
 
 
 def invert_permutation_indices(
-    permutation: Int[torch.Tensor, "n"],  # noqa: F722, F821
-) -> Int[torch.Tensor, "n"]:  # noqa: F722, F821
+    permutation: Int[torch.Tensor, "n"],
+) -> Int[torch.Tensor, "n"]:
     if permutation.ndim != 1:
         raise ValueError("permutation must be one-dimensional")
 
@@ -60,27 +60,27 @@ def invert_permutation_indices(
 
 
 def apply_grouped_permutation(
-    values: Float[torch.Tensor, "... n"],  # noqa: F722
-    permutation: Int[torch.Tensor, "n"],  # noqa: F722, F821
-) -> Float[torch.Tensor, "... n"]:  # noqa: F722
+    values: Float[torch.Tensor, "... n"],
+    permutation: Int[torch.Tensor, "n"],
+) -> Float[torch.Tensor, "... n"]:
     if values.shape[-1] != permutation.numel():
         raise ValueError("values last dimension must match permutation length")
     return values.index_select(-1, permutation.to(device=values.device))
 
 
 def reverse_grouped_permutation(
-    values: Float[torch.Tensor, "... n"],  # noqa: F722
-    permutation: Int[torch.Tensor, "n"],  # noqa: F722, F821
-) -> Float[torch.Tensor, "... n"]:  # noqa: F722
+    values: Float[torch.Tensor, "... n"],
+    permutation: Int[torch.Tensor, "n"],
+) -> Float[torch.Tensor, "... n"]:
     inverse = invert_permutation_indices(permutation.to(device=values.device))
     return values.index_select(-1, inverse)
 
 
 def fold_grouped_permutation_tokens(
-    values: Float[torch.Tensor, "... n"],  # noqa: F722
+    values: Float[torch.Tensor, "... n"],
     *,
     bucket_count: int,
-) -> Float[torch.Tensor, "... buckets probe"]:  # noqa: F722
+) -> Float[torch.Tensor, "... buckets probe"]:
     if bucket_count <= 0:
         raise ValueError("bucket_count must be positive")
     if values.shape[-1] % bucket_count != 0:
@@ -91,8 +91,8 @@ def fold_grouped_permutation_tokens(
 
 
 def unfold_grouped_permutation_tokens(
-    tokens: Float[torch.Tensor, "... buckets probe"],  # noqa: F722
-) -> Float[torch.Tensor, "... n"]:  # noqa: F722
+    tokens: Float[torch.Tensor, "... buckets probe"],
+) -> Float[torch.Tensor, "... n"]:
     if tokens.ndim < 2:
         raise ValueError("tokens must have bucket and probe dimensions")
     return tokens.movedim(-2, -1).reshape(*tokens.shape[:-2], -1)

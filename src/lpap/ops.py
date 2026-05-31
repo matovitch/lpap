@@ -22,14 +22,14 @@ def _validate_lpap_args(values: torch.Tensor, bucket_count: int, k_max: int) -> 
 
 
 def lpap_torch(
-    values: Float[torch.Tensor, "batch n"],  # noqa: F722
+    values: Float[torch.Tensor, "batch n"],
     *,
     bucket_count: int,
     k_max: int,
 ) -> tuple[
-    Float[torch.Tensor, "batch buckets"],  # noqa: F722
-    Int[torch.Tensor, "batch buckets"],  # noqa: F722
-    Float[torch.Tensor, "batch n"],  # noqa: F722
+    Float[torch.Tensor, "batch buckets"],
+    Int[torch.Tensor, "batch buckets"],
+    Float[torch.Tensor, "batch n"],
 ]:
     _validate_lpap_args(values, bucket_count, k_max)
 

@@ -14,10 +14,10 @@ from lpap.transformer import TransformerBlock
 
 @dataclass(frozen=True)
 class LPAPSurrogateTargets:
-    source_indices: Int[torch.Tensor, "batch buckets"]  # noqa: F722
-    weights: Float[torch.Tensor, "batch buckets"]  # noqa: F722
-    buckets: Float[torch.Tensor, "batch buckets"]  # noqa: F722
-    dibs: Int[torch.Tensor, "batch buckets"]  # noqa: F722
+    source_indices: Int[torch.Tensor, "batch buckets"]
+    weights: Float[torch.Tensor, "batch buckets"]
+    buckets: Float[torch.Tensor, "batch buckets"]
+    dibs: Int[torch.Tensor, "batch buckets"]
 
 
 @dataclass(frozen=True)
@@ -36,10 +36,10 @@ def _validate_token_values(tokens: torch.Tensor) -> None:
 
 
 def lpap_surrogate_targets(
-    tokens: Float[torch.Tensor, "batch buckets probe"],  # noqa: F722
+    tokens: Float[torch.Tensor, "batch buckets probe"],
     *,
     k_max: int,
-    permutation: Int[torch.Tensor, "n"] | None = None,  # noqa: F722, F821
+    permutation: Int[torch.Tensor, "n"] | None = None,
 ) -> LPAPSurrogateTargets:
     _validate_token_values(tokens)
     if k_max <= 0:
@@ -191,8 +191,8 @@ class LPAPSurrogateTransformer(nn.Module):
 
     def forward(
         self,
-        tokens: Float[torch.Tensor, "batch buckets probe"],  # noqa: F722
-    ) -> Float[torch.Tensor, "batch buckets n"]:  # noqa: F722
+        tokens: Float[torch.Tensor, "batch buckets probe"],
+    ) -> Float[torch.Tensor, "batch buckets n"]:
         _validate_token_values(tokens)
         if tokens.shape[-1] != self.probe_count:
             raise ValueError("tokens probe dimension must match model probe_count")
@@ -206,7 +206,7 @@ class LPAPSurrogateTransformer(nn.Module):
 
 
 def lpap_surrogate_loss(
-    logits: Float[torch.Tensor, "batch buckets n"],  # noqa: F722
+    logits: Float[torch.Tensor, "batch buckets n"],
     targets: LPAPSurrogateTargets,
 ) -> tuple[torch.Tensor, LPAPSurrogateMetrics]:
     if logits.ndim != 3:
@@ -235,11 +235,11 @@ def lpap_surrogate_loss(
 
 
 def prepare_lpap_surrogate_batch(
-    values: Float[torch.Tensor, "batch n"],  # noqa: F722
+    values: Float[torch.Tensor, "batch n"],
     *,
     bucket_count: int,
-    permutation: Int[torch.Tensor, "n"] | None = None,  # noqa: F722, F821
-) -> Float[torch.Tensor, "batch buckets probe"]:  # noqa: F722
+    permutation: Int[torch.Tensor, "n"] | None = None,
+) -> Float[torch.Tensor, "batch buckets probe"]:
     if values.ndim != 2:
         raise ValueError("values must have shape batch x n")
     if permutation is not None:
@@ -251,10 +251,10 @@ def train_lpap_surrogate_step(
     *,
     model: LPAPSurrogateTransformer,
     optimizer: torch.optim.Optimizer,
-    values: Float[torch.Tensor, "batch n"],  # noqa: F722
+    values: Float[torch.Tensor, "batch n"],
     bucket_count: int,
     k_max: int,
-    permutation: Int[torch.Tensor, "n"] | None = None,  # noqa: F722, F821
+    permutation: Int[torch.Tensor, "n"] | None = None,
 ) -> LPAPSurrogateMetrics:
     model.train()
     model_device = next(model.parameters()).device
@@ -279,10 +279,10 @@ def train_lpap_surrogate_step(
 def evaluate_lpap_surrogate_batch(
     *,
     model: LPAPSurrogateTransformer,
-    values: Float[torch.Tensor, "batch n"],  # noqa: F722
+    values: Float[torch.Tensor, "batch n"],
     bucket_count: int,
     k_max: int,
-    permutation: Int[torch.Tensor, "n"] | None = None,  # noqa: F722, F821
+    permutation: Int[torch.Tensor, "n"] | None = None,
 ) -> LPAPSurrogateMetrics:
     was_training = model.training
     model.eval()
@@ -310,7 +310,7 @@ def train_lpap_surrogate(
     bucket_count: int,
     k_max: int,
     steps: int,
-    permutation: Int[torch.Tensor, "n"] | None = None,  # noqa: F722, F821
+    permutation: Int[torch.Tensor, "n"] | None = None,
 ) -> list[LPAPSurrogateMetrics]:
     metrics: list[LPAPSurrogateMetrics] = []
     for step_index, values in enumerate(batches):

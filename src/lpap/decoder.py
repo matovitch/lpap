@@ -19,13 +19,13 @@ from lpap.transformer import TransformerBlock
 
 @dataclass(frozen=True)
 class LPAPDecoderBatch:
-    tokens: Float[torch.Tensor, "batch buckets channel"]  # noqa: F722
-    values: Float[torch.Tensor, "batch n"]  # noqa: F722
-    targets: Int[torch.Tensor, "batch buckets"]  # noqa: F722
-    weights: Float[torch.Tensor, "batch buckets"]  # noqa: F722
-    amplitudes: Float[torch.Tensor, "batch buckets"]  # noqa: F722
-    dibs: Float[torch.Tensor, "batch buckets"]  # noqa: F722
-    entropy: Float[torch.Tensor, "batch buckets"]  # noqa: F722
+    tokens: Float[torch.Tensor, "batch buckets channel"]
+    values: Float[torch.Tensor, "batch n"]
+    targets: Int[torch.Tensor, "batch buckets"]
+    weights: Float[torch.Tensor, "batch buckets"]
+    amplitudes: Float[torch.Tensor, "batch buckets"]
+    dibs: Float[torch.Tensor, "batch buckets"]
+    entropy: Float[torch.Tensor, "batch buckets"]
     surrogate_targets: LPAPSurrogateTargets
 
 
@@ -50,10 +50,10 @@ def _validate_surrogate_logits(logits: torch.Tensor) -> None:
 
 
 def decoder_dibs_from_source_logits(
-    logits: Float[torch.Tensor, "batch buckets n"],  # noqa: F722
+    logits: Float[torch.Tensor, "batch buckets n"],
     *,
     bucket_count: int,
-) -> Int[torch.Tensor, "batch buckets"]:  # noqa: F722
+) -> Int[torch.Tensor, "batch buckets"]:
     _validate_surrogate_logits(logits)
     if bucket_count <= 0:
         raise ValueError("bucket_count must be positive")
@@ -68,12 +68,12 @@ def decoder_dibs_from_source_logits(
 
 def prepare_lpap_decoder_batch(
     *,
-    values: Float[torch.Tensor, "batch n"],  # noqa: F722
-    surrogate_logits: Float[torch.Tensor, "batch buckets classes"],  # noqa: F722
+    values: Float[torch.Tensor, "batch n"],
+    surrogate_logits: Float[torch.Tensor, "batch buckets classes"],
     bucket_count: int,
     k_max: int,
     temperature: int | float | torch.Tensor,
-    permutation: Int[torch.Tensor, "n"] | None = None,  # noqa: F722, F821
+    permutation: Int[torch.Tensor, "n"] | None = None,
 ) -> LPAPDecoderBatch:
     if values.ndim != 2:
         raise ValueError("values must have shape batch x n")
@@ -174,8 +174,8 @@ class LPAPDecoderTransformer(nn.Module):
 
     def forward(
         self,
-        tokens: Float[torch.Tensor, "batch buckets channel"],  # noqa: F722
-    ) -> Float[torch.Tensor, "batch buckets n"]:  # noqa: F722
+        tokens: Float[torch.Tensor, "batch buckets channel"],
+    ) -> Float[torch.Tensor, "batch buckets n"]:
         if tokens.ndim != 3:
             raise ValueError("tokens must have shape batch x buckets x channel")
         hidden = self.input(tokens)
@@ -185,9 +185,9 @@ class LPAPDecoderTransformer(nn.Module):
 
 
 def reconstruct_lpap_decoder_values(
-    logits: Float[torch.Tensor, "batch buckets n"],  # noqa: F722
+    logits: Float[torch.Tensor, "batch buckets n"],
     batch: LPAPDecoderBatch,
-) -> Float[torch.Tensor, "batch n"]:  # noqa: F722
+) -> Float[torch.Tensor, "batch n"]:
     if logits.ndim != 3:
         raise ValueError("logits must have shape batch x buckets x n")
     if logits.shape[:2] != batch.tokens.shape[:2]:
@@ -200,7 +200,7 @@ def reconstruct_lpap_decoder_values(
 
 def reconstruct_lpap_bucket_values(
     batch: LPAPDecoderBatch,
-) -> Float[torch.Tensor, "batch n"]:  # noqa: F722
+) -> Float[torch.Tensor, "batch n"]:
     reconstruction = torch.zeros_like(batch.values)
     return reconstruction.scatter_add(
         dim=1,
@@ -210,7 +210,7 @@ def reconstruct_lpap_bucket_values(
 
 
 def lpap_decoder_loss(
-    logits: Float[torch.Tensor, "batch buckets n"],  # noqa: F722
+    logits: Float[torch.Tensor, "batch buckets n"],
     batch: LPAPDecoderBatch,
     *,
     source_ce_weight: float = 0.0,
@@ -269,10 +269,10 @@ def train_lpap_decoder_step(
     decoder: LPAPDecoderTransformer,
     surrogate: LPAPSurrogateTransformer,
     optimizer: torch.optim.Optimizer,
-    values: Float[torch.Tensor, "batch n"],  # noqa: F722
+    values: Float[torch.Tensor, "batch n"],
     bucket_count: int,
     k_max: int,
-    permutation: Int[torch.Tensor, "n"] | None = None,  # noqa: F722, F821
+    permutation: Int[torch.Tensor, "n"] | None = None,
     source_ce_weight: float = 0.0,
     source_ce_l1_reference: float = 1.0,
     source_ce_power: float = 2.0,
@@ -315,10 +315,10 @@ def evaluate_lpap_decoder_batch(
     *,
     decoder: LPAPDecoderTransformer,
     surrogate: LPAPSurrogateTransformer,
-    values: Float[torch.Tensor, "batch n"],  # noqa: F722
+    values: Float[torch.Tensor, "batch n"],
     bucket_count: int,
     k_max: int,
-    permutation: Int[torch.Tensor, "n"] | None = None,  # noqa: F722, F821
+    permutation: Int[torch.Tensor, "n"] | None = None,
     source_ce_weight: float = 0.0,
     source_ce_l1_reference: float = 1.0,
     source_ce_power: float = 2.0,

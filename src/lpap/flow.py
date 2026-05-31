@@ -31,8 +31,8 @@ class SinusoidalTimeEmbedding(nn.Module):
 
     def forward(
         self,
-        time: Float[torch.Tensor, "batch"],  # noqa: F722, F821
-    ) -> Float[torch.Tensor, "batch dim"]:  # noqa: F722
+        time: Float[torch.Tensor, "batch"],
+    ) -> Float[torch.Tensor, "batch dim"]:
         if time.ndim != 1:
             raise ValueError("time must have shape batch")
         half_dim = self.dim // 2
@@ -82,9 +82,9 @@ class DilatedResidualBlock1d(nn.Module):
 
     def forward(
         self,
-        values: Float[torch.Tensor, "batch width n"],  # noqa: F722
-        time_embedding: Float[torch.Tensor, "batch time"],  # noqa: F722
-    ) -> Float[torch.Tensor, "batch width n"]:  # noqa: F722
+        values: Float[torch.Tensor, "batch width n"],
+        time_embedding: Float[torch.Tensor, "batch time"],
+    ) -> Float[torch.Tensor, "batch width n"]:
         scale, shift = self.time(time_embedding).chunk(2, dim=-1)
         hidden = self.norm(values)
         hidden = hidden * (1.0 + scale[:, :, None]) + shift[:, :, None]
@@ -143,9 +143,9 @@ class DilatedConvFlow1d(nn.Module):
 
     def forward(
         self,
-        values: Float[torch.Tensor, "batch 1 n"],  # noqa: F722
-        time: Float[torch.Tensor, "batch"],  # noqa: F722, F821
-    ) -> Float[torch.Tensor, "batch 1 n"]:  # noqa: F722
+        values: Float[torch.Tensor, "batch 1 n"],
+        time: Float[torch.Tensor, "batch"],
+    ) -> Float[torch.Tensor, "batch 1 n"]:
         if values.ndim != 3 or values.shape[1] != 1:
             raise ValueError("values must have shape batch x 1 x n")
         if values.shape[2] != self.sequence_length:
@@ -160,10 +160,10 @@ class DilatedConvFlow1d(nn.Module):
 
 
 def interpolate_linear(
-    start: Float[torch.Tensor, "batch 1 n"],  # noqa: F722
-    end: Float[torch.Tensor, "batch 1 n"],  # noqa: F722
-    time: Float[torch.Tensor, "batch"],  # noqa: F722, F821
-) -> Float[torch.Tensor, "batch 1 n"]:  # noqa: F722
+    start: Float[torch.Tensor, "batch 1 n"],
+    end: Float[torch.Tensor, "batch 1 n"],
+    time: Float[torch.Tensor, "batch"],
+) -> Float[torch.Tensor, "batch 1 n"]:
     if start.shape != end.shape:
         raise ValueError("start and end must have matching shapes")
     if time.ndim != 1 or time.shape[0] != start.shape[0]:
@@ -174,9 +174,9 @@ def interpolate_linear(
 
 def flow_matching_loss(
     model: nn.Module,
-    start: Float[torch.Tensor, "batch 1 n"],  # noqa: F722
-    end: Float[torch.Tensor, "batch 1 n"],  # noqa: F722
-    time: Float[torch.Tensor, "batch"],  # noqa: F722, F821
+    start: Float[torch.Tensor, "batch 1 n"],
+    end: Float[torch.Tensor, "batch 1 n"],
+    time: Float[torch.Tensor, "batch"],
 ) -> tuple[torch.Tensor, FlowMatchingMetrics]:
     values = interpolate_linear(start, end, time)
     target_velocity = end - start
@@ -218,12 +218,12 @@ def flow_metrics(
 
 def integrate_euler_midpoint_time(
     vector_field: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
-    start: Float[torch.Tensor, "batch 1 n"],  # noqa: F722
+    start: Float[torch.Tensor, "batch 1 n"],
     steps: int,
     *,
     t0: float = 0.0,
     t1: float = 1.0,
-) -> Float[torch.Tensor, "batch 1 n"]:  # noqa: F722
+) -> Float[torch.Tensor, "batch 1 n"]:
     if steps <= 0:
         raise ValueError("steps must be positive")
     values = start
