@@ -125,8 +125,12 @@ class EnergyToImageTrainingConfig:
     source: EnergyToImageSourceConfig = field(default_factory=EnergyToImageSourceConfig)
     flow: EnergyToImageFlowConfig = field(default_factory=EnergyToImageFlowConfig)
     time: EnergyToImageTimeConfig = field(default_factory=EnergyToImageTimeConfig)
-    optimizer: EnergyToImageOptimizerConfig = field(default_factory=EnergyToImageOptimizerConfig)
-    validation: EnergyToImageValidationConfig = field(default_factory=EnergyToImageValidationConfig)
+    optimizer: EnergyToImageOptimizerConfig = field(
+        default_factory=EnergyToImageOptimizerConfig
+    )
+    validation: EnergyToImageValidationConfig = field(
+        default_factory=EnergyToImageValidationConfig
+    )
     run: EnergyToImageRunConfig = field(default_factory=EnergyToImageRunConfig)
 
     @property
@@ -249,12 +253,12 @@ class EnergyToImageGalleryItem:
     generated: dict[int, torch.Tensor]
 
 
-def _checkpoint_path(root: Path, name: str) -> Path:
+def resolve_checkpoint_path(root: Path, name: str) -> Path:
     path = Path(name)
     return path if path.is_absolute() else root / "checkpoints" / path
 
 
-def _load_surrogate_source(
+def load_surrogate_source(
     *,
     path: Path,
     load_best: bool,
@@ -283,7 +287,9 @@ def _load_surrogate_source(
     return surrogate, model_config, harmonics
 
 
-def _decoder_model_config_from_checkpoint(path: Path) -> tuple[dict[str, object], dict[str, Any]]:
+def _decoder_model_config_from_checkpoint(
+    path: Path,
+) -> tuple[dict[str, object], dict[str, Any]]:
     if not path.exists():
         raise FileNotFoundError(f"decoder checkpoint not found: {path}")
     payload = load_training_checkpoint(path)
@@ -310,7 +316,7 @@ def _decoder_model_config_from_checkpoint(path: Path) -> tuple[dict[str, object]
     return dict(model_config), payload
 
 
-def _load_decoder_source(
+def load_decoder_source(
     *,
     path: Path,
     load_best: bool,
@@ -319,7 +325,9 @@ def _load_decoder_source(
     model_config, payload = _decoder_model_config_from_checkpoint(path)
     decoder = LPAPDecoderTransformer(
         value_count=int(model_config["value_count"]),
-        frontend_initial_temperature=float(model_config["frontend_initial_temperature"]),
+        frontend_initial_temperature=float(
+            model_config["frontend_initial_temperature"]
+        ),
         hidden_dim=int(model_config["hidden_dim"]),
         layer_count=int(model_config["layer_count"]),
         head_count=int(model_config["head_count"]),
@@ -332,7 +340,7 @@ def _load_decoder_source(
     return decoder, model_config
 
 
-def _validate_source_matches_config(
+def validate_source_matches_config(
     *,
     config: EnergyToImageTrainingConfig,
     surrogate_model_config: dict[str, int],
@@ -354,7 +362,10 @@ def _validate_source_matches_config(
             f"value_count decoder={decoder_value_count} expected={config.value_count}"
         )
     if mismatches:
-        raise ValueError("energy_to_image source checkpoints do not match config: " + "; ".join(mismatches))
+        raise ValueError(
+            "energy_to_image source checkpoints do not match config: "
+            + "; ".join(mismatches)
+        )
 
 
 def create_energy_to_image_training_session(
@@ -371,22 +382,24 @@ def create_energy_to_image_training_session(
         else torch.device(device)
     )
     torch.manual_seed(config.run.seed)
-    surrogate_checkpoint_path = _checkpoint_path(
+    surrogate_checkpoint_path = resolve_checkpoint_path(
         root, config.source.surrogate_checkpoint_name
     )
-    decoder_checkpoint_path = _checkpoint_path(root, config.source.decoder_checkpoint_name)
-    surrogate, surrogate_model_config, harmonics = _load_surrogate_source(
+    decoder_checkpoint_path = resolve_checkpoint_path(
+        root, config.source.decoder_checkpoint_name
+    )
+    surrogate, surrogate_model_config, harmonics = load_surrogate_source(
         path=surrogate_checkpoint_path,
         load_best=config.source.load_best,
         require_checkpoint=config.source.require_checkpoints,
         device=target_device,
     )
-    decoder, decoder_model_config = _load_decoder_source(
+    decoder, decoder_model_config = load_decoder_source(
         path=decoder_checkpoint_path,
         load_best=config.source.load_best,
         device=target_device,
     )
-    _validate_source_matches_config(
+    validate_source_matches_config(
         config=config,
         surrogate_model_config=surrogate_model_config,
         decoder_model_config=decoder_model_config,
@@ -515,7 +528,9 @@ def evaluate_energy_to_image_batch(
         start = _sample_source_energy(
             session=session, batch_size=images.shape[0], generator=generator
         )
-        end = _prepare_image_batch(images, side=session.config.image.side, device=session.device)
+        end = _prepare_image_batch(
+            images, side=session.config.image.side, device=session.device
+        )
         metrics = evaluate_flow_matching_batch(
             model=session.flow,
             start=start,
@@ -619,7 +634,10 @@ def iter_energy_to_image_training(
                 generator=session.validation_generator,
             )
             step_metrics.update(
-                {f"validation_{name}": value for name, value in _metrics_dict(validation_metrics).items()}
+                {
+                    f"validation_{name}": value
+                    for name, value in _metrics_dict(validation_metrics).items()
+                }
             )
             step_metrics.update(
                 {f"validation_{name}": value for name, value in diagnostics.items()}

@@ -16,10 +16,10 @@ from lpap.decoder import (
 )
 from lpap.energy_to_image_training import (
     EnergyToImageSourceConfig,
-    _checkpoint_path,
-    _load_decoder_source,
-    _load_surrogate_source,
-    _validate_source_matches_config,
+    resolve_checkpoint_path,
+    load_decoder_source,
+    load_surrogate_source,
+    validate_source_matches_config,
 )
 from lpap.flow import DilatedConvFlow1d, integrate_euler_midpoint_time
 from lpap.flow_training import (
@@ -142,14 +142,26 @@ class EnergyToImageReflowRunConfig:
 
 @dataclass(frozen=True)
 class EnergyToImageReflowTrainingConfig:
-    image: EnergyToImageReflowImageConfig = field(default_factory=EnergyToImageReflowImageConfig)
+    image: EnergyToImageReflowImageConfig = field(
+        default_factory=EnergyToImageReflowImageConfig
+    )
     source: EnergyToImageSourceConfig = field(default_factory=EnergyToImageSourceConfig)
-    flow: EnergyToImageReflowFlowConfig = field(default_factory=EnergyToImageReflowFlowConfig)
-    teacher: EnergyToImageReflowTeacherConfig = field(default_factory=EnergyToImageReflowTeacherConfig)
+    flow: EnergyToImageReflowFlowConfig = field(
+        default_factory=EnergyToImageReflowFlowConfig
+    )
+    teacher: EnergyToImageReflowTeacherConfig = field(
+        default_factory=EnergyToImageReflowTeacherConfig
+    )
     reflow: EnergyToImageReflowConfig = field(default_factory=EnergyToImageReflowConfig)
-    optimizer: EnergyToImageReflowOptimizerConfig = field(default_factory=EnergyToImageReflowOptimizerConfig)
-    validation: EnergyToImageReflowValidationConfig = field(default_factory=EnergyToImageReflowValidationConfig)
-    run: EnergyToImageReflowRunConfig = field(default_factory=EnergyToImageReflowRunConfig)
+    optimizer: EnergyToImageReflowOptimizerConfig = field(
+        default_factory=EnergyToImageReflowOptimizerConfig
+    )
+    validation: EnergyToImageReflowValidationConfig = field(
+        default_factory=EnergyToImageReflowValidationConfig
+    )
+    run: EnergyToImageReflowRunConfig = field(
+        default_factory=EnergyToImageReflowRunConfig
+    )
 
     @property
     def value_count(self) -> int:
@@ -353,22 +365,28 @@ def create_energy_to_image_reflow_training_session(
     torch.manual_seed(config.run.seed)
     checkpoint_path = root / "checkpoints" / config.run.checkpoint_name
     log_path = root / "training_logs" / config.run.log_name
-    surrogate_checkpoint_path = _checkpoint_path(root, config.source.surrogate_checkpoint_name)
-    decoder_checkpoint_path = _checkpoint_path(root, config.source.decoder_checkpoint_name)
-    teacher_checkpoint_path = _checkpoint_path(root, config.teacher.checkpoint_name)
+    surrogate_checkpoint_path = resolve_checkpoint_path(
+        root, config.source.surrogate_checkpoint_name
+    )
+    decoder_checkpoint_path = resolve_checkpoint_path(
+        root, config.source.decoder_checkpoint_name
+    )
+    teacher_checkpoint_path = resolve_checkpoint_path(
+        root, config.teacher.checkpoint_name
+    )
 
-    surrogate, surrogate_model_config, harmonics = _load_surrogate_source(
+    surrogate, surrogate_model_config, harmonics = load_surrogate_source(
         path=surrogate_checkpoint_path,
         load_best=config.source.load_best,
         require_checkpoint=config.source.require_checkpoints,
         device=target_device,
     )
-    decoder, decoder_model_config = _load_decoder_source(
+    decoder, decoder_model_config = load_decoder_source(
         path=decoder_checkpoint_path,
         load_best=config.source.load_best,
         device=target_device,
     )
-    _validate_source_matches_config(
+    validate_source_matches_config(
         config=config,
         surrogate_model_config=surrogate_model_config,
         decoder_model_config=decoder_model_config,
@@ -629,7 +647,10 @@ def iter_energy_to_image_reflow_training(
                 generator=session.validation_generator,
             )
             step_metrics.update(
-                {f"validation_{name}": value for name, value in _metrics_dict(validation_metrics).items()}
+                {
+                    f"validation_{name}": value
+                    for name, value in _metrics_dict(validation_metrics).items()
+                }
             )
             step_metrics.update(
                 {f"validation_{name}": value for name, value in diagnostics.items()}
