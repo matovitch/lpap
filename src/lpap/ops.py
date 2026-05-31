@@ -51,32 +51,41 @@ def lpap_torch(
         (batch_count, bucket_count), device=values.device, dtype=torch.int64
     )
 
+    batch_indices = torch.arange(batch_count, device=values.device)[:, None]
+    batch_grid = batch_indices.expand(batch_count, bucket_count)
+    bucket_arange = torch.arange(bucket_count, device=values.device)
+    bucket_indices_grid = bucket_arange[None, :]
+
+    # For a fixed roll_count, bucket_index -> source_lane is a bijection over the
+    # lanes, so every bucket reads and writes a distinct lane: the inner bucket
+    # iterations are independent and can run in one vectorized step, leaving only
+    # the roll_count loop in Python.
     for roll_count in range(k_max):
-        for bucket_index in range(bucket_count):
-            source_lane = (bucket_index - roll_count) % bucket_count
-            lane_values = work[:, source_lane, :]
-            candidate_indices = lane_values.abs().argmax(dim=-1)
-            batch_indices = torch.arange(batch_count, device=values.device)
-            candidates = lane_values[batch_indices, candidate_indices]
-            selected_diffs = dibs_diff[batch_indices, source_lane, candidate_indices]
-            candidate_dibs = selected_diffs + roll_count
-            update = candidates.abs() >= buckets[:, bucket_index].abs()
+        source_lanes = (bucket_arange - roll_count) % bucket_count
+        source_lane_grid = source_lanes[None, :].expand(batch_count, bucket_count)
+        lane_values = work[:, source_lanes, :]
+        lane_dibs_diff = dibs_diff[:, source_lanes, :]
+        candidate_positions = lane_values.abs().argmax(dim=-1)
+        candidates = lane_values[
+            batch_indices, bucket_indices_grid, candidate_positions
+        ]
+        selected_diffs = lane_dibs_diff[
+            batch_indices, bucket_indices_grid, candidate_positions
+        ]
+        candidate_dibs = selected_diffs + roll_count
+        update = candidates.abs() >= buckets.abs()
 
-            old_bucket_values = buckets[:, bucket_index].clone()
-            old_dibs = dibs[:, bucket_index].clone()
+        old_bucket_values = buckets.clone()
+        old_dibs = dibs.clone()
 
-            swap_diffs = old_dibs - roll_count
-
-            update_batches = batch_indices[update]
-            update_candidate_indices = candidate_indices[update]
-            work[update_batches, source_lane, update_candidate_indices] = (
-                old_bucket_values[update]
-            )
-            dibs_diff[update_batches, source_lane, update_candidate_indices] = (
-                swap_diffs[update]
-            )
-            buckets[update_batches, bucket_index] = candidates[update]
-            dibs[update_batches, bucket_index] = candidate_dibs[update]
+        work[
+            batch_grid[update], source_lane_grid[update], candidate_positions[update]
+        ] = old_bucket_values[update]
+        dibs_diff[
+            batch_grid[update], source_lane_grid[update], candidate_positions[update]
+        ] = old_dibs[update] - roll_count
+        buckets[update] = candidates[update]
+        dibs[update] = candidate_dibs[update]
 
     output_batch_shape = input_shape[:-1]
     return (
