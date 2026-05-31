@@ -29,8 +29,7 @@
 
 - **Inner energy path**: The energy-domain path `energy -> surrogate -> decoder -> energy`.
 - **Image autoencoder (`image_autoencoder`)**: The total end-to-end path `image -> image_to_energy -> surrogate -> decoder -> energy_to_image -> image`.
-- **Energy reconstruction L2**: The loss comparing decoded energy against encoded energy inside the image autoencoder.
-- **Energy L1 regularizer**: The sparsity pressure applied to encoded energy.
+- **Energy reconstruction L1**: The loss comparing decoded energy against encoded energy inside the image autoencoder.
 - **LPAP teacher cross-entropy**: The auxiliary loss that keeps surrogate predictions anchored to exact LPAP source-index targets.
 
 ## Artifacts

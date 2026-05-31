@@ -8,20 +8,53 @@ LPAP reduces a flat tensor of `N` values into `C` buckets, where `N` is a multip
 
 ## Current Stack
 
-At a glance, the data path is:
+The headline model is the end-to-end image autoencoder. A grayscale image is
+Hilbert-flattened, pushed through an image-to-energy flow to an encoded energy
+sequence, reconstructed by the LPAP surrogate/decoder inner path, then pushed
+back through an energy-to-image flow. The whole chain is trained jointly under
+one weighted loss:
 
 ```mermaid
 flowchart LR
-    image[32x32 image] --> image_to_energy[Image to energy]
-    image_to_energy --> harmonics[Harmonic energy]
-    harmonics --> surrogate[LPAP surrogate] --> decoder[LPAP decoder]
-    decoder --> energy_to_image[Energy to image] --> image
+    img[Grayscale image] --> i2e[Image-to-energy flow<br/>Euler rollout]
+    i2e --> enc[Encoded energy]
+    enc --> sur[LPAP surrogate]
+    sur --> dec[LPAP decoder]
+    dec --> den[Decoded energy]
+    den --> e2i[Energy-to-image flow<br/>Euler rollout]
+    e2i --> rec[Reconstructed image]
+
+    sur -. "vs exact LPAP teacher" .-> ce["λ_ce · weighted teacher CE"]
+    den -. "vs encoded energy" .-> el1["λ_energy · inner energy L1"]
+    rec -. "vs input image" .-> il2["λ_image · image L2"]
+
+    ce --> total((Total loss))
+    el1 --> total
+    il2 --> total
 ```
 
+The total training loss is a fixed-weight sum (no schedule):
+
+$$
+\mathcal{L} =
+\lambda_{\text{image}}\,\lVert \hat{x}-x \rVert_2^2 +
+\lambda_{\text{energy}}\,\lVert \hat{e}-e \rVert_1 +
+\lambda_{\text{ce}}\,\mathrm{CE}_{\text{LPAP}}
+$$
+
+where $x$ is the input image, $\hat{x}$ the reconstruction, $e$ the encoded
+energy, $\hat{e}$ the decoder-reconstructed energy, and $\mathrm{CE}_{\text{LPAP}}$
+the amplitude-weighted cross-entropy of the surrogate against exact LPAP source
+indices. Defaults: $\lambda_{\text{image}}=1.0$, $\lambda_{\text{energy}}=0.25$,
+$\lambda_{\text{ce}}=0.1$. The inner energy L1 is the self-reconstruction target
+of the LPAP path; the teacher CE keeps the surrogate aligned with the exact
+operator. See the
+[training stack notes](doc/training-stack.md) for the per-model decomposition.
+
 See the [documentation index](doc/index.md) for the full model-dependency
-diagram, including the reflow student and the end-to-end image
-autoencoder. Every trainable model writes `.pt` checkpoints under
-`checkpoints/` and per-step KPIs to a SQLite log under `training_logs/`.
+diagram, including the reflow student that supplies the energy-to-image flow.
+Every trainable model writes `.pt` checkpoints under `checkpoints/` and per-step
+KPIs to a SQLite log under `training_logs/`.
 
 Implemented entry points include:
 

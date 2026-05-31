@@ -15,37 +15,18 @@ LPAP currently has six trainable model kinds wired into one shared marimo traini
 
 ```mermaid
 flowchart TD
-    config[Training TOML]
-    train_notebook[notebooks/train.py]
-    dispatch[lpap.training_notebook]
-    surrogate[Surrogate training session]
-    decoder[Decoder training session]
-    image_to_energy[Image to energy flow session]
-    energy_to_image[Energy to image flow session]
-    energy_to_image_reflow[Energy to image reflow session]
-    image_autoencoder[Image autoencoder session]
-    checkpoint[(Checkpoint files)]
-    sqlite[(SQLite logs)]
-
-    config --> train_notebook --> dispatch
-    dispatch --> surrogate
-    dispatch --> decoder
-    dispatch --> image_to_energy
-    dispatch --> energy_to_image
-    dispatch --> energy_to_image_reflow
-    dispatch --> image_autoencoder
-    surrogate --> checkpoint
-    decoder --> checkpoint
-    image_to_energy --> checkpoint
-    energy_to_image --> checkpoint
-    energy_to_image_reflow --> checkpoint
-    image_autoencoder --> checkpoint
-    surrogate --> sqlite
-    decoder --> sqlite
-    image_to_energy --> sqlite
-    energy_to_image --> sqlite
-    energy_to_image_reflow --> sqlite
-    image_autoencoder --> sqlite
+    config[Training TOML] --> train_notebook[notebooks/train.py]
+    train_notebook --> dispatch[lpap.training_notebook]
+    dispatch --> kinds{{Model kind}}
+    kinds --> surrogate[surrogate]
+    kinds --> decoder[decoder]
+    kinds --> image_to_energy[image_to_energy]
+    kinds --> energy_to_image[energy_to_image]
+    kinds --> energy_to_image_reflow[energy_to_image_reflow]
+    kinds --> image_autoencoder[image_autoencoder]
+    surrogate & decoder & image_to_energy & energy_to_image & energy_to_image_reflow & image_autoencoder --> session[Training session]
+    session --> checkpoint[(Checkpoint files)]
+    session --> sqlite[(SQLite logs)]
 ```
 
 The shared notebook handles configuration loading, previous-run discovery, rerun restoration, progress display, and loss plotting. Model-specific galleries live in the visualization notebooks. The model-specific training modules keep the parts that differ by model kind.
@@ -119,7 +100,35 @@ The decoder does not duplicate harmonic source settings in its TOML. It reads th
 
 `energy_to_image_reflow` keeps that same source distribution, freezes a trained `energy_to_image` flow as a high-step teacher, and trains a student flow by integrating the student for a smaller number of Euler midpoint steps. The default configuration uses a 64-step teacher target and an 8-step student rollout. Its checkpoint is still a plain `DilatedConvFlow1d` state dict, so later experiments can consume it wherever an energy-to-image flow is expected.
 
-`image_autoencoder` is the total autoencoder. It Hilbert-flattens a grayscale image, rolls an image-to-energy flow forward for a small fixed number of differentiable steps, passes the encoded energy through the LPAP surrogate and decoder, then rolls an energy-to-image flow forward to reconstruct the image. Its loss logs image reconstruction L2, inner energy reconstruction L2, encoded-energy L1 regularization, and exact LPAP teacher cross-entropy for the surrogate.
+`image_autoencoder` is the total autoencoder. It Hilbert-flattens a grayscale image, rolls an image-to-energy flow forward for a small fixed number of differentiable steps, passes the encoded energy through the LPAP surrogate and decoder, then rolls an energy-to-image flow forward to reconstruct the image.
+
+```mermaid
+flowchart LR
+    img[Grayscale image] --> i2e[Image-to-energy flow<br/>Euler rollout]
+    i2e --> enc[Encoded energy]
+    enc --> sur[LPAP surrogate]
+    sur --> dec[LPAP decoder]
+    dec --> den[Decoded energy]
+    den --> e2i[Energy-to-image flow<br/>Euler rollout]
+    e2i --> rec[Reconstructed image]
+
+    sur -. "vs exact LPAP teacher" .-> ce["λ_ce · weighted teacher CE"]
+    den -. "vs encoded energy" .-> el1["λ_energy · inner energy L1"]
+    rec -. "vs input image" .-> il2["λ_image · image L2"]
+
+    ce --> total((Total loss))
+    el1 --> total
+    il2 --> total
+```
+
+The training loss (`_forward_loss`) is a fixed-weight sum of three terms; there is
+no weight schedule, so each weight λ is a constant prorating coefficient:
+
+- **Image reconstruction L2** (`image_l2_weight`, default `1.0`): MSE between the reconstructed and input image. The primary objective.
+- **Inner energy reconstruction L1** (`energy_l1_weight`, default `0.25`): mean absolute error between the decoder-reconstructed energy and the encoded energy. Keeps the LPAP surrogate/decoder path a faithful autoencoder of the encoded energy. The encoded-energy target can optionally be detached (`detach_energy_target`).
+- **Surrogate teacher cross-entropy** (`surrogate_teacher_weight`, default `0.1`): the amplitude-weighted cross-entropy of `lpap_surrogate_loss` against the exact LPAP source indices, keeping the differentiable surrogate aligned with the exact operator.
+
+The metric dict also logs the raw (unweighted) `image_reconstruction_l2`, `energy_reconstruction_l1`, `surrogate_teacher_ce`, and surrogate `weighted_accuracy`, plus RMS gauges for the encoded/decoded energy and input/reconstructed image.
 
 ## Flow Training Factorization
 
@@ -128,9 +137,6 @@ The two image/energy flow modules share one implementation spine in `lpap.flow_t
 ```mermaid
 flowchart TD
     shared[lpap.flow_training]
-    image_module[lpap.image_to_energy_training]
-    energy_module[lpap.energy_to_image_training]
-
     shared --> cfg[Shared config dataclasses]
     shared --> data[Image loading and Hilbert flattening]
     shared --> time[Beta or uniform time sampling]
@@ -138,19 +144,8 @@ flowchart TD
     shared --> loss[Flow matching train and eval]
     shared --> diag[Integration diagnostics]
 
-    cfg --> image_module
-    data --> image_module
-    time --> image_module
-    core --> image_module
-    loss --> image_module
-    diag --> image_module
-
-    cfg --> energy_module
-    data --> energy_module
-    time --> energy_module
-    core --> energy_module
-    loss --> energy_module
-    diag --> energy_module
+    cfg & data & time & core & loss & diag --> image_module[lpap.image_to_energy_training]
+    cfg & data & time & core & loss & diag --> energy_module[lpap.energy_to_image_training]
 ```
 
 The direction-specific modules still own the parts that are genuinely different:

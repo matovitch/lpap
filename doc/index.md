@@ -32,21 +32,27 @@ pixi run notebook-image-autoencoder
 
 ## Model Order
 
+Train the pieces in dependency order; they are then frozen or fine-tuned inside
+the end-to-end image autoencoder.
+
 ```mermaid
 flowchart TD
-    synthetic[Synthetic harmonic energy]
-    surrogate[Surrogate]
-    decoder[Decoder]
-    i2e[Image to energy flow]
-    e2i[Energy to image flow]
-    reflow[Energy to image reflow]
-    autoencoder[Image autoencoder]
+    synthetic[Synthetic harmonic energy] --> surrogate[Surrogate]
+    surrogate --> decoder[Decoder]
+    i2e[Image-to-energy flow]
+    e2i[Energy-to-image flow] --> reflow[Energy-to-image reflow<br/>8-step student]
 
-    synthetic --> surrogate --> decoder
-    i2e --> autoencoder
-    surrogate --> autoencoder
-    decoder --> autoencoder
-    e2i --> reflow --> autoencoder
+    subgraph inner [Inner LPAP energy path]
+        surrogate
+        decoder
+    end
+
+    i2e --> autoencoder[Image autoencoder]
+    inner --> autoencoder
+    reflow --> autoencoder
 ```
 
-The image autoencoder is the total end-to-end model. The inner energy path is the LPAP surrogate and decoder operating on encoded energy.
+The image autoencoder is the total end-to-end model. The inner energy path is the
+LPAP surrogate and decoder operating on encoded energy; the image-to-energy and
+energy-to-image (reflow student) flows wrap it. See the
+[README loss diagram](../README.md) for the joint training objective.
