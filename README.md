@@ -8,47 +8,20 @@ LPAP reduces a flat tensor of `N` values into `C` buckets, where `N` is a multip
 
 ## Current Stack
 
-```mermaid
-flowchart TD
-    harmonics[Synthetic harmonic energy]
-    lpap[LPAP operator]
-    surrogate[LPAP surrogate transformer]
-    decoder[LPAP decoder transformer]
-    image[32x32 grayscale images]
-    image_to_energy[Image to energy flow]
-    energy_to_image[Energy to image flow]
-    e2i_reflow[8 step energy to image reflow]
-    image_autoencoder[8 step image autoencoder]
-    checkpoints[(Checkpoint files)]
-    logs[(SQLite logs)]
-    notebooks[marimo notebooks]
+At a glance, the data path is:
 
-    harmonics --> lpap
-    lpap --> surrogate
-    surrogate --> decoder
-    image --> image_to_energy --> harmonics
-    harmonics --> surrogate --> decoder --> energy_to_image --> image
-    energy_to_image --> e2i_reflow --> image
-    image --> image_autoencoder --> image
-    surrogate --> checkpoints
-    decoder --> checkpoints
-    image_to_energy --> checkpoints
-    energy_to_image --> checkpoints
-    e2i_reflow --> checkpoints
-    image_autoencoder --> checkpoints
-    surrogate --> logs
-    decoder --> logs
-    image_to_energy --> logs
-    energy_to_image --> logs
-    e2i_reflow --> logs
-    image_autoencoder --> logs
-    notebooks --> surrogate
-    notebooks --> decoder
-    notebooks --> image_to_energy
-    notebooks --> energy_to_image
-    notebooks --> e2i_reflow
-    notebooks --> image_autoencoder
+```mermaid
+flowchart LR
+    image[32x32 image] --> image_to_energy[Image to energy]
+    image_to_energy --> harmonics[Harmonic energy]
+    harmonics --> surrogate[LPAP surrogate] --> decoder[LPAP decoder]
+    decoder --> energy_to_image[Energy to image] --> image
 ```
+
+See the [documentation index](doc/index.md) for the full model-dependency
+diagram, including the reflow student and the end-to-end image
+autoencoder. Every trainable model writes `.pt` checkpoints under
+`checkpoints/` and per-step KPIs to a SQLite log under `training_logs/`.
 
 Implemented entry points include:
 
