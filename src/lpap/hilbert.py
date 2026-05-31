@@ -3,6 +3,8 @@ from __future__ import annotations
 import torch
 from jaxtyping import Float, Int
 
+from lpap.permutation import invert_permutation_indices
+
 
 def _validate_side(side: int) -> None:
     if side <= 0:
@@ -47,11 +49,7 @@ def hilbert_permutation(
 def inverse_permutation(
     perm: Int[torch.Tensor, "n"],  # noqa: F722, F821
 ) -> Int[torch.Tensor, "n"]:  # noqa: F722, F821
-    if perm.ndim != 1:
-        raise ValueError("perm must be one-dimensional")
-    inverse = torch.empty_like(perm)
-    inverse.scatter_(0, perm, torch.arange(perm.numel(), device=perm.device))
-    return inverse
+    return invert_permutation_indices(perm)
 
 
 def inverse_hilbert_permutation(
