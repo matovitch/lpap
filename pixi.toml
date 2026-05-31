@@ -14,6 +14,14 @@ cuda = "12.0"
 cmd = "PYTHONPATH=src python -m unittest discover -s test"
 description = "Run the project test suite."
 
+[tasks.lint]
+cmd = "ruff check src/lpap test notebooks bench"
+description = "Run Ruff lint checks."
+
+[tasks.format]
+cmd = "ruff format src/lpap test notebooks bench"
+description = "Format Python source with Ruff."
+
 [tasks.bench-lpap]
 cmd = "PYTHONPATH=src python bench/bench_lpap.py --batch {{ batch }} --values {{ values }} --buckets {{ buckets }} --k-max {{ k_max }} --warmup {{ warmup }} --iters {{ iters }}"
 args = [
