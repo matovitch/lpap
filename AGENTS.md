@@ -13,5 +13,6 @@ This project uses Pixi. Prefer Pixi for Python package installs, environment com
 - Keep reusable training/checkpoint/logging logic in `src/lpap/` helpers. Marimo notebooks should mostly declare config, call helpers, and render results rather than containing long training loops or persistence code.
 - Save local training checkpoints under `checkpoints/` and keep them out of Git. Prefer checkpoint payloads with separate `model_state` and `best_model_state`, plus optimizer state and lightweight training metadata when available.
 - Save local training logs under `training_logs/` as SQLite databases. Keep run configuration in one table and per-step or per-epoch KPIs in another so notebooks can resume and inspect training without parsing checkpoint payloads.
+- This is a research experiment; do not preserve backward compatibility for local SQLite logs or checkpoints unless explicitly requested. Prefer cleaning/regenerating local artifacts when schemas or checkpoint payloads change.
 - In marimo training loops, avoid checkpointing, SQLite writes, or `mo.output.replace` on every step unless the run is tiny. Use configurable cadences such as `checkpoint_every`, `log_every`, and `display_every`.
 - See `.github/skills/pixi-workflow/SKILL.md` for the local Pixi workflow skill.

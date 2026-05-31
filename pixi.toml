@@ -31,8 +31,32 @@ cmd = "PYTHONPATH=src marimo edit notebooks/synthetic_harmonics.py --no-token"
 description = "Open the synthetic harmonic visualization marimo notebook."
 
 [tasks.notebook-surrogate]
-cmd = "PYTHONPATH=src marimo edit notebooks/train_surrogate.py --no-token"
-description = "Open the LPAP surrogate training marimo notebook."
+cmd = "PYTHONPATH=src marimo edit notebooks/visualize_surrogate.py --no-token"
+description = "Open the LPAP surrogate visualization marimo notebook."
+
+[tasks.notebook-decoder]
+cmd = "PYTHONPATH=src marimo edit notebooks/visualize_decoder.py --no-token"
+description = "Open the LPAP decoder visualization marimo notebook."
+
+[tasks.notebook-image-to-energy]
+cmd = "PYTHONPATH=src marimo edit notebooks/visualize_image_to_energy.py --no-token"
+description = "Open the image-to-energy flow visualization marimo notebook."
+
+[tasks.notebook-energy-to-image]
+cmd = "PYTHONPATH=src marimo edit notebooks/visualize_energy_to_image.py --no-token"
+description = "Open the energy-to-image flow visualization marimo notebook."
+
+[tasks.notebook-energy-to-image-reflow]
+cmd = "PYTHONPATH=src marimo edit notebooks/visualize_energy_to_image_reflow.py --no-token"
+description = "Open the energy-to-image reflow visualization marimo notebook."
+
+[tasks.notebook-image-autoencoder]
+cmd = "PYTHONPATH=src marimo edit notebooks/visualize_image_autoencoder.py --no-token"
+description = "Open the image autoencoder visualization marimo notebook."
+
+[tasks.notebook-train]
+cmd = "PYTHONPATH=src marimo edit notebooks/train.py --no-token"
+description = "Open the shared LPAP model training marimo notebook."
 
 [dependencies]
 pytorch-gpu = ">=2.10.0,<3"
@@ -43,4 +67,4 @@ ruff = ">=0.15.14,<0.16"
 cuda-driver-dev = ">=12.9.79,<13"
 cuda-nvcc = ">=12.9.86,<13"
 cuda-cudart-dev = ">=12.9.79,<13"
-marimo = ">=0.23.5,<0.24"
+marimo = ">=0.23.8,<0.24"
