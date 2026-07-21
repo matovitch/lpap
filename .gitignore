@@ -21,3 +21,7 @@ checkpoints/*.pt
 # local training logs
 training_logs/*.sqlite
 training_logs/*.sqlite-*
+
+# Hugging Face / molab secrets (never commit)
+.hf_token
+.env

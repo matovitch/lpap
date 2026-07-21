@@ -35,7 +35,9 @@ This skill is the short agent checklist.
    ```
 
 5. **Artifacts** under `/marimo/checkpoints` and `/marimo/training_logs`.
-   Remind the user to download before idle kill.
+   Sync via `lpap.artifact_sync` to HF bucket `matovitch/lpap-molab-artifacts`
+   (`pixi run artifacts-upload` / `artifacts-download`). Remind the user to
+   sync before idle kill if they care about the run.
 
 ## Progress polling
 

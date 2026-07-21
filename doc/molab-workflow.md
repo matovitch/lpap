@@ -147,7 +147,27 @@ Follow the same policy as local training: do not
 worked well: `display_every=50`, `log_every=10`, checkpoint on validation
 improvement.
 
-## Surrogate trial (reference outcome)
+## Artifact sync (Hugging Face Storage Bucket)
+
+Public bucket: `matovitch/lpap-molab-artifacts` (mutable checkpoint/log store).
+
+On molab (write token from `/marimo/.hf_token` or `HF_TOKEN`):
+
+```python
+from lpap.artifact_sync import upload_training_artifacts
+upload_training_artifacts("/marimo")
+```
+
+Locally (public download, no login):
+
+```bash
+pixi run artifacts-download
+# or:
+PYTHONPATH=src python -m lpap.artifact_sync download --project-root .
+```
+
+Then open viz notebooks, e.g. `pixi run notebook-surrogate`.
+
 
 - Model order starts at **surrogate** (synthetic harmonics only; no image data).
 - Run on molab: 10k steps, CUDA, checkpoint

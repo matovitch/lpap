@@ -70,6 +70,14 @@ description = "Open the shared LPAP model training marimo notebook."
 cmd = "PYTHONPATH=src marimo edit notebooks/molab_lab.py --no-token"
 description = "Open the molab remote-GPU lab marimo notebook (local preview)."
 
+[tasks.artifacts-download]
+cmd = "PYTHONPATH=src python -m lpap.artifact_sync download --project-root ."
+description = "Download default surrogate checkpoint/log from the HF storage bucket."
+
+[tasks.artifacts-upload]
+cmd = "PYTHONPATH=src python -m lpap.artifact_sync upload --project-root ."
+description = "Upload default surrogate checkpoint/log to the HF storage bucket (needs HF_TOKEN)."
+
 [dependencies]
 pytorch-gpu = ">=2.10.0,<3"
 python = ">=3.14.5,<3.15"
@@ -80,3 +88,6 @@ cuda-driver-dev = ">=12.9.79,<13"
 cuda-nvcc = ">=12.9.86,<13"
 cuda-cudart-dev = ">=12.9.79,<13"
 marimo = ">=0.23.8,<0.24"
+
+[pypi-dependencies]
+huggingface-hub = ">=1.21.0, <2"
