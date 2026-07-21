@@ -1,8 +1,8 @@
 # Molab remote GPU workflow (agents)
 
-Summer workflow: drive free [molab](https://molab.marimo.io) RTX Pro 6000
-compute from a local agent via [marimo-pair](https://github.com/marimo-team/marimo-pair),
-while keeping the original Pixi checkout on `main` for local work.
+Drive free [molab](https://molab.marimo.io) GPUs from a local agent via
+[marimo-pair](https://github.com/marimo-team/marimo-pair). Keep the original
+Pixi checkout on `main` for local work.
 
 ## Topology
 
@@ -19,62 +19,35 @@ Laptop agent (Cursor/Zed)     molab sandbox
 | Molab / agent home | `../lpap-molab` on `molab-summer` |
 | Pair skill | `~/.cursor/skills/marimo-pair` |
 
-Do not mix day-to-day Pixi edits into the molab worktree unless you intend to
-backport. Prefer pushing package/notebook changes on `molab-summer` and
-installing that ref on molab.
+Push package/notebook changes on `molab-summer` and install that ref on molab.
+Do not mix routine Pixi work into the molab worktree unless backporting.
 
-## What the agent can and cannot do on molab
+## Capabilities
 
-**Can (once paired):**
+**Agent can (once paired):** scratchpad Python; create/edit/run cells via
+`marimo._code_mode`; install pip/uv packages; read checkpoints/SQLite; toast.
 
-- Execute scratchpad Python in the live kernel (`execute-code.sh --url …`)
-- Create / edit / run / delete **cells** via `marimo._code_mode` (`cm`)
-- Install packages the way the notebook already does (pip/uv in-kernel)
-- Read checkpoints, SQLite logs, and globals for progress
-- Toast the UI (`mo.status.toast`)
+**Agent cannot:** open molab sessions, attach GPUs, SSH, or use conda/prefix.dev
+channels (`uv`/pip only). One pair URL/token at a time.
 
-**Cannot:**
+**Human:** open the durable notebook, attach GPU, **Pair with an agent**, paste
+URL + token. Prefer reusing the same molab notebook URL across sessions.
 
-- Open a new molab notebook session or attach a GPU (browser UI only)
-- SSH into the sandbox
-- Pair reliably to several notebooks at once (one active pair URL/token)
-- Install conda packages from a prefix.dev channel with `uv` (molab is
-  uv/pip; publish wheels or `git+https` instead)
-
-**Human bottleneck:** create or open the molab notebook, attach GPU, click
-**Pair with an agent**, paste URL + token into the agent. After that the agent
-should stay inside that one notebook.
-
-## Notebook policy (keep the set small)
-
-Prefer **one long-lived generic lab notebook** on molab, not a fleet of
-one-off notebooks.
+## Notebooks
 
 | Notebook | Purpose |
 | --- | --- |
-| `notebooks/molab_lab.py` | **Primary.** Smoke + install + generic chunked training by `model_kind` (same idea as local `notebooks/train.py`) |
-| `notebooks/molab_poc.py` | Optional minimal CUDA/`lpap_torch` smoke; fold into lab when convenient |
-| Local `notebooks/train.py` | Unchanged Pixi workflow on `main` |
+| `notebooks/molab_lab.py` | Primary remote lab: install, CUDA smoke, chunked train by `model_kind` |
+| Local `notebooks/train.py` | Pixi training UI on `main` |
+| Local `notebooks/visualize_*.py` | Curves/galleries after `pixi run artifacts-download` |
 
-`molab_lab.py` controls: model kind, target steps, **chunk steps**, `display_every`,
-`log_every`. Each run of the train cell advances at most one chunk and resumes
-from the checkpoint, so agents can poll SQLite between chunks.
+Controls on the lab notebook: model kind, target steps, chunk steps,
+`display_every`, `log_every`. Train logic stays in `src/lpap/`.
 
+While paired, mutate the **live** notebook with `cm` (not the `.py` on disk).
+Backport stable cell structure to `molab_lab.py` on `molab-summer` when useful.
 
-Rules:
-
-1. One molab session ↔ one pair token. Reuse the same notebook across models.
-2. Mutate the **live** notebook with `cm`, not the `.py` on disk, while paired.
-3. After a good session, backport durable cell structure into
-   `notebooks/molab_lab.py` on `molab-summer` and push so the next molab open
-   is not empty archaeology.
-4. Keep training logic in `src/lpap/`; notebook cells should select
-   `model_kind`, tweak run knobs, call `create_training_session` /
-   `iter_training`, and render progress.
-
-## Package install on molab
-
-Molab preinstalls torch. Install the project with git and skip resolving torch:
+## Package install
 
 ```bash
 python -m pip install --no-deps \
@@ -82,133 +55,67 @@ python -m pip install --no-deps \
 python -m pip install "jaxtyping>=0.3.7"
 ```
 
-Notes:
+`molab-summer` relaxes `requires-python` for molab; `main` may stay stricter.
+`lpap` is not on PyPI — do not `uv add lpap==0.1.0`. After pulling new commits,
+`--force-reinstall` the git ref if imports are missing.
 
-- `requires-python` on `molab-summer` is relaxed to `>=3.11` so molab’s Python
-  can install the package (`main` may stay stricter for local Pixi).
-- Auto-`uv add lpap==0.1.0` from PyPI will fail (package is not on PyPI). Prefer
-  the git URL above, or import from an already-installed environment.
-- prefix.dev / Pixi conda channels are for **local** Pixi, not molab uv.
+Sandbox artifacts: `/marimo/checkpoints/*.pt`, `/marimo/training_logs/*.sqlite`
+(idle ~90 min / session ~12 h).
 
-Artifacts live under the sandbox cwd (typically `/marimo`):
+## Shared training (code mode)
 
-- `checkpoints/*.pt`
-- `training_logs/*.sqlite`
+Put multi-minute trains in **visible cells** (`hide_code=False`, progress bar /
+`mo.output.replace`) so the human sees the run. Scratchpad is for probes,
+installs, and artifact sync only.
 
-Download them before idle shutdown (~90 minutes idle, ~12 hour max session).
+- Do not start a second `execute-code` while a train cell runs (`MarimoInterrupt`).
+- Prefer chunked training + SQLite polls **between** chunks; resume with
+  `resume_from_checkpoint=True`.
+- DAG: do not redefine `mo` / `torch` / `lpap`; use `_` locals; import training
+  helpers once in setup.
+- Cadences: e.g. `display_every=50`, `log_every=10`; checkpoint on improvement.
 
-## Pairing and code-mode gotchas (lessons from the surrogate run)
-
-### Share the notebook canvas (do not train only in the scratchpad)
-
-Scratchpad `execute-code` runs on the GPU kernel but leaves the human mostly
-blind: no durable cells, weak progress UI. For interactive pairing, put the
-train/status loop in **notebook cells** via `marimo._code_mode`:
-
-- `ctx.create_cell(..., hide_code=False)` for setup + chunked train
-- `mo.status.progress_bar` / `mo.output.replace` so the browser shows steps
-- Re-run the train cell for the next chunk; poll SQLite **between** chunks
-
-Reserve the scratchpad for smoke checks, package installs, and
-`lpap.artifact_sync` upload/download.
-
-### Do not parallel-pair during a long cell
-
-`execute-code.sh` shares the kernel. A second pair request while a training
-cell is running can raise `MarimoInterrupt` and kill the loop. Progress may
-still be on disk (SQLite / checkpoint) if `TrainingRun` flushed earlier.
-
-**Safe patterns:**
-
-1. **Single long call** — one `execute-code` runs setup + train and blocks
-   until the cell finishes; await that process only.
-2. **Chunked training (preferred for agents)** — train N steps (e.g. 500–2000),
-   return, then scratchpad-query SQLite (`MAX(step)`, latest loss), then start
-   the next chunk. Resume uses `resume_from_checkpoint=True`.
-
-### How to poll progress
-
-From scratchpad (between chunks, or after a run):
+Poll between chunks:
 
 ```python
 import sqlite3
-conn = sqlite3.connect("/marimo/training_logs/surrogate.sqlite")
+conn = sqlite3.connect("/marimo/training_logs/<model>.sqlite")
 print(conn.execute("SELECT MAX(step) FROM step_metrics").fetchone()[0])
-print(conn.execute(
-    "SELECT step, metric_name, metric_value FROM step_metrics "
-    "ORDER BY step DESC, metric_name LIMIT 12"
-).fetchall())
 ```
 
-Also inspect `/marimo/checkpoints/<name>.pt` (`step`, `best_metric`).
+## Artifact sync (HF Storage Bucket)
 
-Cell status via code mode (`ctx.cells[cid].status`) shows idle/stale/running
-but does not stream per-step metrics by itself.
-
-### Marimo DAG rules when adding cells
-
-- Do not re-import public names already defined (`mo`, `torch`, `lpap`).
-- Use leading-underscore names for cell-local temporaries.
-- Pass `hide_code=False` on `create_cell` so humans can see agent-added cells.
-- Training helpers are lazy exports: prefer
-  `from lpap.training_notebook import …` inside a setup cell once.
-
-### Cadences
-
-Follow the same policy as local training: do not
-`mo.output.replace` / log / checkpoint every step. On molab defaults that
-worked well: `display_every=50`, `log_every=10`, checkpoint on validation
-improvement.
-
-## Artifact sync (Hugging Face Storage Bucket)
-
-Public bucket: `matovitch/lpap-molab-artifacts` (mutable checkpoint/log store).
-
-On molab (write token from `/marimo/.hf_token` or `HF_TOKEN`):
+Bucket: `matovitch/lpap-molab-artifacts` (public). Write token on molab via
+`/marimo/.hf_token` or `HF_TOKEN` (gitignored). Local download needs no login.
 
 ```python
+# molab
 from lpap.artifact_sync import upload_training_artifacts
-upload_training_artifacts("/marimo")
+upload_training_artifacts(
+    "/marimo",
+    checkpoint_names=("surrogate_synthetic.pt", "decoder_synthetic.pt"),
+    log_names=("surrogate.sqlite", "decoder.sqlite"),
+)
 ```
-
-Locally (public download, no login):
 
 ```bash
+# local
 pixi run artifacts-download
-# or:
-PYTHONPATH=src python -m lpap.artifact_sync download --project-root .
+# or with extra names:
+PYTHONPATH=src python -m lpap.artifact_sync download --project-root . \
+  --checkpoint decoder_synthetic.pt --log decoder.sqlite
 ```
 
-Then open viz notebooks, e.g. `pixi run notebook-surrogate`.
+Viz notebooks resolve molab absolute `/marimo/checkpoints/...` log paths to
+local `checkpoints/<name>`.
 
+## Training order
 
-- Model order starts at **surrogate** (synthetic harmonics only; no image data).
-- Run on molab: 10k steps, CUDA, checkpoint
-  `/marimo/checkpoints/surrogate_synthetic.pt`.
-- Interruptions mid-cell were recoverable via resume from checkpoint + SQLite
-  `max(step)`.
-- Approximate final: train loss ~0.34, best validation loss ~0.34, validation
-  weighted accuracy ~0.90.
+`surrogate` → `decoder` → image flows → reflow → `image_autoencoder`.
+Surrogate/decoder need no image dataset (synthetic harmonics).
 
-Next model in dependency order: **decoder** (teacher = surrogate checkpoint).
+## Session checklist
 
-## Human checklist (each molab session)
-
-1. Open the single lab notebook on molab (GitHub sync from `molab-summer` or
-   reopen the same molab URL).
-2. Attach **RTX Pro 6000**.
-3. Pair with agent → paste URL + token into the agent on the `lpap-molab`
-   worktree.
-4. Agent: verify CUDA + `import lpap`, then train/eval inside that notebook.
-5. Before leaving: download checkpoints (and logs if useful); avoid 90+ minutes
-   idle if a run should continue.
-
-## Agent checklist
-
-1. Confirm pair URL/token; smoke `print("connected")`.
-2. Avoid starting a second `execute-code` while a train cell is active.
-3. Prefer chunked training + SQLite polls.
-4. Persist durable notebook structure back to git on `molab-summer` when the
-   lab cells stabilize.
-5. Do not change the `main` worktree Pixi workflow unless backporting
-   deliberately.
+**Human:** open lab notebook → attach RTX Pro 6000 → pair → paste URL/token.  
+**Agent:** connect smoke → code-mode train in chunks → HF upload before idle.  
+**Local:** `artifacts-download` → `pixi run notebook-surrogate` / `notebook-decoder`.

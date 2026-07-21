@@ -18,9 +18,8 @@ Start here when navigating the LPAP research stack.
 
 ## Remote GPU (molab)
 
-- [Molab workflow](molab-workflow.md): worktree split, marimo-pair, one-notebook
-  policy, git install, chunked training, and progress polling for agents.
-- [Molab POC quickstart](molab-poc.md): short open/pair checklist.
+- [Molab workflow](molab-workflow.md): worktree, marimo-pair, lab notebook,
+  chunked training, HF artifact sync, local viz.
 
 ## Common Workflows
 
