@@ -41,6 +41,27 @@ from lpap.training_plots import (
 )
 
 
+def resolve_logged_checkpoint_path(
+    project_root: str | Path, checkpoint_path: str | Path
+) -> Path:
+    """Resolve a run-log checkpoint path for the local project tree.
+
+    Molab logs often store absolute sandbox paths such as
+    ``/marimo/checkpoints/foo.pt``. Prefer an existing absolute path, otherwise
+    fall back to ``project_root / checkpoints / <name>``.
+    """
+    root = Path(project_root)
+    path = Path(checkpoint_path)
+    if not path.is_absolute():
+        return root / path
+    if path.exists():
+        return path
+    local = root / "checkpoints" / path.name
+    if local.exists():
+        return local
+    return path
+
+
 def render_decoder_run_gallery(
     *,
     project_root: str | Path,
@@ -54,9 +75,7 @@ def render_decoder_run_gallery(
         record["config"], resume_from_checkpoint=False
     )
     session = create_lpap_decoder_training_session(project_root=root, config=config)
-    checkpoint_path = Path(record["checkpoint_path"])
-    if not checkpoint_path.is_absolute():
-        checkpoint_path = root / checkpoint_path
+    checkpoint_path = resolve_logged_checkpoint_path(root, record["checkpoint_path"])
     payload = load_training_checkpoint(checkpoint_path, map_location=session.device)
     state = payload.get("best_model_state")
     if state is None:
@@ -82,9 +101,7 @@ def render_image_to_energy_run_gallery(
     )
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     flow = DilatedConvFlow1d(**config.flow.as_dict()).to(device)
-    checkpoint_path = Path(record["checkpoint_path"])
-    if not checkpoint_path.is_absolute():
-        checkpoint_path = root / checkpoint_path
+    checkpoint_path = resolve_logged_checkpoint_path(root, record["checkpoint_path"])
     payload = load_training_checkpoint(checkpoint_path, map_location=device)
     state = payload.get("best_model_state")
     if state is None:
@@ -126,9 +143,7 @@ def render_energy_to_image_run_gallery(
         record["config"], resume_from_checkpoint=False
     )
     session = create_energy_to_image_training_session(project_root=root, config=config)
-    checkpoint_path = Path(record["checkpoint_path"])
-    if not checkpoint_path.is_absolute():
-        checkpoint_path = root / checkpoint_path
+    checkpoint_path = resolve_logged_checkpoint_path(root, record["checkpoint_path"])
     payload = load_training_checkpoint(checkpoint_path, map_location=session.device)
     state = payload.get("best_model_state")
     if state is None:
@@ -160,9 +175,7 @@ def render_energy_to_image_reflow_run_gallery(
     session = create_energy_to_image_reflow_training_session(
         project_root=root, config=config
     )
-    checkpoint_path = Path(record["checkpoint_path"])
-    if not checkpoint_path.is_absolute():
-        checkpoint_path = root / checkpoint_path
+    checkpoint_path = resolve_logged_checkpoint_path(root, record["checkpoint_path"])
     payload = load_training_checkpoint(checkpoint_path, map_location=session.device)
     state = payload.get("best_model_state")
     if state is None:
@@ -192,9 +205,7 @@ def render_image_autoencoder_run_gallery(
     session = create_image_autoencoder_training_session(
         project_root=root, config=config
     )
-    checkpoint_path = Path(record["checkpoint_path"])
-    if not checkpoint_path.is_absolute():
-        checkpoint_path = root / checkpoint_path
+    checkpoint_path = resolve_logged_checkpoint_path(root, record["checkpoint_path"])
     payload = load_training_checkpoint(checkpoint_path, map_location=session.device)
     state = payload.get("best_model_state")
     if state is None:
