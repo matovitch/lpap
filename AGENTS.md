@@ -22,11 +22,12 @@ This project uses Pixi. Prefer Pixi for Python package installs, environment com
 - **Molab / remote GPU (summer worktree):** use the sibling checkout on branch
   `molab-summer` (`../lpap-molab`). Prefer **one** long-lived molab notebook and
   a single marimo-pair session; the human opens/pairs in the browser (agents
-  cannot create molab sessions or attach GPUs). Drive the live kernel with
-  marimo-pair code mode; do not send a second `execute-code` while a training
-  cell is running (it can interrupt the run). Prefer chunked training and poll
-  SQLite / checkpoints between chunks. Install `lpap` on molab from
-  `git+https://…@molab-summer` with `--no-deps` plus `jaxtyping` — not from a
-  prefix.dev conda channel. Details:
+  cannot create molab sessions or attach GPUs). Drive shared training through
+  **visible code-mode cells** (progress UI in the notebook); use the scratchpad
+  only for short probes/installs/artifact sync. Do not send a second
+  `execute-code` while a training cell is running (it can interrupt the run).
+  Prefer chunked training and poll SQLite / checkpoints between chunks. Install
+  `lpap` on molab from `git+https://…@molab-summer` with `--no-deps` plus
+  `jaxtyping` — not from a prefix.dev conda channel. Details:
   [doc/molab-workflow.md](doc/molab-workflow.md) and
   `.github/skills/molab-workflow/SKILL.md`.

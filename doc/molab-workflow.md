@@ -99,6 +99,19 @@ Download them before idle shutdown (~90 minutes idle, ~12 hour max session).
 
 ## Pairing and code-mode gotchas (lessons from the surrogate run)
 
+### Share the notebook canvas (do not train only in the scratchpad)
+
+Scratchpad `execute-code` runs on the GPU kernel but leaves the human mostly
+blind: no durable cells, weak progress UI. For interactive pairing, put the
+train/status loop in **notebook cells** via `marimo._code_mode`:
+
+- `ctx.create_cell(..., hide_code=False)` for setup + chunked train
+- `mo.status.progress_bar` / `mo.output.replace` so the browser shows steps
+- Re-run the train cell for the next chunk; poll SQLite **between** chunks
+
+Reserve the scratchpad for smoke checks, package installs, and
+`lpap.artifact_sync` upload/download.
+
 ### Do not parallel-pair during a long cell
 
 `execute-code.sh` shares the kernel. A second pair request while a training

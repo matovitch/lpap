@@ -22,19 +22,24 @@ This skill is the short agent checklist.
 
 1. **One paired notebook.** Do not ask for a second molab notebook unless the
    current session is dead. Prefer a single generic lab notebook.
-2. **No parallel `execute-code` during training.** A second call can
+2. **Prefer code-mode cells for shared work.** Long training / status updates
+   should live in visible notebook cells (`cm.create_cell` / `run_cell` with
+   `hide_code=False` and `mo.output.replace` / progress UI) so the human is
+   not blind. Use the scratchpad only for short probes, installs, or HF
+   upload/download — not as the only place a multi-minute train runs.
+3. **No parallel `execute-code` during training.** A second call can
    `MarimoInterrupt` the train cell. Chunk train → poll → chunk.
-3. **Live kernel is source of truth.** Use `marimo._code_mode` (`cm`) to change
+4. **Live kernel is source of truth.** Use `marimo._code_mode` (`cm`) to change
    cells while paired; do not edit the notebook `.py` on disk during the
    session.
-4. **Install from git**, not PyPI or conda/prefix.dev:
+5. **Install from git**, not PyPI or conda/prefix.dev:
 
    ```text
    pip install --no-deps "lpap @ git+https://github.com/matovitch/lpap.git@molab-summer"
    pip install "jaxtyping>=0.3.7"
    ```
 
-5. **Artifacts** under `/marimo/checkpoints` and `/marimo/training_logs`.
+6. **Artifacts** under `/marimo/checkpoints` and `/marimo/training_logs`.
    Sync via `lpap.artifact_sync` to HF bucket `matovitch/lpap-molab-artifacts`
    (`pixi run artifacts-upload` / `artifacts-download`). Remind the user to
    sync before idle kill if they care about the run.
