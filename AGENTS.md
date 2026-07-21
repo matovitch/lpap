@@ -19,3 +19,14 @@ This project uses Pixi. Prefer Pixi for Python package installs, environment com
 - Keep the test suite CPU-runnable. Gate CUDA and Triton-GPU tests with `unittest.skipUnless(torch.cuda.is_available(), ...)`. CI runs on CPU-only GitHub runners that mock the `__cuda` virtual package via `CONDA_OVERRIDE_CUDA`, so anything not gated must pass without a GPU.
 - Ruff is configured in `pyproject.toml` to ignore the jaxtyping shape-string warnings (`F722`/`F821`) globally; do not add inline `# noqa` for them.
 - See `.github/skills/pixi-workflow/SKILL.md` for the local Pixi workflow skill.
+- **Molab / remote GPU (summer worktree):** use the sibling checkout on branch
+  `molab-summer` (`../lpap-molab`). Prefer **one** long-lived molab notebook and
+  a single marimo-pair session; the human opens/pairs in the browser (agents
+  cannot create molab sessions or attach GPUs). Drive the live kernel with
+  marimo-pair code mode; do not send a second `execute-code` while a training
+  cell is running (it can interrupt the run). Prefer chunked training and poll
+  SQLite / checkpoints between chunks. Install `lpap` on molab from
+  `git+https://…@molab-summer` with `--no-deps` plus `jaxtyping` — not from a
+  prefix.dev conda channel. Details:
+  [doc/molab-workflow.md](doc/molab-workflow.md) and
+  `.github/skills/molab-workflow/SKILL.md`.

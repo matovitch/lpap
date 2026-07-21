@@ -16,6 +16,12 @@ Start here when navigating the LPAP research stack.
 
 - [Dataset storage notes](data-storage.md): local image tensor storage, generated data policy, and ignored large artifacts.
 
+## Remote GPU (molab)
+
+- [Molab workflow](molab-workflow.md): worktree split, marimo-pair, one-notebook
+  policy, git install, chunked training, and progress polling for agents.
+- [Molab POC quickstart](molab-poc.md): short open/pair checklist.
+
 ## Common Workflows
 
 ```sh
