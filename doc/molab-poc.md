@@ -28,9 +28,10 @@ git push -u origin molab-summer
 
 ## Cursor pairing
 
-```bash
-npx skills add marimo-team/marimo-pair
-```
+Skill installed locally at `~/.cursor/skills/marimo-pair`
+(clone of [marimo-team/marimo-pair](https://github.com/marimo-team/marimo-pair);
+`npx` was not available on this machine).
 
 On molab: Actions → **Pair with an agent** → paste the prompt into
-Cursor Agent (open the worktree). Ask the agent to re-run the smoke cells.
+Cursor/Zed Agent (open the `lpap-molab` worktree). Ask the agent to re-run
+the smoke cells.
