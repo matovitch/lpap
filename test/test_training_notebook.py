@@ -66,12 +66,13 @@ class TrainingNotebookConfigTest(unittest.TestCase):
         )
         self.assertIsInstance(image_autoencoder, ImageAutoencoderTrainingConfig)
         self.assertEqual(image_autoencoder.run.run_id, "image_autoencoder")
-        self.assertEqual(image_autoencoder.integration.image_to_energy_steps, 8)
-        self.assertEqual(image_autoencoder.integration.energy_to_image_steps, 8)
+        self.assertEqual(image_autoencoder.integration.image_to_energy_steps, 16)
+        self.assertEqual(image_autoencoder.integration.energy_to_image_steps, 16)
         self.assertEqual(
             image_autoencoder.source.energy_to_image_checkpoint_name,
-            "energy_to_image_reflow_8.pt",
+            "energy_to_image.pt",
         )
+        self.assertEqual(image_autoencoder.run.tags, ("e2e", "16-step", "no-reflow"))
 
     def test_loads_custom_surrogate_toml_config(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
