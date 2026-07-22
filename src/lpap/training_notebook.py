@@ -127,7 +127,7 @@ def default_surrogate_training_config() -> LPAPSurrogateTrainingConfig:
         model=LPAPSurrogateModelConfig(
             k_max=4,
             hidden_dim=256,
-            layer_count=8,
+            layer_count=12,
             head_count=8,
         ),
         optimizer=LPAPSurrogateOptimizerConfig(learning_rate=1.0e-3),

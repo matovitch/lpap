@@ -15,6 +15,9 @@ Read [doc/molab-workflow.md](../../doc/molab-workflow.md) for full notes.
 - Worktree: `lpap-molab` / branch `molab-summer` (leave `../lpap` on `main`).
 - Pair with user URL + token via
   `~/.cursor/skills/marimo-pair/scripts/execute-code.sh`.
+- Before cell surgery on a messy remote notebook, run
+  `~/.cursor/skills/marimo-pair/scripts/notebook-map.sh --url …`
+  (prefer `edit_cell` / delete detached POC cells over stacking new ones).
 
 ## Hard rules
 
