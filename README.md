@@ -168,6 +168,6 @@ Local checkpoints and SQLite logs are research artifacts. The project does not p
 
 ## Data
 
-Large local dataset artifacts under `data/` are intentionally ignored by Git. The local training artifact is `data/images_32x32_gray.pt`. Load it with `lpap.data.load_image_tensor_dataset` or construct a dataloader with `lpap.data.image_dataloader`.
+Large local dataset artifacts under `data/` are intentionally ignored by Git. Fetch the public archive with `pixi run data-download` (writes `data/images_32x32_gray.pt`), then load it with `lpap.data.load_image_tensor_dataset` or `lpap.data.image_dataloader`. Details: [Dataset storage notes](doc/data-storage.md).
 
 The project also includes a batched synthetic harmonic generator. Use `lpap.data.sample_synthetic_harmonic_batch` for direct tensor generation, or `lpap.data.synthetic_harmonic_dataloader` for a prebatched iterable dataloader.

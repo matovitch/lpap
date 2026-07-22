@@ -4,30 +4,44 @@ See the [documentation index](index.md) for the full documentation map and the [
 
 The image archive is too large for normal Git history. GitHub rejects regular files above 100 MB, and even when Git LFS is used, large files still count against storage and bandwidth quotas.
 
-Recommended options:
+## Public download (recommended)
 
-- Use DVC with a remote store such as S3, an SSH server, or another object store. Commit only the small `.dvc` pointer files and keep the archive data outside `.git`.
-- Use Hugging Face Datasets when the data can be public or shared through that platform. It is a natural fit for ML datasets and uses large-file storage behind the scenes.
-- Use GitHub Releases for occasional immutable artifacts. This is simple, but less ergonomic than DVC for versioned datasets.
-- Use Git LFS only if the expected archive size, bandwidth, and team workflow fit the GitHub LFS quota model.
+The training images live on the public Hugging Face storage bucket
+[`matovitch/lpap-images`](https://huggingface.co/buckets/matovitch/lpap-images)
+as `images_32x32_gray.pt.zst`. Fetch and decompress into `data/`:
 
-For this repository, the conservative default is to ignore local dataset artifacts under `data/` and regenerate or fetch them outside Git.
+```sh
+pixi run data-download
+# or:
+PYTHONPATH=src python -m lpap.dataset_fetch --project-root .
+```
+
+This writes `data/images_32x32_gray.pt` and keeps the local `.zst` as a cache
+unless you pass `--delete-zst`. If the `.pt` already exists, the download is
+skipped. Use `--force-download` to refresh from the bucket.
+
+Training checkpoints and molab run artifacts use a **different** bucket
+(`matovitch/lpap-molab-artifacts`); do not mix the two.
+
+Other options (DVC, Git LFS, GitHub Releases) remain possible, but the HF
+bucket + `lpap.dataset_fetch` path is the default for public clones.
 
 ## PyTorch Dataset
 
-The current local workflow keeps data out of Git and uses one single PyTorch file for training: `data/images_32x32_gray.pt`.
+The local training file is `data/images_32x32_gray.pt`.
 
-The `.pt` payload stores images as one `torch.uint8` tensor with `NCHW` layout and one grayscale channel. Use `lpap.data.load_image_tensor_dataset` for a `Dataset`, or `lpap.data.image_dataloader` for a ready `DataLoader`.
+The `.pt` payload stores images as one `torch.uint8` tensor with `NCHW` layout and one grayscale channel (~1.33M samples at 32×32). Use `lpap.data.load_image_tensor_dataset` for a `Dataset`, or `lpap.data.image_dataloader` for a ready `DataLoader`. Call `lpap.dataset_fetch.ensure_image_tensor_archive` first when the file may be missing.
 
 ```mermaid
 flowchart LR
-    archive[External image archive]
+    bucket[HF bucket lpap-images]
+    zst[images_32x32_gray.pt.zst]
     pt[data/images_32x32_gray.pt]
     dataset[ImageTensorDataset]
     loader[DataLoader]
     training[Flow training]
 
-    archive --> pt --> dataset --> loader --> training
+    bucket --> zst --> pt --> dataset --> loader --> training
 ```
 
 ## Local Training Artifacts

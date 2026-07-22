@@ -34,6 +34,8 @@ Read [doc/molab-workflow.md](../../doc/molab-workflow.md) for full notes.
 
 6. **Sync artifacts** with `lpap.artifact_sync` ↔ bucket
    `matovitch/lpap-molab-artifacts` before idle kill.
+7. **Images** from public bucket `matovitch/lpap-images` via
+   `ensure_image_tensor_archive` / `pixi run data-download` (cached `.pt`).
 
 ## Training order
 

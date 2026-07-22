@@ -109,6 +109,21 @@ PYTHONPATH=src python -m lpap.artifact_sync download --project-root . \
 Viz notebooks resolve molab absolute `/marimo/checkpoints/...` log paths to
 local `checkpoints/<name>`.
 
+## Image dataset (separate bucket)
+
+Training images: public bucket `matovitch/lpap-images`
+(`images_32x32_gray.pt.zst`). Local or molab:
+
+```bash
+pixi run data-download
+# or:
+from lpap.dataset_fetch import ensure_image_tensor_archive
+ensure_image_tensor_archive("/marimo")  # or project root
+```
+
+Caches `data/images_32x32_gray.pt` (skips if present). Do not confuse with
+`lpap-molab-artifacts`.
+
 ## Training order
 
 `surrogate` → `decoder` → image flows → reflow → `image_autoencoder`.

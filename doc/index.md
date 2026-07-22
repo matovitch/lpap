@@ -14,12 +14,7 @@ Start here when navigating the LPAP research stack.
 
 ## Data And Artifacts
 
-- [Dataset storage notes](data-storage.md): local image tensor storage, generated data policy, and ignored large artifacts.
-
-## Remote GPU (molab)
-
-- [Molab workflow](molab-workflow.md): worktree, marimo-pair, lab notebook,
-  chunked training, HF artifact sync, local viz.
+- [Dataset storage notes](data-storage.md): public HF image archive download, local `.pt` cache, and ignored large artifacts.
 
 ## Common Workflows
 
