@@ -62,9 +62,25 @@ description = "Open the energy-to-image reflow visualization marimo notebook."
 cmd = "PYTHONPATH=src marimo edit notebooks/visualize_image_autoencoder.py --no-token"
 description = "Open the image autoencoder visualization marimo notebook."
 
+[tasks.ae-loss-probe]
+cmd = "PYTHONPATH=src python -m lpap.image_autoencoder_loss --project-root . --suggest"
+description = "Probe AE loss-component magnitudes and suggest lambda dials."
+
 [tasks.notebook-train]
 cmd = "PYTHONPATH=src marimo edit notebooks/train.py --no-token"
 description = "Open the shared LPAP model training marimo notebook."
+
+[tasks.notebook-molab-lab]
+cmd = "PYTHONPATH=src marimo edit notebooks/molab_lab.py --no-token"
+description = "Open the molab remote-GPU lab marimo notebook (local preview)."
+
+[tasks.artifacts-download]
+cmd = "PYTHONPATH=src python -m lpap.artifact_sync download --project-root ."
+description = "Download default surrogate checkpoint/log from the HF storage bucket."
+
+[tasks.artifacts-upload]
+cmd = "PYTHONPATH=src python -m lpap.artifact_sync upload --project-root ."
+description = "Upload default surrogate checkpoint/log to the HF storage bucket (needs HF_TOKEN)."
 
 [tasks.data-download]
 cmd = "PYTHONPATH=src python -m lpap.dataset_fetch --project-root ."

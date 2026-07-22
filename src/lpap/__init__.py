@@ -186,6 +186,15 @@ _LAZY_MODULE_EXPORTS: dict[str, tuple[str, ...]] = {
         "train_flow_matching_step",
         "validate_image_flow_shape",
     ),
+    "image_autoencoder_loss": (
+        "ImageAutoencoderLossProbe",
+        "SignedMassStats",
+        "apply_suggested_loss_weights",
+        "format_loss_probe_report",
+        "probe_image_autoencoder_loss",
+        "signed_mass_balance_loss",
+        "suggest_image_autoencoder_loss_weights",
+    ),
     "image_autoencoder_training": (
         "ImageAutoencoderFlowConfig",
         "ImageAutoencoderForward",

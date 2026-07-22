@@ -24,6 +24,7 @@ from lpap.energy_to_image_training import (
 )
 from lpap.flow import DilatedConvFlow1d, integrate_euler_midpoint_time
 from lpap.hilbert import hilbert_unflatten_images
+from lpap.image_autoencoder_loss import signed_mass_balance_loss
 from lpap.flow_training import (
     FlowImageConfig,
     FlowModelConfig,
@@ -113,10 +114,12 @@ class ImageAutoencoderLossConfig:
     image_l2_weight: float = 1.0
     energy_l1_weight: float = 0.25
     surrogate_teacher_weight: float = 0.1
-    # Mild signed-mass balance on encoded energy e:
-    #   m+ = mean(relu(e)),  m- = mean(relu(-e))
-    #   L = ((m+ - m-) / (m+ + m- + eps))^2
+    # Signed-mass on encoded energy e (see image_autoencoder_loss.py):
+    #   m+/m- = mean(relu(+/- e)); scale by floor_tau (not by m++m-).
+    #   L = ((m+-m-)/tau)^2 + floor_coef * sum_sides (relu(tau-m)/tau)^2
     signed_mass_balance_weight: float = 0.01
+    signed_mass_floor_tau: float = 0.01
+    signed_mass_floor_coef: float = 1.0
     detach_energy_target: bool = False
 
     def validate(self) -> None:
@@ -128,6 +131,10 @@ class ImageAutoencoderLossConfig:
             raise ValueError("surrogate_teacher_weight must be non-negative")
         if self.signed_mass_balance_weight < 0:
             raise ValueError("signed_mass_balance_weight must be non-negative")
+        if self.signed_mass_floor_tau <= 0:
+            raise ValueError("signed_mass_floor_tau must be positive")
+        if self.signed_mass_floor_coef < 0:
+            raise ValueError("signed_mass_floor_coef must be non-negative")
         if (
             self.image_l2_weight == 0
             and self.energy_l1_weight == 0
@@ -141,27 +148,10 @@ class ImageAutoencoderLossConfig:
             "energy_l1_weight": self.energy_l1_weight,
             "surrogate_teacher_weight": self.surrogate_teacher_weight,
             "signed_mass_balance_weight": self.signed_mass_balance_weight,
+            "signed_mass_floor_tau": self.signed_mass_floor_tau,
+            "signed_mass_floor_coef": self.signed_mass_floor_coef,
             "detach_energy_target": self.detach_energy_target,
         }
-
-
-def signed_mass_balance_loss(
-    energy: torch.Tensor, *, eps: float = 1.0e-12
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Scale-free signed-mass imbalance on latent energy.
-
-    With ``m+ = mean(relu(e))`` and ``m- = mean(relu(-e))``::
-
-        L = ((m+ - m-) / (m+ + m- + eps))^2
-
-    Returns ``(loss, signed_mass_imbalance)`` where imbalance is
-    ``(m+ - m-) / (m+ + m- + eps)`` in ``[-1, 1]``.
-    """
-    positive_mass = torch_functional.relu(energy).mean()
-    negative_mass = torch_functional.relu(-energy).mean()
-    total_mass = positive_mass + negative_mass
-    imbalance = (positive_mass - negative_mass) / (total_mass + eps)
-    return imbalance.square(), imbalance
 
 
 @dataclass(frozen=True)
@@ -307,6 +297,10 @@ class ImageAutoencoderMetrics:
     surrogate_weighted_accuracy: float
     signed_mass_balance: float
     signed_mass_imbalance: float
+    signed_mass_gap: float
+    signed_mass_floor: float
+    encoded_positive_mass: float
+    encoded_negative_mass: float
     encoded_energy_rms: float
     decoded_energy_rms: float
     reconstructed_image_rms: float
@@ -447,6 +441,10 @@ def image_autoencoder_training_config_from_dict(
             surrogate_teacher_weight=float(data["loss"]["surrogate_teacher_weight"]),
             signed_mass_balance_weight=float(
                 data["loss"].get("signed_mass_balance_weight", 0.01)
+            ),
+            signed_mass_floor_tau=float(data["loss"].get("signed_mass_floor_tau", 0.01)),
+            signed_mass_floor_coef=float(
+                data["loss"].get("signed_mass_floor_coef", 1.0)
             ),
             detach_energy_target=bool(data["loss"]["detach_energy_target"]),
         ),
@@ -689,13 +687,21 @@ def _forward_loss(
         else output.encoded_energy
     )
     energy_l1 = torch_functional.l1_loss(output.decoded_energy, energy_target)
-    signed_mass, signed_mass_imbalance = signed_mass_balance_loss(output.encoded_energy)
+    signed_mass, signed_mass_imbalance, signed_gap, signed_floor = (
+        signed_mass_balance_loss(
+            output.encoded_energy,
+            floor_tau=config.loss.signed_mass_floor_tau,
+            floor_coef=config.loss.signed_mass_floor_coef,
+        )
+    )
     loss = (
         config.loss.image_l2_weight * image_l2
         + config.loss.energy_l1_weight * energy_l1
         + config.loss.surrogate_teacher_weight * surrogate_teacher_ce
         + config.loss.signed_mass_balance_weight * signed_mass
     )
+    positive_mass = torch_functional.relu(output.encoded_energy).mean()
+    negative_mass = torch_functional.relu(-output.encoded_energy).mean()
     metrics = ImageAutoencoderMetrics(
         loss=float(loss.detach().cpu()),
         image_reconstruction_l2=float(image_l2.detach().cpu()),
@@ -704,6 +710,10 @@ def _forward_loss(
         surrogate_weighted_accuracy=surrogate_metrics.weighted_accuracy,
         signed_mass_balance=float(signed_mass.detach().cpu()),
         signed_mass_imbalance=float(signed_mass_imbalance.detach().cpu()),
+        signed_mass_gap=float(signed_gap.detach().cpu()),
+        signed_mass_floor=float(signed_floor.detach().cpu()),
+        encoded_positive_mass=float(positive_mass.detach().cpu()),
+        encoded_negative_mass=float(negative_mass.detach().cpu()),
         encoded_energy_rms=float(
             output.encoded_energy.square().mean().sqrt().detach().cpu()
         ),
@@ -773,6 +783,10 @@ def _metrics_dict(metrics: ImageAutoencoderMetrics) -> dict[str, float]:
         "weighted_accuracy": metrics.surrogate_weighted_accuracy,
         "signed_mass_balance": metrics.signed_mass_balance,
         "signed_mass_imbalance": metrics.signed_mass_imbalance,
+        "signed_mass_gap": metrics.signed_mass_gap,
+        "signed_mass_floor": metrics.signed_mass_floor,
+        "encoded_positive_mass": metrics.encoded_positive_mass,
+        "encoded_negative_mass": metrics.encoded_negative_mass,
         "encoded_energy_rms": metrics.encoded_energy_rms,
         "decoded_energy_rms": metrics.decoded_energy_rms,
         "reconstructed_image_rms": metrics.reconstructed_image_rms,
@@ -889,6 +903,5 @@ __all__ = [
     "iter_image_autoencoder_training",
     "rerun_image_autoencoder_training_config_from_log",
     "should_validate_image_autoencoder",
-    "signed_mass_balance_loss",
     "train_image_autoencoder_step",
 ]
