@@ -66,7 +66,7 @@ class ImageAutoencoderSourceConfig:
     surrogate_checkpoint_name: str = "surrogate_synthetic.pt"
     decoder_checkpoint_name: str = "decoder_synthetic.pt"
     image_to_energy_checkpoint_name: str = "image_to_energy.pt"
-    energy_to_image_checkpoint_name: str = "energy_to_image_reflow_8.pt"
+    energy_to_image_checkpoint_name: str = "energy_to_image.pt"
     load_best: bool = True
     require_checkpoints: bool = True
     train_image_to_energy_flow: bool = True
