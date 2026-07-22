@@ -436,7 +436,7 @@ def default_image_autoencoder_training_config() -> ImageAutoencoderTrainingConfi
             image_l2_weight=1.0,
             energy_l1_weight=0.25,
             surrogate_teacher_weight=0.1,
-            signed_mass_balance_weight=0.05,
+            signed_mass_balance_weight=0.01,
             detach_energy_target=False,
         ),
         optimizer=ImageToEnergyOptimizerConfig(
@@ -461,7 +461,7 @@ def default_image_autoencoder_training_config() -> ImageAutoencoderTrainingConfi
             run_id="image_autoencoder",
             checkpoint_name="image_autoencoder.pt",
             log_name="image_autoencoder.sqlite",
-            note="16-step no-reflow e2e + mild signed-mass balance on encoded energy",
+            note="16-step no-reflow e2e + mild signed-mass balance (w=0.01) on encoded energy",
             tags=("e2e", "16-step", "no-reflow", "signed-mass"),
             pinned=False,
         ),

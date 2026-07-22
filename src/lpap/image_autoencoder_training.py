@@ -116,7 +116,7 @@ class ImageAutoencoderLossConfig:
     # Mild signed-mass balance on encoded energy e:
     #   m+ = mean(relu(e)),  m- = mean(relu(-e))
     #   L = ((m+ - m-) / (m+ + m- + eps))^2
-    signed_mass_balance_weight: float = 0.05
+    signed_mass_balance_weight: float = 0.01
     detach_energy_target: bool = False
 
     def validate(self) -> None:
@@ -446,7 +446,7 @@ def image_autoencoder_training_config_from_dict(
             energy_l1_weight=float(data["loss"]["energy_l1_weight"]),
             surrogate_teacher_weight=float(data["loss"]["surrogate_teacher_weight"]),
             signed_mass_balance_weight=float(
-                data["loss"].get("signed_mass_balance_weight", 0.05)
+                data["loss"].get("signed_mass_balance_weight", 0.01)
             ),
             detach_energy_target=bool(data["loss"]["detach_energy_target"]),
         ),
