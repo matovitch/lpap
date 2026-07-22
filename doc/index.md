@@ -14,7 +14,7 @@ Start here when navigating the LPAP research stack.
 
 ## Data And Artifacts
 
-- [Dataset storage notes](data-storage.md): local image tensor storage, generated data policy, and ignored large artifacts.
+- [Dataset storage notes](data-storage.md): public HF image archive download, local `.pt` cache, and ignored large artifacts.
 
 ## Common Workflows
 
