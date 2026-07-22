@@ -112,10 +112,20 @@ def format_loss_probe_report(probe: ImageAutoencoderLossProbe) -> str:
     for key, value in probe.weights.items():
         lines.append(f"    {key}: {value:g}")
     lines.append("  unweighted → weighted:")
-    for key in probe.unweighted:
+    for key in (
+        "image_reconstruction_l2",
+        "energy_reconstruction_l1",
+        "surrogate_teacher_ce",
+        "signed_mass_balance",
+    ):
         lines.append(
-            f"    {key}: {probe.unweighted[key]:.6f} → {probe.weighted[key]:.6f}"
+            f"    {key}: {probe.unweighted[key]:.6f} -> {probe.weighted[key]:.6f}"
         )
+    lines.append(
+        "  signed-mass detail: "
+        f"gap={probe.unweighted['signed_mass_gap']:.5f} "
+        f"floor={probe.unweighted['signed_mass_floor']:.5f}"
+    )
     lines.append(
         "  signed-mass: "
         f"m+={probe.signed_mass.positive_mass:.5f} "
