@@ -194,9 +194,9 @@ class ImageAutoencoderTrainingTest(unittest.TestCase):
             self.assertIn("surrogate_teacher_ce", results[-1].metrics)
             self.assertIn("validation_image_reconstruction_l2", results[-1].metrics)
             self.assertEqual(len(gallery), 1)
-            self.assertEqual(gallery[0].image.shape, (16,))
+            self.assertEqual(gallery[0].image.shape, (4, 4))
             self.assertEqual(gallery[0].encoded_energy.shape, (16,))
-            self.assertEqual(gallery[0].reconstructed_image.shape, (16,))
+            self.assertEqual(gallery[0].reconstructed_image.shape, (4, 4))
 
     def test_training_step_propagates_gradients_through_discrete_bottleneck(
         self,
