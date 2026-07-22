@@ -23,6 +23,7 @@ from lpap.energy_to_image_training import (
     validate_source_matches_config,
 )
 from lpap.flow import DilatedConvFlow1d, integrate_euler_midpoint_time
+from lpap.hilbert import hilbert_unflatten_images
 from lpap.flow_training import (
     FlowImageConfig,
     FlowModelConfig,
@@ -800,19 +801,26 @@ def collect_image_autoencoder_gallery(
     session.model.eval()
     images_iter = cycle_image_batches(session.validation_image_loader)
     images = next(images_iter)[:sample_count]
+    side = session.config.image.side
     with torch.no_grad():
         image = prepare_image_sequence(
-            images, side=session.config.image.side, device=session.device
+            images, side=side, device=session.device
         )
         _loss, _metrics, output = _forward_loss(session=session, image=image)
-        image_error = output.reconstructed_image - image
+        # Image-domain tensors are Hilbert sequences in the model; unflatten for
+        # spatial gallery panels. Energy stays in sequence order (row-major viz).
+        spatial_image = hilbert_unflatten_images(image, side=side)
+        spatial_reconstructed = hilbert_unflatten_images(
+            output.reconstructed_image, side=side
+        )
+        image_error = spatial_reconstructed - spatial_image
         energy_error = output.decoded_energy - output.encoded_energy
     if was_training:
         session.model.train()
     return [
         ImageAutoencoderGalleryItem(
-            image=image[index, 0].detach().cpu(),
-            reconstructed_image=output.reconstructed_image[index, 0].detach().cpu(),
+            image=spatial_image[index, 0].detach().cpu(),
+            reconstructed_image=spatial_reconstructed[index, 0].detach().cpu(),
             image_error=image_error[index, 0].detach().cpu(),
             encoded_energy=output.encoded_energy[index, 0].detach().cpu(),
             decoded_energy=output.decoded_energy[index, 0].detach().cpu(),
