@@ -501,31 +501,15 @@ def render_image_autoencoder_gallery_html(
         energy_error_max_abs = float(energy_error.abs().max().clamp_min(1.0e-12))
         image_panel = f"""
                 <div style="display: grid; gap: 6px;">
-                    <div style="font-weight: 600;">image</div>
+                    <div style="font-weight: 600;">1. image</div>
                     <div style="display: grid; grid-template-columns: repeat({size}, 6px); grid-template-rows: repeat({size}, 6px); width: {size * 6}px; height: {size * 6}px; border: 1px solid #30333a; background: #000;">
                         {_grayscale_pixels(image, size=size)}
                     </div>
                 </div>
                 """
-        reconstructed_panel = f"""
-                <div style="display: grid; gap: 6px;">
-                    <div style="font-weight: 600;">reconstruction</div>
-                    <div style="display: grid; grid-template-columns: repeat({size}, 6px); grid-template-rows: repeat({size}, 6px); width: {size * 6}px; height: {size * 6}px; border: 1px solid #30333a; background: #000;">
-                        {_grayscale_pixels(reconstructed, size=size)}
-                    </div>
-                </div>
-                """
-        image_error_panel = f"""
-                <div style="display: grid; gap: 6px;">
-                    <div style="font-weight: 600;">image error</div>
-                    <div style="display: grid; grid-template-columns: repeat({size}, 6px); grid-template-rows: repeat({size}, 6px); width: {size * 6}px; height: {size * 6}px; border: 1px solid #30333a; background: #000;">
-                        {_signed_pixels(image_error, size=size, max_abs=image_error_max_abs)}
-                    </div>
-                </div>
-                """
         encoded_panel = f"""
                 <div style="display: grid; gap: 6px;">
-                    <div style="font-weight: 600;">encoded energy</div>
+                    <div style="font-weight: 600;">2. encoded energy (i2e)</div>
                     <div style="display: grid; grid-template-columns: repeat({size}, 6px); grid-template-rows: repeat({size}, 6px); width: {size * 6}px; height: {size * 6}px; border: 1px solid #30333a; background: #000;">
                         {_signed_pixels(encoded_energy, size=size, max_abs=energy_max_abs)}
                     </div>
@@ -533,15 +517,31 @@ def render_image_autoencoder_gallery_html(
                 """
         decoded_panel = f"""
                 <div style="display: grid; gap: 6px;">
-                    <div style="font-weight: 600;">decoded energy</div>
+                    <div style="font-weight: 600;">3. decoded energy (LPAP)</div>
                     <div style="display: grid; grid-template-columns: repeat({size}, 6px); grid-template-rows: repeat({size}, 6px); width: {size * 6}px; height: {size * 6}px; border: 1px solid #30333a; background: #000;">
                         {_signed_pixels(decoded_energy, size=size, max_abs=energy_max_abs)}
                     </div>
                 </div>
                 """
+        reconstructed_panel = f"""
+                <div style="display: grid; gap: 6px;">
+                    <div style="font-weight: 600;">4. reconstruction (e2i)</div>
+                    <div style="display: grid; grid-template-columns: repeat({size}, 6px); grid-template-rows: repeat({size}, 6px); width: {size * 6}px; height: {size * 6}px; border: 1px solid #30333a; background: #000;">
+                        {_grayscale_pixels(reconstructed, size=size)}
+                    </div>
+                </div>
+                """
+        image_error_panel = f"""
+                <div style="display: grid; gap: 6px;">
+                    <div style="font-weight: 600;">5. image error</div>
+                    <div style="display: grid; grid-template-columns: repeat({size}, 6px); grid-template-rows: repeat({size}, 6px); width: {size * 6}px; height: {size * 6}px; border: 1px solid #30333a; background: #000;">
+                        {_signed_pixels(image_error, size=size, max_abs=image_error_max_abs)}
+                    </div>
+                </div>
+                """
         energy_error_panel = f"""
                 <div style="display: grid; gap: 6px;">
-                    <div style="font-weight: 600;">energy error</div>
+                    <div style="font-weight: 600;">6. energy error</div>
                     <div style="display: grid; grid-template-columns: repeat({size}, 6px); grid-template-rows: repeat({size}, 6px); width: {size * 6}px; height: {size * 6}px; border: 1px solid #30333a; background: #000;">
                         {_signed_pixels(energy_error, size=size, max_abs=energy_error_max_abs)}
                     </div>
@@ -551,7 +551,7 @@ def render_image_autoencoder_gallery_html(
             f"""
                         <div style="display: grid; gap: 10px;">
                             <div style="font-weight: 700;">sample {item_index}</div>
-                            <div style="display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-start;">{image_panel}{reconstructed_panel}{image_error_panel}{encoded_panel}{decoded_panel}{energy_error_panel}</div>
+                            <div style="display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-start;">{image_panel}{encoded_panel}{decoded_panel}{reconstructed_panel}{image_error_panel}{energy_error_panel}</div>
                         </div>
                         """
         )
@@ -561,7 +561,7 @@ def render_image_autoencoder_gallery_html(
             {"".join(panels)}
             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                 <span style="width: 44px; height: 12px; background: linear-gradient(90deg, #004cff, #000, #ff2600); border: 1px solid #30333a;"></span>
-                <span>energy and error: negative / zero / positive, scaled per sample</span>
+                <span>pipeline L→R: image → i2e energy → LPAP decode → e2i image → errors (signed panels: − / 0 / +)</span>
             </div>
         </div>
         """
