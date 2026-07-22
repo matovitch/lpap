@@ -72,7 +72,8 @@ class TrainingNotebookConfigTest(unittest.TestCase):
             image_autoencoder.source.energy_to_image_checkpoint_name,
             "energy_to_image.pt",
         )
-        self.assertEqual(image_autoencoder.run.tags, ("e2e", "16-step", "no-reflow"))
+        self.assertEqual(image_autoencoder.run.tags, ("e2e", "16-step", "no-reflow", "signed-mass"))
+        self.assertEqual(image_autoencoder.loss.signed_mass_balance_weight, 0.05)
 
     def test_loads_custom_surrogate_toml_config(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -20,6 +20,7 @@ from lpap.image_autoencoder_training import (
     collect_image_autoencoder_gallery,
     create_image_autoencoder_training_session,
     iter_image_autoencoder_training,
+    signed_mass_balance_loss,
     train_image_autoencoder_step,
 )
 from lpap.image_to_energy_training import (
@@ -177,6 +178,27 @@ def _build_tiny_autoencoder_session(root: Path) -> ImageAutoencoderTrainingSessi
     )
 
 
+class SignedMassBalanceLossTest(unittest.TestCase):
+    def test_balanced_mass_is_zero(self) -> None:
+        energy = torch.tensor([-2.0, -2.0, 2.0, 2.0])
+        loss, imbalance = signed_mass_balance_loss(energy)
+        self.assertAlmostEqual(float(loss), 0.0, places=6)
+        self.assertAlmostEqual(float(imbalance), 0.0, places=6)
+
+    def test_one_sided_mass_is_unit(self) -> None:
+        energy = torch.tensor([1.0, 3.0, 0.0])
+        loss, imbalance = signed_mass_balance_loss(energy)
+        self.assertAlmostEqual(float(imbalance), 1.0, places=6)
+        self.assertAlmostEqual(float(loss), 1.0, places=6)
+
+    def test_scale_free_ratio(self) -> None:
+        energy = torch.tensor([-1.0, 3.0])
+        loss, imbalance = signed_mass_balance_loss(energy)
+        # m+=3/2, m-=1/2 → (1)/(2) = 0.5
+        self.assertAlmostEqual(float(imbalance), 0.5, places=6)
+        self.assertAlmostEqual(float(loss), 0.25, places=6)
+
+
 class ImageAutoencoderTrainingTest(unittest.TestCase):
     def test_session_trains_and_logs_total_autoencoder_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -192,6 +214,8 @@ class ImageAutoencoderTrainingTest(unittest.TestCase):
             self.assertIn("image_reconstruction_l2", results[-1].metrics)
             self.assertIn("energy_reconstruction_l1", results[-1].metrics)
             self.assertIn("surrogate_teacher_ce", results[-1].metrics)
+            self.assertIn("signed_mass_balance", results[-1].metrics)
+            self.assertIn("signed_mass_imbalance", results[-1].metrics)
             self.assertIn("validation_image_reconstruction_l2", results[-1].metrics)
             self.assertEqual(len(gallery), 1)
             self.assertEqual(gallery[0].image.shape, (4, 4))
