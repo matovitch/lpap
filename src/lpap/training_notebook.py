@@ -418,7 +418,7 @@ def default_image_autoencoder_training_config() -> ImageAutoencoderTrainingConfi
             surrogate_checkpoint_name="surrogate_synthetic.pt",
             decoder_checkpoint_name="decoder_synthetic.pt",
             image_to_energy_checkpoint_name="image_to_energy.pt",
-            energy_to_image_checkpoint_name="energy_to_image_reflow_8.pt",
+            energy_to_image_checkpoint_name="energy_to_image.pt",
             load_best=True,
             require_checkpoints=True,
             train_image_to_energy_flow=True,
@@ -429,8 +429,8 @@ def default_image_autoencoder_training_config() -> ImageAutoencoderTrainingConfi
         image_to_energy_flow=flow,
         energy_to_image_flow=flow,
         integration=ImageAutoencoderIntegrationConfig(
-            image_to_energy_steps=8,
-            energy_to_image_steps=8,
+            image_to_energy_steps=16,
+            energy_to_image_steps=16,
         ),
         loss=ImageAutoencoderLossConfig(
             image_l2_weight=1.0,
@@ -448,7 +448,7 @@ def default_image_autoencoder_training_config() -> ImageAutoencoderTrainingConfi
             batch_size=8,
             seed=60_123,
             validate_at_end=True,
-            euler_steps=(8,),
+            euler_steps=(16,),
         ),
         run=ImageAutoencoderRunConfig(
             run_training=True,
@@ -460,8 +460,8 @@ def default_image_autoencoder_training_config() -> ImageAutoencoderTrainingConfi
             run_id="image_autoencoder",
             checkpoint_name="image_autoencoder.pt",
             log_name="image_autoencoder.sqlite",
-            note="",
-            tags=("e2e", "8-step"),
+            note="16-step no-reflow e2e (uses energy_to_image.pt teacher flow)",
+            tags=("e2e", "16-step", "no-reflow"),
             pinned=False,
         ),
     )

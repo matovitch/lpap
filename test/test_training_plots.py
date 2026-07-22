@@ -97,9 +97,16 @@ class TrainingPlotsTest(unittest.TestCase):
             size=4,
         )
 
-        self.assertLess(html.index("image"), html.index("reconstruction"))
-        self.assertLess(html.index("reconstruction"), html.index("image error"))
-        self.assertLess(html.index("encoded energy"), html.index("decoded energy"))
+        self.assertLess(html.index("1. image"), html.index("2. encoded energy (i2e)"))
+        self.assertLess(
+            html.index("2. encoded energy (i2e)"), html.index("3. decoded energy (LPAP)")
+        )
+        self.assertLess(
+            html.index("3. decoded energy (LPAP)"),
+            html.index("4. reconstruction (e2i)"),
+        )
+        self.assertLess(html.index("4. reconstruction (e2i)"), html.index("5. image error"))
+        self.assertLess(html.index("5. image error"), html.index("6. energy error"))
         self.assertIn("energy error", html)
         self.assertIn("rgb(255, 255, 255)", html)
         self.assertIn("rgb(0, 0, 255)", html)

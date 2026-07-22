@@ -10,7 +10,7 @@ num_workers = 0
 surrogate_checkpoint_name = "surrogate_synthetic.pt"
 decoder_checkpoint_name = "decoder_synthetic.pt"
 image_to_energy_checkpoint_name = "image_to_energy.pt"
-energy_to_image_checkpoint_name = "energy_to_image_reflow_8.pt"
+energy_to_image_checkpoint_name = "energy_to_image.pt"
 load_best = true
 require_checkpoints = true
 train_image_to_energy_flow = true
@@ -37,8 +37,8 @@ kernel_size = 3
 zero_init_output = true
 
 [integration]
-image_to_energy_steps = 8
-energy_to_image_steps = 8
+image_to_energy_steps = 16
+energy_to_image_steps = 16
 
 [loss]
 image_l2_weight = 1.0
@@ -56,7 +56,7 @@ every = 50
 batch_size = 8
 seed = 60123
 validate_at_end = true
-euler_steps = [8]
+euler_steps = [16]
 
 [run]
 run_training = true
@@ -68,6 +68,6 @@ log_every = 1
 run_id = "image_autoencoder"
 checkpoint_name = "image_autoencoder.pt"
 log_name = "image_autoencoder.sqlite"
-note = ""
-tags = ["e2e", "8-step"]
+note = "16-step no-reflow e2e (uses energy_to_image.pt teacher flow)"
+tags = ["e2e", "16-step", "no-reflow"]
 pinned = false
