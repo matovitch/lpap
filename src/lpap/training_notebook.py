@@ -434,9 +434,9 @@ def default_image_autoencoder_training_config() -> ImageAutoencoderTrainingConfi
         ),
         loss=ImageAutoencoderLossConfig(
             image_l2_weight=1.0,
-            energy_l1_weight=0.25,
-            surrogate_teacher_weight=0.1,
-            signed_mass_balance_weight=0.01,
+            energy_l1_weight=0.5,
+            surrogate_teacher_weight=0.05,
+            signed_mass_balance_weight=0.02,
             signed_mass_floor_tau=0.01,
             signed_mass_floor_coef=1.0,
             detach_energy_target=False,
@@ -456,15 +456,18 @@ def default_image_autoencoder_training_config() -> ImageAutoencoderTrainingConfi
         run=ImageAutoencoderRunConfig(
             run_training=True,
             resume_from_checkpoint=True,
-            steps=10_000,
+            steps=20_000,
             seed=2_987,
             display_every=5,
             log_every=1,
             run_id="image_autoencoder",
             checkpoint_name="image_autoencoder.pt",
             log_name="image_autoencoder.sqlite",
-            note="16-step no-reflow e2e + signed-mass gap/floor (tau-scaled, w=0.01)",
-            tags=("e2e", "16-step", "no-reflow", "signed-mass"),
+            note=(
+                "16-step no-reflow e2e; signed-mass gap/floor tau=0.01; "
+                "lambdas image=1 energy=0.5 surr=0.05 signed=0.02"
+            ),
+            tags=("e2e", "16-step", "no-reflow", "signed-mass", "dialed"),
             pinned=False,
         ),
     )
