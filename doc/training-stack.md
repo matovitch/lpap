@@ -115,20 +115,52 @@ flowchart LR
     sur -. "vs exact LPAP teacher" .-> ce["λ_ce · weighted teacher CE"]
     den -. "vs encoded energy" .-> el1["λ_energy · inner energy L1"]
     rec -. "vs input image" .-> il2["λ_image · image L2"]
+    enc -. "signed-mass gap/floor" .-> sm["λ_signed · signed-mass"]
 
     ce --> total((Total loss))
     el1 --> total
     il2 --> total
+    sm --> total
 ```
 
-The training loss (`_forward_loss`) is a fixed-weight sum of three terms; there is
-no weight schedule, so each weight λ is a constant prorating coefficient:
+The training loss (`_forward_loss`) is a fixed-weight sum; there is no weight
+schedule, so each λ is a constant prorating coefficient (defaults below match
+`configs/training/image_autoencoder.toml`):
 
 - **Image reconstruction L2** (`image_l2_weight`, default `1.0`): MSE between the reconstructed and input image. The primary objective.
-- **Inner energy reconstruction L1** (`energy_l1_weight`, default `0.25`): mean absolute error between the decoder-reconstructed energy and the encoded energy. Keeps the LPAP surrogate/decoder path a faithful autoencoder of the encoded energy. The encoded-energy target can optionally be detached (`detach_energy_target`).
-- **Surrogate teacher cross-entropy** (`surrogate_teacher_weight`, default `0.1`): the amplitude-weighted cross-entropy of `lpap_surrogate_loss` against the exact LPAP source indices, keeping the differentiable surrogate aligned with the exact operator.
+- **Inner energy reconstruction L1** (`energy_l1_weight`, default `0.5`): mean absolute error between the decoder-reconstructed energy and the encoded energy. Keeps the LPAP path a faithful autoencoder of the encoded energy. The encoded-energy target can optionally be detached (`detach_energy_target`).
+- **Surrogate teacher cross-entropy** (`surrogate_teacher_weight`, default `0.05`): amplitude-weighted CE of `lpap_surrogate_loss` against exact LPAP source indices.
+- **Signed-mass gap/floor** (`signed_mass_balance_weight`, default `0.02`; see `lpap.image_autoencoder_loss`): on encoded energy `e`, with `m± = mean(relu(±e))` and scale `tau` (`signed_mass_floor_tau`, default `0.01`):
 
-The metric dict also logs the raw (unweighted) `image_reconstruction_l2`, `energy_reconstruction_l1`, `surrogate_teacher_ce`, and surrogate `weighted_accuracy`, plus RMS gauges for the encoded/decoded energy and input/reconstructed image.
+```text
+L_gap   = ((m+ - m-) / tau)^2
+L_floor = (relu(tau - m+)/tau)^2 + (relu(tau - m-)/tau)^2
+L       = L_gap + floor_coef * L_floor
+```
+
+  Gap is scaled by `tau` (not by `m+ + m-`), so collapsing `e → 0` is not a free
+  “balanced” win; the floor pushes each side toward ~`tau`.
+
+Current AE defaults also use **16-step** Euler on both flows with the
+**non-reflow** `energy_to_image.pt` teacher, and a longer default budget of
+**20k** steps.
+
+### Dialing AE lambdas
+
+Use the loss probe before long e2e runs:
+
+```sh
+pixi run ae-loss-probe
+```
+
+That prints unweighted vs weighted contributions and can `--suggest` weights so
+secondary terms sit at chosen shares of image L2. Re-probe after short trains;
+validate with the molab L→R gallery (spatial image panels + encoded/decoded
+energy signs) before committing a long run.
+
+The metric dict also logs raw (unweighted) reconstruction terms, surrogate
+`weighted_accuracy`, signed-mass gap/floor/imbalance and per-side masses, plus
+RMS gauges for encoded/decoded energy and input/reconstructed image.
 
 ## Flow Training Factorization
 

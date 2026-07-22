@@ -9,7 +9,7 @@ Start here when navigating the LPAP research stack.
 
 ## Training Stack
 
-- [Training stack notes](training-stack.md): model dependencies, checkpoint/logging policy, notebook workflow, and the trainable model kinds.
+- [Training stack notes](training-stack.md): model dependencies, checkpoint/logging policy, notebook workflow, AE loss terms / lambda dialing, and the trainable model kinds.
 - [Sizing probes](sizing-probes.md): capacity / integration exploration before promoting new baselines.
 - [Image-to-energy implementation notes](image-to-energy-implementation.md): details for the image-to-energy flow and its Hilbert-flattened image representation.
 
@@ -21,6 +21,7 @@ Start here when navigating the LPAP research stack.
 
 ```sh
 pixi run test
+pixi run ae-loss-probe
 pixi run notebook-train
 pixi run notebook-synthetic
 pixi run notebook-surrogate
