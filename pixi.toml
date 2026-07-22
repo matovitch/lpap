@@ -62,6 +62,10 @@ description = "Open the energy-to-image reflow visualization marimo notebook."
 cmd = "PYTHONPATH=src marimo edit notebooks/visualize_image_autoencoder.py --no-token"
 description = "Open the image autoencoder visualization marimo notebook."
 
+[tasks.ae-loss-probe]
+cmd = "PYTHONPATH=src python -m lpap.image_autoencoder_loss --project-root . --suggest"
+description = "Probe AE loss-component magnitudes and suggest lambda dials."
+
 [tasks.notebook-train]
 cmd = "PYTHONPATH=src marimo edit notebooks/train.py --no-token"
 description = "Open the shared LPAP model training marimo notebook."
