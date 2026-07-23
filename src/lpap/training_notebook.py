@@ -408,7 +408,7 @@ def default_image_autoencoder_training_config() -> ImageAutoencoderTrainingConfi
     return ImageAutoencoderTrainingConfig(
         image=ImageToEnergyImageConfig(
             dataset_path="data/images_32x32_gray.pt",
-            batch_size=8,
+            batch_size=32,
             side=32,
             normalize=True,
             shuffle=True,
@@ -448,7 +448,7 @@ def default_image_autoencoder_training_config() -> ImageAutoencoderTrainingConfi
         validation=ImageToEnergyValidationConfig(
             enabled=True,
             every=50,
-            batch_size=8,
+            batch_size=32,
             seed=60_123,
             validate_at_end=True,
             euler_steps=(16,),
@@ -464,10 +464,10 @@ def default_image_autoencoder_training_config() -> ImageAutoencoderTrainingConfi
             checkpoint_name="image_autoencoder.pt",
             log_name="image_autoencoder.sqlite",
             note=(
-                "16-step no-reflow e2e; signed-mass gap/floor tau=0.01; "
-                "lambdas image=1 energy=0.5 surr=0.05 signed=0.02"
+                "16-step no-reflow e2e; dialed lambdas; batch_size=32; "
+                "signed-mass gap/floor tau=0.01"
             ),
-            tags=("e2e", "16-step", "no-reflow", "signed-mass", "dialed"),
+            tags=("e2e", "16-step", "no-reflow", "signed-mass", "dialed", "bs32"),
             pinned=False,
         ),
     )
