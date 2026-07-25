@@ -131,7 +131,13 @@ def sample_energy_bank_values(
     if batch_size <= 0:
         raise ValueError("batch_size must be positive")
     n = int(energies.shape[0])
-    indices = torch.randint(n, (batch_size,), generator=generator)
+    # Draw on the generator's device (CUDA generators reject CPU-only randint),
+    # then index the (usually CPU/mmap) bank with CPU indices.
+    indices = torch.randint(
+        n, (batch_size,), device=generator.device, generator=generator
+    )
+    if indices.device.type != "cpu":
+        indices = indices.cpu()
     return energies[indices].to(device=device, dtype=torch.float32)
 
 

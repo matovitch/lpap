@@ -103,6 +103,19 @@ class EnergyBankTest(unittest.TestCase):
         )
         self.assertEqual(tuple(bank_values.shape), (2, 4))
 
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA required")
+    def test_sample_energy_bank_with_cuda_generator(self) -> None:
+        bank = torch.arange(20, dtype=torch.float32).reshape(5, 4)
+        generator = torch.Generator(device="cuda").manual_seed(0)
+        sample = sample_energy_bank_values(
+            bank,
+            batch_size=3,
+            generator=generator,
+            device=torch.device("cuda"),
+        )
+        self.assertEqual(tuple(sample.shape), (3, 4))
+        self.assertEqual(sample.device.type, "cuda")
+
 
 if __name__ == "__main__":
     unittest.main()
