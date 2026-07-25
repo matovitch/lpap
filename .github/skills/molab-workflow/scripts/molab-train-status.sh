@@ -39,7 +39,6 @@ from molab.jobs import (
     AE_ENERGY_BANK_BG_STEM,
     AE_ENERGY_BANK_CHECKPOINT,
     AE_ENERGY_BANK_LOG,
-    AE_ENERGY_BANK_RUN_ID,
 )
 from lpap.training_status import format_training_status, summarize_training_status
 
@@ -47,7 +46,6 @@ summary = summarize_training_status(
     project_root="/marimo",
     checkpoint_name=AE_ENERGY_BANK_CHECKPOINT,
     log_name=AE_ENERGY_BANK_LOG,
-    run_id=AE_ENERGY_BANK_RUN_ID,
     bg_stem=AE_ENERGY_BANK_BG_STEM,
 )
 if ${as_json} == 1:
