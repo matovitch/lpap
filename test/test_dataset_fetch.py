@@ -22,9 +22,6 @@ _STORAGE_TOML = textwrap.dedent(
     remote_zst = "images_32x32_gray.pt.zst"
     local_pt = "data/images_32x32_gray.pt"
     local_zst = "data/images_32x32_gray.pt.zst"
-
-    [auth]
-    token_files = [".hf_token"]
     """
 )
 

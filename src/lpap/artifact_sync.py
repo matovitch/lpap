@@ -1,9 +1,9 @@
 """Sync training artifacts to/from a Hugging Face Storage Bucket.
 
 Designed for the molab summer workflow: upload from the paired kernel with
-``HF_TOKEN`` / token files from storage config, download locally without auth
-when the bucket is public. Bucket settings live in ``configs/storage.toml``
-(required under the project root; no packaged default).
+``HF_TOKEN`` (from ``configs/secrets.toml`` via inject, or export locally),
+download locally without auth when the bucket is public. Bucket settings live
+in ``configs/storage.toml`` (required under the project root).
 """
 
 from __future__ import annotations
@@ -23,12 +23,6 @@ def default_artifacts_bucket(project_root: str | Path) -> str:
     return load_storage_config(project_root).artifacts.bucket
 
 
-def default_token_files(project_root: str | Path) -> tuple[Path, ...]:
-    return tuple(
-        Path(path) for path in load_storage_config(project_root).auth.token_files
-    )
-
-
 def _require_project_root_for_defaults(
     project_root: str | Path | None,
     *,
@@ -42,43 +36,20 @@ def _require_project_root_for_defaults(
     return project_root
 
 
-def resolve_hf_token(
-    *,
-    token: str | None = None,
-    token_files: Sequence[Path | str] | None = None,
-    project_root: str | Path | None = None,
-) -> str | None:
-    """Return an HF token from ``token``, env, or a local token file."""
+def resolve_hf_token(*, token: str | None = None) -> str | None:
+    """Return an HF token from ``token`` or ``HF_TOKEN`` / hub env."""
     if token:
         return token.strip() or None
     for key in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"):
         value = os.environ.get(key)
         if value and value.strip():
             return value.strip()
-    if token_files is not None:
-        paths = tuple(Path(path) for path in token_files)
-    elif project_root is not None:
-        paths = default_token_files(project_root)
-    else:
-        paths = ()
-    for path in paths:
-        if path.is_file():
-            text = path.read_text(encoding="utf-8").strip()
-            if text:
-                return text
     return None
 
 
-def apply_hf_token(
-    *,
-    token: str | None = None,
-    token_files: Sequence[Path | str] | None = None,
-    project_root: str | Path | None = None,
-) -> str | None:
+def apply_hf_token(*, token: str | None = None) -> str | None:
     """Load a token into ``HF_TOKEN`` if available; return the resolved value."""
-    resolved = resolve_hf_token(
-        token=token, token_files=token_files, project_root=project_root
-    )
+    resolved = resolve_hf_token(token=token)
     if resolved:
         os.environ["HF_TOKEN"] = resolved
     return resolved
@@ -98,7 +69,7 @@ def upload_files(
 ) -> list[str]:
     """Upload ``(local_path, remote_path)`` pairs to a storage bucket.
 
-    Requires a write-capable token (env, ``token=``, or token files).
+    Requires a write-capable token (``token=`` or ``HF_TOKEN`` env).
     """
     from huggingface_hub import HfApi
 
@@ -109,11 +80,11 @@ def upload_files(
         resolved_bucket = default_artifacts_bucket(root)
     else:
         resolved_bucket = bucket
-    resolved = apply_hf_token(token=token, project_root=project_root)
+    resolved = apply_hf_token(token=token)
     if not resolved:
         raise RuntimeError(
-            "HF write token not found; set HF_TOKEN or create a token file "
-            "(see configs/storage.toml auth.token_files)"
+            "HF write token not found; set HF_TOKEN "
+            "(configs/secrets.toml + molab-inject-secrets.sh, or export locally)"
         )
 
     add: list[tuple[str, str]] = []
@@ -148,7 +119,7 @@ def download_files(
         resolved_bucket = default_artifacts_bucket(root)
     else:
         resolved_bucket = bucket
-    resolved = apply_hf_token(token=token, project_root=project_root)
+    resolved = apply_hf_token(token=token)
     fs = HfFileSystem(token=resolved if resolved else False)
     written: list[Path] = []
     for remote, local in pairs:

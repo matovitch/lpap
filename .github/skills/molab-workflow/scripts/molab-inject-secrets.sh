@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Inject local configs/secrets.toml into the paired molab kernel.
+# Inject local configs/secrets.toml into the paired molab kernel as env vars.
 #
-# Reads secrets on the agent host, sets os.environ in the remote kernel without
-# printing secret values. When huggingface.token is set, also writes
-# /marimo/.hf_token (mode 600) for artifact_sync token_files.
+# Single source of truth: configs/secrets.toml (gitignored). Sets HF_TOKEN,
+# PUSHOVER_*, LPAP_NOTIFY_ON_FINISHED in the kernel. Does not write secret
+# files under /marimo/ (and removes any legacy ones).
 #
 # Required env (same as molab-exec): MOLAB_URL, MOLAB_TOKEN or MARIMO_TOKEN,
 # optional MOLAB_SESSION.
@@ -14,7 +14,6 @@
 #
 # Usage:
 #   bash .github/skills/molab-workflow/scripts/molab-inject-secrets.sh
-#   LPAP_SECRETS_TOML=~/.config/lpap/secrets.toml bash .../molab-inject-secrets.sh
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,17 +21,29 @@ repo_root="$(cd "$script_dir/../../../.." && pwd)"
 secrets_path="${LPAP_SECRETS_TOML:-$repo_root/configs/secrets.toml}"
 molab_exec="$script_dir/molab-exec.sh"
 
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      sed -n '2,20p' "$0" | sed 's/^# \?//'
+      exit 0
+      ;;
+    *)
+      echo "molab-inject-secrets: unknown arg: $1 (secrets.toml → env only)" >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [[ ! -x "$molab_exec" ]]; then
+  echo "molab-inject-secrets: molab-exec.sh not executable: $molab_exec" >&2
+  exit 1
+fi
 if [[ ! -f "$secrets_path" ]]; then
   echo "molab-inject-secrets: missing $secrets_path" >&2
   echo "Copy configs/secrets.toml.example → configs/secrets.toml and fill values." >&2
   exit 1
 fi
-if [[ ! -x "$molab_exec" ]]; then
-  echo "molab-inject-secrets: molab-exec.sh not executable: $molab_exec" >&2
-  exit 1
-fi
 
-# Build a base64 JSON map of env vars on the agent host (values never echoed).
 payload="$(
   SECRETS_PATH="$secrets_path" python3 - <<'PY'
 import base64
@@ -63,7 +74,6 @@ if isinstance(pushover, dict):
     if user:
         env["PUSHOVER_USER"] = user
     if app_token and user:
-        # Enable TrainingRun.mark_finished → Pushover without per-run flags.
         env["LPAP_NOTIFY_ON_FINISHED"] = "1"
 
 if not env:
@@ -78,17 +88,26 @@ sys.stdout.write(base64.b64encode(json.dumps(env).encode("utf-8")).decode("ascii
 PY
 )"
 
-# Remote: decode, set env, optionally write HF token file; print keys only.
 "$molab_exec" -c "
 import base64, json, os
 from pathlib import Path
+_root = Path('/marimo')
 _env = json.loads(base64.b64decode('${payload}').decode('utf-8'))
 for _key, _value in _env.items():
     os.environ[_key] = _value
-if 'HF_TOKEN' in _env:
-    _path = Path('/marimo/.hf_token')
-    _path.write_text(_env['HF_TOKEN'].rstrip() + '\n', encoding='utf-8')
-    _path.chmod(0o600)
+# Drop legacy secret files if any remain from earlier workflows.
+_removed = []
+for _name in (
+    '.hf_token',
+    '.pushover_token',
+    '.pushover_user',
+    '.lpap_notify_on_finished',
+):
+    _path = _root / _name
+    if _path.is_file():
+        _path.unlink()
+        _removed.append(_name)
 print('injected_keys', ' '.join(sorted(_env)))
-print('hf_token_file', Path('/marimo/.hf_token').is_file())
+if _removed:
+    print('removed_legacy_files', ' '.join(_removed))
 "

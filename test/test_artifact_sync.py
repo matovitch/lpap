@@ -58,20 +58,14 @@ class ArtifactSyncTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             upload_files([], bucket=None, project_root=None)
 
-    def test_resolve_hf_token_prefers_explicit_then_env_then_file(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            token_path = Path(temp_dir) / ".hf_token"
-            token_path.write_text("file-token\n", encoding="utf-8")
-            self.assertEqual(resolve_hf_token(token=" explicit "), "explicit")
-            with patch.dict(os.environ, {"HF_TOKEN": "env-token"}, clear=False):
-                self.assertEqual(resolve_hf_token(), "env-token")
-            with patch.dict(os.environ, {"HF_TOKEN": ""}, clear=False):
-                os.environ.pop("HF_TOKEN", None)
-                os.environ.pop("HUGGING_FACE_HUB_TOKEN", None)
-                self.assertEqual(
-                    resolve_hf_token(token_files=(token_path,)),
-                    "file-token",
-                )
+    def test_resolve_hf_token_prefers_explicit_then_env(self) -> None:
+        self.assertEqual(resolve_hf_token(token=" explicit "), "explicit")
+        with patch.dict(os.environ, {"HF_TOKEN": "env-token"}, clear=False):
+            self.assertEqual(resolve_hf_token(), "env-token")
+        with patch.dict(os.environ, {"HF_TOKEN": ""}, clear=False):
+            os.environ.pop("HF_TOKEN", None)
+            os.environ.pop("HUGGING_FACE_HUB_TOKEN", None)
+            self.assertIsNone(resolve_hf_token())
 
     def test_apply_hf_token_sets_env(self) -> None:
         with patch.dict(os.environ, {}, clear=False):
@@ -120,14 +114,11 @@ class ArtifactSyncTest(unittest.TestCase):
             with patch.dict(os.environ, {}, clear=False):
                 os.environ.pop("HF_TOKEN", None)
                 os.environ.pop("HUGGING_FACE_HUB_TOKEN", None)
-                with patch(
-                    "lpap.artifact_sync.default_token_files", return_value=()
-                ):
-                    with self.assertRaises(RuntimeError):
-                        upload_files(
-                            [(local, "checkpoints/a.pt")],
-                            bucket="user/bucket",
-                        )
+                with self.assertRaises(RuntimeError):
+                    upload_files(
+                        [(local, "checkpoints/a.pt")],
+                        bucket="user/bucket",
+                    )
 
             mock_api = MagicMock()
             with (

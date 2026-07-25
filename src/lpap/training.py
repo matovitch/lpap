@@ -16,7 +16,7 @@ from lpap.checkpoints import (
     metric_improved,
     save_training_checkpoint,
 )
-from lpap.notify import NotifyError, env_flag, notify_training_finished
+from lpap.notify import NotifyError, notify_on_finished_enabled, notify_training_finished
 from lpap.training_log import log_step_metrics, mark_run_status, upsert_run
 from lpap.training_log import finish_run_attempt, start_run_attempt
 from lpap.training_log import (
@@ -293,7 +293,7 @@ class TrainingRun:
         self._maybe_notify_finished(status="finished")
 
     def _should_notify_on_finished(self) -> bool:
-        return self.config.notify_on_finished or env_flag("LPAP_NOTIFY_ON_FINISHED")
+        return self.config.notify_on_finished or notify_on_finished_enabled()
 
     def _maybe_notify_finished(self, *, status: str) -> None:
         if not self._should_notify_on_finished():

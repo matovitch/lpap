@@ -2,6 +2,8 @@
 # Required under <project_root>/configs/storage.toml (no packaged default).
 # On molab, copy this file to /marimo/configs/storage.toml once.
 # Override buckets at runtime with LPAP_ARTIFACTS_BUCKET / LPAP_IMAGES_BUCKET.
+# HF write auth: HF_TOKEN from configs/secrets.toml via molab-inject-secrets.sh
+# (or export locally). No token files.
 
 [artifacts]
 bucket = "matovitch/lpap-molab-artifacts"
@@ -11,6 +13,3 @@ bucket = "matovitch/lpap-images"
 remote_zst = "images_32x32_gray.pt.zst"
 local_pt = "data/images_32x32_gray.pt"
 local_zst = "data/images_32x32_gray.pt.zst"
-
-[auth]
-token_files = [".hf_token", "/marimo/.hf_token"]

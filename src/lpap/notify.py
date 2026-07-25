@@ -21,6 +21,11 @@ def env_flag(name: str, default: bool = False) -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
+def notify_on_finished_enabled() -> bool:
+    """True when ``LPAP_NOTIFY_ON_FINISHED`` is set (via secrets inject)."""
+    return env_flag("LPAP_NOTIFY_ON_FINISHED")
+
+
 def pushover_credentials(
     *,
     token: str | None = None,
@@ -31,7 +36,7 @@ def pushover_credentials(
     if not resolved_token or not resolved_user:
         raise NotifyError(
             "Pushover credentials missing; set PUSHOVER_TOKEN and PUSHOVER_USER "
-            "(e.g. via molab-inject-secrets.sh)"
+            "via configs/secrets.toml + molab-inject-secrets.sh (or export locally)"
         )
     return resolved_token, resolved_user
 
@@ -112,6 +117,7 @@ def notify_training_finished(
 __all__ = [
     "NotifyError",
     "env_flag",
+    "notify_on_finished_enabled",
     "notify_training_finished",
     "pushover_credentials",
     "send_pushover",

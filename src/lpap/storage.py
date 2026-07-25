@@ -37,24 +37,13 @@ class ImagesStorageConfig:
 
 
 @dataclass(frozen=True)
-class AuthStorageConfig:
-    token_files: tuple[str, ...]
-
-    def validate(self) -> None:
-        if not self.token_files:
-            raise ValueError("auth.token_files must be non-empty")
-
-
-@dataclass(frozen=True)
 class StorageConfig:
     artifacts: ArtifactsStorageConfig
     images: ImagesStorageConfig
-    auth: AuthStorageConfig
 
     def validate(self) -> None:
         self.artifacts.validate()
         self.images.validate()
-        self.auth.validate()
 
 
 def storage_config_path(project_root: str | Path) -> Path:
@@ -64,18 +53,10 @@ def storage_config_path(project_root: str | Path) -> Path:
 def storage_config_from_dict(data: dict[str, Any]) -> StorageConfig:
     artifacts = data.get("artifacts", {})
     images = data.get("images", {})
-    auth = data.get("auth", {})
     if not isinstance(artifacts, dict):
         raise TypeError("artifacts section must be a table")
     if not isinstance(images, dict):
         raise TypeError("images section must be a table")
-    if not isinstance(auth, dict):
-        raise TypeError("auth section must be a table")
-    token_files = auth.get("token_files", ())
-    if isinstance(token_files, str):
-        token_files_tuple = (token_files,)
-    else:
-        token_files_tuple = tuple(str(item) for item in token_files)
     config = StorageConfig(
         artifacts=ArtifactsStorageConfig(bucket=str(artifacts["bucket"])),
         images=ImagesStorageConfig(
@@ -84,7 +65,6 @@ def storage_config_from_dict(data: dict[str, Any]) -> StorageConfig:
             local_pt=str(images["local_pt"]),
             local_zst=str(images["local_zst"]),
         ),
-        auth=AuthStorageConfig(token_files=token_files_tuple),
     )
     config.validate()
     return config
@@ -110,7 +90,6 @@ def _apply_env_overrides(config: StorageConfig) -> StorageConfig:
             local_pt=config.images.local_pt,
             local_zst=config.images.local_zst,
         ),
-        auth=config.auth,
     )
 
 
@@ -143,7 +122,6 @@ def infer_project_root_from_checkpoint(
 
 __all__ = [
     "ArtifactsStorageConfig",
-    "AuthStorageConfig",
     "ImagesStorageConfig",
     "StorageConfig",
     "infer_project_root_from_checkpoint",

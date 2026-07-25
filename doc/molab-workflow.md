@@ -41,19 +41,19 @@ flags on every call.
 
 Keep real credentials in gitignored [`configs/secrets.toml`](../configs/secrets.toml)
 (start from [`configs/secrets.toml.example`](../configs/secrets.toml.example)).
-After pairing, push them into the kernel (env + `/marimo/.hf_token` for HF):
+That file is the only secret store — inject sets kernel env only (no
+`/marimo/.hf_token` / `.pushover_*` files):
 
 ```bash
 bash .github/skills/molab-workflow/scripts/molab-inject-secrets.sh
 ```
 
-Do not put secrets in notebook cells. Re-run after a kernel restart; pass env
-explicitly when spawning detached training workers.
+Do not put secrets in notebook cells. Re-run after every kernel restart; pass
+the same env explicitly when spawning detached training workers.
 
-With Pushover creds injected, `LPAP_NOTIFY_ON_FINISHED=1` is set so
+With Pushover creds present, inject also sets `LPAP_NOTIFY_ON_FINISHED=1` so
 `TrainingRun.mark_finished` pings you (or set `notify_on_finished=True` on the
-run config). Helper: `lpap.notify.send_pushover` /
-`notify_training_finished`.
+run config). Helpers: `lpap.notify.send_pushover` / `notify_training_finished`.
 
 Companion marimo-pair tools (pass URL/token explicitly, or reuse env via
 wrappers you compose):
@@ -140,10 +140,11 @@ print(conn.execute("SELECT MAX(step) FROM step_metrics").fetchone()[0])
 ## Artifact sync (HF Storage Bucket)
 
 Bucket settings come from [`configs/storage.toml`](../configs/storage.toml)
-(`artifacts.bucket`). On molab, copy that file once to
+(`/artifacts.bucket`). On molab, copy that file once to
 `/marimo/configs/storage.toml` (upload/fetch raise if it is missing). Write
-token via paths listed in `auth.token_files` (e.g. `/marimo/.hf_token`) or
-`HF_TOKEN` (gitignored). Local download needs no login.
+auth is `HF_TOKEN` only — from `configs/secrets.toml` via
+`molab-inject-secrets.sh`, or `export HF_TOKEN=…` locally. Local download of
+public buckets needs no login.
 
 ```python
 # molab

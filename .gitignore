@@ -22,7 +22,7 @@ checkpoints/*.pt
 training_logs/*.sqlite
 training_logs/*.sqlite-*
 
-# Hugging Face / molab secrets (never commit)
+# Secrets: configs/secrets.toml only (never commit). Legacy .hf_token ignored.
 .hf_token
 .env
 configs/secrets.toml

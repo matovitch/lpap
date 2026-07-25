@@ -8,7 +8,9 @@ from unittest.mock import MagicMock, patch
 from lpap.notify import (
     NotifyError,
     env_flag,
+    notify_on_finished_enabled,
     notify_training_finished,
+    pushover_credentials,
     send_pushover,
 )
 
@@ -49,9 +51,26 @@ class NotifyTest(unittest.TestCase):
         self.assertIn("title=t", body)
 
     def test_send_pushover_requires_credentials(self) -> None:
-        with patch.dict(os.environ, {"PUSHOVER_TOKEN": "", "PUSHOVER_USER": ""}, clear=False):
+        with patch.dict(
+            os.environ, {"PUSHOVER_TOKEN": "", "PUSHOVER_USER": ""}, clear=False
+        ):
             with self.assertRaises(NotifyError):
                 send_pushover("x")
+
+    def test_pushover_credentials_from_env(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "PUSHOVER_TOKEN": "env-token",
+                "PUSHOVER_USER": "env-user",
+                "LPAP_NOTIFY_ON_FINISHED": "1",
+            },
+            clear=False,
+        ):
+            token, user = pushover_credentials()
+            self.assertEqual(token, "env-token")
+            self.assertEqual(user, "env-user")
+            self.assertTrue(notify_on_finished_enabled())
 
     def test_notify_training_finished_formats_message(self) -> None:
         with patch(

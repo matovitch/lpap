@@ -26,9 +26,6 @@ _SAMPLE_TOML = textwrap.dedent(
     remote_zst = "remote.pt.zst"
     local_pt = "data/local.pt"
     local_zst = "data/local.pt.zst"
-
-    [auth]
-    token_files = ["tok.txt"]
     """
 )
 
@@ -59,7 +56,6 @@ class StorageConfigTest(unittest.TestCase):
         self.assertEqual(config.images.bucket, "matovitch/lpap-images")
         self.assertEqual(config.images.remote_zst, "images_32x32_gray.pt.zst")
         self.assertEqual(config.images.local_pt, "data/images_32x32_gray.pt")
-        self.assertIn(".hf_token", config.auth.token_files)
 
     def test_load_project_toml(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -68,7 +64,7 @@ class StorageConfigTest(unittest.TestCase):
             config = load_storage_config(root)
             self.assertEqual(config.artifacts.bucket, "org/custom-artifacts")
             self.assertEqual(config.images.bucket, "org/custom-images")
-            self.assertEqual(config.auth.token_files, ("tok.txt",))
+            self.assertEqual(config.images.remote_zst, "remote.pt.zst")
 
     def test_env_overrides_buckets(self) -> None:
         with patch.dict(
@@ -104,8 +100,7 @@ class StorageConfigTest(unittest.TestCase):
             path.write_text(
                 "[artifacts]\nbucket = \"\"\n"
                 "[images]\nbucket = \"b\"\nremote_zst = \"r\"\n"
-                "local_pt = \"p\"\nlocal_zst = \"z\"\n"
-                "[auth]\ntoken_files = [\".hf_token\"]\n",
+                "local_pt = \"p\"\nlocal_zst = \"z\"\n",
                 encoding="utf-8",
             )
             with self.assertRaises(ValueError):

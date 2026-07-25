@@ -42,12 +42,12 @@ Read [doc/molab-workflow.md](../../doc/molab-workflow.md) for full notes.
   bash .github/skills/molab-workflow/scripts/molab-inject-secrets.sh
   ```
 
-  Sets kernel env (`HF_TOKEN`, `PUSHOVER_*`, `LPAP_NOTIFY_ON_FINISHED` when
-  Pushover creds are present) without printing values; also writes
-  `/marimo/.hf_token` when an HF token is present. Re-inject after kernel
-  restart. Detached bg workers need that env passed at spawn time.
-  `TrainingRun.mark_finished` sends Pushover when `notify_on_finished=True`
-  or `LPAP_NOTIFY_ON_FINISHED=1`.
+  Sets kernel env only (`HF_TOKEN`, `PUSHOVER_*`, and
+  `LPAP_NOTIFY_ON_FINISHED=1` when Pushover is filled). Removes any legacy
+  `/marimo/.hf_token` / `.pushover_*` files. Re-run after every **kernel**
+  restart (or when rotating keys). Pass the same env into detached bg workers
+  at spawn. `TrainingRun.mark_finished` sends Pushover when
+  `notify_on_finished=True` or `LPAP_NOTIFY_ON_FINISHED` is set.
 
 - Before cell surgery on a messy remote notebook:
 
