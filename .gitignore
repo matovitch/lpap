@@ -25,3 +25,4 @@ training_logs/*.sqlite-*
 # Hugging Face / molab secrets (never commit)
 .hf_token
 .env
+configs/secrets.toml

@@ -16,6 +16,7 @@ from lpap.checkpoints import (
     metric_improved,
     save_training_checkpoint,
 )
+from lpap.notify import NotifyError, env_flag, notify_training_finished
 from lpap.training_log import log_step_metrics, mark_run_status, upsert_run
 from lpap.training_log import finish_run_attempt, start_run_attempt
 from lpap.training_log import (
@@ -38,6 +39,7 @@ class TrainingRunConfig:
     checkpoint_on_improvement: bool = False
     checkpoint_at_end: bool = True
     upload_artifacts_on_checkpoint: bool = False
+    notify_on_finished: bool = False
     log_every: int = 1
     display_every: int = 5
     keep_last_runs: int = 10
@@ -91,6 +93,7 @@ class TrainingRun:
         self.best_metric: float | None = None
         self.best_model_state: dict[str, torch.Tensor] | None = None
         self.start_step = 1
+        self.last_step = 0
         self.attempt_id: int | None = None
 
     def resume_or_initialize(self) -> TrainingResumeInfo:
@@ -184,6 +187,7 @@ class TrainingRun:
         epoch: int | None = None,
         training_state: dict[str, Any] | None = None,
     ) -> TrainingStepResult:
+        self.last_step = step
         current_metric = metrics.get(self.config.monitor)
         previous_best_metric = self.best_metric
         improved = current_metric is not None and metric_improved(
@@ -286,3 +290,27 @@ class TrainingRun:
                 self.config.log_path, attempt_id=self.attempt_id, status="finished"
             )
         self._maybe_upload_artifacts()
+        self._maybe_notify_finished(status="finished")
+
+    def _should_notify_on_finished(self) -> bool:
+        return self.config.notify_on_finished or env_flag("LPAP_NOTIFY_ON_FINISHED")
+
+    def _maybe_notify_finished(self, *, status: str) -> None:
+        if not self._should_notify_on_finished():
+            return
+        step = self.last_step if self.last_step > 0 else None
+        try:
+            notify_training_finished(
+                run_id=self.run_id,
+                step=step,
+                total_steps=self.config.total_steps,
+                best_metric=self.best_metric,
+                status=status,
+            )
+        except (NotifyError, ValueError, OSError) as exc:
+            warnings.warn(
+                f"training notify failed for {self.run_id}: {exc}",
+                stacklevel=2,
+            )
+            return
+        print(f"notified: {status} run={self.run_id}", flush=True)

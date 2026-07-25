@@ -33,6 +33,22 @@ Read [doc/molab-workflow.md](../../doc/molab-workflow.md) for full notes.
   Override script location with `MARIMO_PAIR_SCRIPTS` if needed (default
   `~/.cursor/skills/marimo-pair/scripts`).
 
+- **Secrets (local → kernel):** copy
+  [`configs/secrets.toml.example`](../../../configs/secrets.toml.example) →
+  `configs/secrets.toml` (gitignored), fill `huggingface.token` /
+  `pushover.*`, then:
+
+  ```bash
+  bash .github/skills/molab-workflow/scripts/molab-inject-secrets.sh
+  ```
+
+  Sets kernel env (`HF_TOKEN`, `PUSHOVER_*`, `LPAP_NOTIFY_ON_FINISHED` when
+  Pushover creds are present) without printing values; also writes
+  `/marimo/.hf_token` when an HF token is present. Re-inject after kernel
+  restart. Detached bg workers need that env passed at spawn time.
+  `TrainingRun.mark_finished` sends Pushover when `notify_on_finished=True`
+  or `LPAP_NOTIFY_ON_FINISHED=1`.
+
 - Before cell surgery on a messy remote notebook:
 
   ```bash

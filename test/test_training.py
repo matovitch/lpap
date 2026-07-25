@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
 import sqlite3
@@ -213,6 +214,67 @@ class TrainingRunTest(unittest.TestCase):
             kwargs = upload_mock.call_args_list[0].kwargs
             self.assertEqual(kwargs["checkpoint_path"], checkpoint_path)
             self.assertEqual(kwargs["log_path"], log_path)
+
+    def test_notifies_on_finished_when_enabled(self) -> None:
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            checkpoint_path = root / "checkpoints" / "model.pt"
+            log_path = root / "training_logs" / "run.sqlite"
+            model = nn.Linear(2, 1)
+            run = TrainingRun(
+                config=TrainingRunConfig(
+                    run_id="run-notify",
+                    checkpoint_path=checkpoint_path,
+                    log_path=log_path,
+                    total_steps=1,
+                    checkpoint_every=1,
+                    notify_on_finished=True,
+                ),
+                model=model,
+            )
+            run.resume_or_initialize()
+            run.record_step(step=1, metrics={"loss": 0.25})
+            with patch(
+                "lpap.training.notify_training_finished",
+                return_value={"status": 1},
+            ) as notify_mock:
+                run.mark_finished()
+            notify_mock.assert_called_once()
+            kwargs = notify_mock.call_args.kwargs
+            self.assertEqual(kwargs["run_id"], run.run_id)
+            self.assertEqual(kwargs["step"], 1)
+            self.assertEqual(kwargs["total_steps"], 1)
+            self.assertEqual(kwargs["status"], "finished")
+
+    def test_notifies_on_finished_via_env_flag(self) -> None:
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            run = TrainingRun(
+                config=TrainingRunConfig(
+                    run_id="run-env",
+                    checkpoint_path=root / "checkpoints" / "model.pt",
+                    log_path=root / "training_logs" / "run.sqlite",
+                    total_steps=1,
+                    checkpoint_every=1,
+                    notify_on_finished=False,
+                ),
+                model=nn.Linear(2, 1),
+            )
+            run.resume_or_initialize()
+            run.record_step(step=1, metrics={"loss": 0.1})
+            with (
+                patch.dict(os.environ, {"LPAP_NOTIFY_ON_FINISHED": "1"}, clear=False),
+                patch(
+                    "lpap.training.notify_training_finished",
+                    return_value={"status": 1},
+                ) as notify_mock,
+            ):
+                run.mark_finished()
+            notify_mock.assert_called_once()
 
     def test_fresh_start_after_deleted_checkpoint_uses_new_run_instance(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

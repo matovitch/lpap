@@ -37,6 +37,24 @@ bash .github/skills/molab-workflow/scripts/molab-exec.sh -c 'print(1)'
 with `MARIMO_PAIR_SCRIPTS`). Prefer it over pasting long `--url` / `--token`
 flags on every call.
 
+### Secrets injection
+
+Keep real credentials in gitignored [`configs/secrets.toml`](../configs/secrets.toml)
+(start from [`configs/secrets.toml.example`](../configs/secrets.toml.example)).
+After pairing, push them into the kernel (env + `/marimo/.hf_token` for HF):
+
+```bash
+bash .github/skills/molab-workflow/scripts/molab-inject-secrets.sh
+```
+
+Do not put secrets in notebook cells. Re-run after a kernel restart; pass env
+explicitly when spawning detached training workers.
+
+With Pushover creds injected, `LPAP_NOTIFY_ON_FINISHED=1` is set so
+`TrainingRun.mark_finished` pings you (or set `notify_on_finished=True` on the
+run config). Helper: `lpap.notify.send_pushover` /
+`notify_training_finished`.
+
 Companion marimo-pair tools (pass URL/token explicitly, or reuse env via
 wrappers you compose):
 
