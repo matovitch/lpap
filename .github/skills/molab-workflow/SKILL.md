@@ -60,12 +60,13 @@ Read [doc/molab-workflow.md](../../doc/molab-workflow.md) for full notes.
    ```
 
 6. **Sync artifacts** with `lpap.artifact_sync` ↔ `artifacts.bucket` from
-   `configs/storage.toml` (packaged default) before idle kill. For long AE
-   runs, set `upload_artifacts_on_checkpoint=True` on the run config so each
-   improved checkpoint (+ SQLite) uploads automatically (and again on
+   `/marimo/configs/storage.toml` (copy from repo `configs/storage.toml` once;
+   missing file raises). For long AE runs, set
+   `upload_artifacts_on_checkpoint=True` on the run config so each improved
+   checkpoint (+ SQLite) uploads automatically (and again on
    `mark_finished`).
 7. **Images** via `ensure_image_tensor_archive` / `pixi run data-download`
-   using `images.*` from storage.toml (cached `.pt`).
+   using `images.*` from that same storage.toml (cached `.pt`).
 
 ## Background worker status (notebook host)
 

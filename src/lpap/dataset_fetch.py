@@ -1,7 +1,7 @@
 """Fetch the public grayscale image tensor archive from Hugging Face.
 
-The canonical training file path and bucket come from ``configs/storage.toml``
-(packaged fallback: ``lpap/default_storage.toml``).
+The canonical training file path and bucket come from
+``configs/storage.toml`` under the project root (required; no packaged default).
 """
 
 from __future__ import annotations
@@ -13,11 +13,11 @@ from pathlib import Path
 from lpap.storage import load_storage_config
 
 
-def default_images_bucket(project_root: str | Path | None = None) -> str:
+def default_images_bucket(project_root: str | Path) -> str:
     return load_storage_config(project_root).images.bucket
 
 
-def default_remote_zst(project_root: str | Path | None = None) -> str:
+def default_remote_zst(project_root: str | Path) -> str:
     return load_storage_config(project_root).images.remote_zst
 
 
@@ -50,7 +50,7 @@ def download_image_zst(
     bucket: str | None = None,
     remote_path: str | None = None,
     token: str | bool | None = None,
-    project_root: str | Path | None = None,
+    project_root: str | Path,
 ) -> Path:
     """Download the compressed archive from the public HF storage bucket."""
     from huggingface_hub import HfFileSystem
@@ -112,7 +112,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--project-root",
         type=Path,
         default=Path.cwd(),
-        help="repository root containing data/",
+        help="repository root containing configs/storage.toml and data/",
     )
     parser.add_argument(
         "--force-download",

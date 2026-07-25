@@ -10,9 +10,35 @@ from unittest.mock import patch
 from lpap.storage import (
     infer_project_root_from_checkpoint,
     load_storage_config,
-    packaged_default_storage_config,
     storage_config_from_file,
+    storage_config_path,
 )
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+_SAMPLE_TOML = textwrap.dedent(
+    """\
+    [artifacts]
+    bucket = "org/custom-artifacts"
+
+    [images]
+    bucket = "org/custom-images"
+    remote_zst = "remote.pt.zst"
+    local_pt = "data/local.pt"
+    local_zst = "data/local.pt.zst"
+
+    [auth]
+    token_files = ["tok.txt"]
+    """
+)
+
+
+def _write_storage_toml(root: Path, contents: str = _SAMPLE_TOML) -> Path:
+    config_dir = root / "configs"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    path = config_dir / "storage.toml"
+    path.write_text(contents, encoding="utf-8")
+    return path
 
 
 class StorageConfigTest(unittest.TestCase):
@@ -27,8 +53,8 @@ class StorageConfigTest(unittest.TestCase):
     def tearDown(self) -> None:
         self._env_patch.stop()
 
-    def test_packaged_defaults(self) -> None:
-        config = packaged_default_storage_config()
+    def test_repo_storage_toml(self) -> None:
+        config = load_storage_config(REPO_ROOT)
         self.assertEqual(config.artifacts.bucket, "matovitch/lpap-molab-artifacts")
         self.assertEqual(config.images.bucket, "matovitch/lpap-images")
         self.assertEqual(config.images.remote_zst, "images_32x32_gray.pt.zst")
@@ -38,26 +64,7 @@ class StorageConfigTest(unittest.TestCase):
     def test_load_project_toml(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            config_dir = root / "configs"
-            config_dir.mkdir()
-            (config_dir / "storage.toml").write_text(
-                textwrap.dedent(
-                    """\
-                    [artifacts]
-                    bucket = "org/custom-artifacts"
-
-                    [images]
-                    bucket = "org/custom-images"
-                    remote_zst = "remote.pt.zst"
-                    local_pt = "data/local.pt"
-                    local_zst = "data/local.pt.zst"
-
-                    [auth]
-                    token_files = ["tok.txt"]
-                    """
-                ),
-                encoding="utf-8",
-            )
+            _write_storage_toml(root)
             config = load_storage_config(root)
             self.assertEqual(config.artifacts.bucket, "org/custom-artifacts")
             self.assertEqual(config.images.bucket, "org/custom-images")
@@ -72,17 +79,16 @@ class StorageConfigTest(unittest.TestCase):
             },
             clear=False,
         ):
-            config = load_storage_config()
+            config = load_storage_config(REPO_ROOT)
             self.assertEqual(config.artifacts.bucket, "env/artifacts")
             self.assertEqual(config.images.bucket, "env/images")
 
-    def test_missing_project_toml_falls_back_to_packaged(self) -> None:
+    def test_missing_project_toml_raises(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            config = load_storage_config(temp_dir)
-            self.assertEqual(
-                config.artifacts.bucket,
-                packaged_default_storage_config().artifacts.bucket,
-            )
+            root = Path(temp_dir)
+            with self.assertRaises(FileNotFoundError) as ctx:
+                load_storage_config(root)
+            self.assertIn(str(storage_config_path(root)), str(ctx.exception))
 
     def test_infer_project_root_from_checkpoint(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

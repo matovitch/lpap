@@ -2,8 +2,8 @@
 
 Designed for the molab summer workflow: upload from the paired kernel with
 ``HF_TOKEN`` / token files from storage config, download locally without auth
-when the bucket is public. Bucket defaults live in ``configs/storage.toml``
-(packaged fallback: ``lpap/default_storage.toml``).
+when the bucket is public. Bucket settings live in ``configs/storage.toml``
+(required under the project root; no packaged default).
 """
 
 from __future__ import annotations
@@ -19,18 +19,27 @@ from lpap.storage import (
 )
 
 
-def default_artifacts_bucket(
-    project_root: str | Path | None = None,
-) -> str:
+def default_artifacts_bucket(project_root: str | Path) -> str:
     return load_storage_config(project_root).artifacts.bucket
 
 
-def default_token_files(
-    project_root: str | Path | None = None,
-) -> tuple[Path, ...]:
+def default_token_files(project_root: str | Path) -> tuple[Path, ...]:
     return tuple(
         Path(path) for path in load_storage_config(project_root).auth.token_files
     )
+
+
+def _require_project_root_for_defaults(
+    project_root: str | Path | None,
+    *,
+    what: str,
+) -> str | Path:
+    if project_root is None:
+        raise ValueError(
+            f"{what} requires project_root with configs/storage.toml, "
+            "or pass an explicit bucket="
+        )
+    return project_root
 
 
 def resolve_hf_token(
@@ -46,11 +55,12 @@ def resolve_hf_token(
         value = os.environ.get(key)
         if value and value.strip():
             return value.strip()
-    paths = (
-        tuple(Path(path) for path in token_files)
-        if token_files is not None
-        else default_token_files(project_root)
-    )
+    if token_files is not None:
+        paths = tuple(Path(path) for path in token_files)
+    elif project_root is not None:
+        paths = default_token_files(project_root)
+    else:
+        paths = ()
     for path in paths:
         if path.is_file():
             text = path.read_text(encoding="utf-8").strip()
@@ -92,7 +102,13 @@ def upload_files(
     """
     from huggingface_hub import HfApi
 
-    resolved_bucket = bucket or default_artifacts_bucket(project_root)
+    if bucket is None:
+        root = _require_project_root_for_defaults(
+            project_root, what="default artifacts bucket"
+        )
+        resolved_bucket = default_artifacts_bucket(root)
+    else:
+        resolved_bucket = bucket
     resolved = apply_hf_token(token=token, project_root=project_root)
     if not resolved:
         raise RuntimeError(
@@ -125,7 +141,13 @@ def download_files(
     """
     from huggingface_hub import HfFileSystem
 
-    resolved_bucket = bucket or default_artifacts_bucket(project_root)
+    if bucket is None:
+        root = _require_project_root_for_defaults(
+            project_root, what="default artifacts bucket"
+        )
+        resolved_bucket = default_artifacts_bucket(root)
+    else:
+        resolved_bucket = bucket
     resolved = apply_hf_token(token=token, project_root=project_root)
     fs = HfFileSystem(token=resolved if resolved else False)
     written: list[Path] = []
@@ -251,7 +273,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--project-root",
         type=Path,
         default=Path.cwd(),
-        help="project root containing checkpoints/ and training_logs/",
+        help="project root with configs/storage.toml, checkpoints/, training_logs/",
     )
     parser.add_argument(
         "--bucket",

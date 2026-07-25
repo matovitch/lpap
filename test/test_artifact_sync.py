@@ -20,6 +20,8 @@ from lpap.artifact_sync import (
 )
 from lpap.storage import load_storage_config
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
 
 class ArtifactSyncTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -35,19 +37,26 @@ class ArtifactSyncTest(unittest.TestCase):
 
     def test_bucket_uri(self) -> None:
         self.assertEqual(
-            bucket_uri("matovitch/lpap-molab-artifacts", "/checkpoints/a.pt"),
-            "hf://buckets/matovitch/lpap-molab-artifacts/checkpoints/a.pt",
+            bucket_uri("org/bucket", "/checkpoints/a.pt"),
+            "hf://buckets/org/bucket/checkpoints/a.pt",
         )
 
-    def test_default_artifacts_bucket_from_packaged_config(self) -> None:
+    def test_default_artifacts_bucket_from_repo_config(self) -> None:
         self.assertEqual(
-            default_artifacts_bucket(),
-            load_storage_config().artifacts.bucket,
+            default_artifacts_bucket(REPO_ROOT),
+            load_storage_config(REPO_ROOT).artifacts.bucket,
         )
         self.assertEqual(
-            default_artifacts_bucket(),
+            default_artifacts_bucket(REPO_ROOT),
             "matovitch/lpap-molab-artifacts",
         )
+
+    def test_default_artifacts_bucket_requires_config(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with self.assertRaises(FileNotFoundError):
+                default_artifacts_bucket(temp_dir)
+        with self.assertRaises(ValueError):
+            upload_files([], bucket=None, project_root=None)
 
     def test_resolve_hf_token_prefers_explicit_then_env_then_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -115,7 +124,10 @@ class ArtifactSyncTest(unittest.TestCase):
                     "lpap.artifact_sync.default_token_files", return_value=()
                 ):
                     with self.assertRaises(RuntimeError):
-                        upload_files([(local, "checkpoints/a.pt")])
+                        upload_files(
+                            [(local, "checkpoints/a.pt")],
+                            bucket="user/bucket",
+                        )
 
             mock_api = MagicMock()
             with (
@@ -142,7 +154,7 @@ class ArtifactSyncTest(unittest.TestCase):
                 Path(local).write_bytes(b"data")
 
             mock_fs.get.side_effect = _get
-            bucket = default_artifacts_bucket()
+            bucket = default_artifacts_bucket(REPO_ROOT)
             with (
                 patch("lpap.artifact_sync.apply_hf_token", return_value=None),
                 patch("huggingface_hub.HfFileSystem", return_value=mock_fs),

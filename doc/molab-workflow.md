@@ -121,10 +121,11 @@ print(conn.execute("SELECT MAX(step) FROM step_metrics").fetchone()[0])
 
 ## Artifact sync (HF Storage Bucket)
 
-Bucket defaults come from [`configs/storage.toml`](../configs/storage.toml)
-(`artifacts.bucket`; public by default). Write token on molab via paths listed
-in `auth.token_files` (e.g. `/marimo/.hf_token`) or `HF_TOKEN` (gitignored).
-Local download needs no login.
+Bucket settings come from [`configs/storage.toml`](../configs/storage.toml)
+(`artifacts.bucket`). On molab, copy that file once to
+`/marimo/configs/storage.toml` (upload/fetch raise if it is missing). Write
+token via paths listed in `auth.token_files` (e.g. `/marimo/.hf_token`) or
+`HF_TOKEN` (gitignored). Local download needs no login.
 
 ```python
 # molab

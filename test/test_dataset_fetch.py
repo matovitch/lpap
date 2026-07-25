@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -11,13 +12,38 @@ from lpap.dataset_fetch import (
     ensure_image_tensor_archive,
 )
 
+_STORAGE_TOML = textwrap.dedent(
+    """\
+    [artifacts]
+    bucket = "org/artifacts"
+
+    [images]
+    bucket = "org/images"
+    remote_zst = "images_32x32_gray.pt.zst"
+    local_pt = "data/images_32x32_gray.pt"
+    local_zst = "data/images_32x32_gray.pt.zst"
+
+    [auth]
+    token_files = [".hf_token"]
+    """
+)
+
+
+def _write_storage_toml(root: Path) -> None:
+    config_dir = root / "configs"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "storage.toml").write_text(_STORAGE_TOML, encoding="utf-8")
+
 
 class DatasetFetchTest(unittest.TestCase):
     def test_default_image_pt_path(self) -> None:
-        self.assertEqual(
-            default_image_pt_path("/tmp/proj"),
-            Path("/tmp/proj/data/images_32x32_gray.pt"),
-        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            _write_storage_toml(root)
+            self.assertEqual(
+                default_image_pt_path(root),
+                root / "data" / "images_32x32_gray.pt",
+            )
 
     def test_decompress_zstd_file(self) -> None:
         import zstandard as zstd
@@ -37,6 +63,7 @@ class DatasetFetchTest(unittest.TestCase):
     def test_ensure_reuses_existing_pt(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
+            _write_storage_toml(root)
             pt = root / "data" / "images_32x32_gray.pt"
             pt.parent.mkdir(parents=True)
             pt.write_bytes(b"cached")
@@ -50,6 +77,7 @@ class DatasetFetchTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
+            _write_storage_toml(root)
             payload = b"dataset-payload"
             zst_bytes = zstd.ZstdCompressor().compress(payload)
 

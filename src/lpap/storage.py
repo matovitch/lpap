@@ -1,11 +1,10 @@
-"""Load Hugging Face storage defaults from TOML (not Python constants)."""
+"""Load Hugging Face storage settings from ``configs/storage.toml``."""
 
 from __future__ import annotations
 
 import os
 import tomllib
 from dataclasses import dataclass
-from importlib import resources
 from pathlib import Path
 from typing import Any
 
@@ -96,12 +95,6 @@ def storage_config_from_file(path: str | Path) -> StorageConfig:
         return storage_config_from_dict(tomllib.load(file))
 
 
-def packaged_default_storage_config() -> StorageConfig:
-    resource = resources.files("lpap").joinpath("default_storage.toml")
-    with resource.open("rb") as file:
-        return storage_config_from_dict(tomllib.load(file))
-
-
 def _apply_env_overrides(config: StorageConfig) -> StorageConfig:
     artifacts_bucket = os.environ.get("LPAP_ARTIFACTS_BUCKET", "").strip()
     images_bucket = os.environ.get("LPAP_IMAGES_BUCKET", "").strip()
@@ -121,17 +114,21 @@ def _apply_env_overrides(config: StorageConfig) -> StorageConfig:
     )
 
 
-def load_storage_config(project_root: str | Path | None = None) -> StorageConfig:
-    """Load storage defaults from project TOML, else packaged defaults.
+def load_storage_config(project_root: str | Path) -> StorageConfig:
+    """Load ``configs/storage.toml`` under ``project_root``.
 
-    Resolution after load: ``LPAP_ARTIFACTS_BUCKET`` / ``LPAP_IMAGES_BUCKET``
-    override bucket fields when set.
+    Raises ``FileNotFoundError`` if the file is missing. After load,
+    ``LPAP_ARTIFACTS_BUCKET`` / ``LPAP_IMAGES_BUCKET`` override bucket fields
+    when set.
     """
-    if project_root is not None:
-        path = storage_config_path(project_root)
-        if path.is_file():
-            return _apply_env_overrides(storage_config_from_file(path))
-    return _apply_env_overrides(packaged_default_storage_config())
+    path = storage_config_path(project_root)
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"missing storage config: {path}. "
+            "Copy configs/storage.toml from the repo (required; no packaged "
+            "default), or pass an explicit bucket= where the API allows it."
+        )
+    return _apply_env_overrides(storage_config_from_file(path))
 
 
 def infer_project_root_from_checkpoint(
@@ -151,7 +148,6 @@ __all__ = [
     "StorageConfig",
     "infer_project_root_from_checkpoint",
     "load_storage_config",
-    "packaged_default_storage_config",
     "storage_config_from_dict",
     "storage_config_from_file",
     "storage_config_path",

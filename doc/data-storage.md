@@ -7,12 +7,12 @@ The image archive is too large for normal Git history. GitHub rejects regular fi
 ## Public download (recommended)
 
 Bucket ids, remote archive names, and local paths are configured in
-[`configs/storage.toml`](../configs/storage.toml) (packaged fallback:
-`lpap/default_storage.toml` for installs without the repo checkout). Override
-buckets at runtime with `LPAP_ARTIFACTS_BUCKET` / `LPAP_IMAGES_BUCKET`.
+[`configs/storage.toml`](../configs/storage.toml) under the project root
+(required; there is no packaged default). Override buckets at runtime with
+`LPAP_ARTIFACTS_BUCKET` / `LPAP_IMAGES_BUCKET`.
 
 The training images live on the public Hugging Face storage bucket named in
-`images.bucket` (default
+`images.bucket` (see storage.toml; default checkout uses
 [`matovitch/lpap-images`](https://huggingface.co/buckets/matovitch/lpap-images))
 as `images.remote_zst`. Fetch and decompress into `data/`:
 

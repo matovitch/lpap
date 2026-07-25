@@ -1,6 +1,7 @@
-# Project Hugging Face storage defaults (buckets + local archive paths).
-# Override per-checkout by editing this file, or set LPAP_ARTIFACTS_BUCKET /
-# LPAP_IMAGES_BUCKET. Packaged copy: lpap/default_storage.toml (molab fallback).
+# Project Hugging Face storage settings (buckets + local archive paths).
+# Required under <project_root>/configs/storage.toml (no packaged default).
+# On molab, copy this file to /marimo/configs/storage.toml once.
+# Override buckets at runtime with LPAP_ARTIFACTS_BUCKET / LPAP_IMAGES_BUCKET.
 
 [artifacts]
 bucket = "matovitch/lpap-molab-artifacts"
