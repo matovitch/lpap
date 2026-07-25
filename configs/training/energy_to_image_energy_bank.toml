@@ -1,5 +1,5 @@
-# Example: train energy→image from the empirical AE energy bank (direct source).
-# No surrogate/decoder checkpoints are required for this mode.
+# Selectable kind: train energy→image from the empirical AE energy bank.
+# Load via model_kind ``energy_to_image_energy_bank``. No surrogate/decoder required.
 
 [image]
 dataset_path = "data/images_32x32_gray.pt"
@@ -37,8 +37,8 @@ max_grad_norm = 1.0
 
 [validation]
 enabled = true
-every = 100
-batch_size = 128
+every = 50
+batch_size = 64
 seed = 40123
 validate_at_end = true
 euler_steps = [1, 4, 16]
@@ -46,13 +46,13 @@ euler_steps = [1, 4, 16]
 [run]
 run_training = true
 resume_from_checkpoint = true
-steps = 10000
+steps = 2000
 seed = 987
-display_every = 5
-log_every = 1
+display_every = 25
+log_every = 5
 run_id = "energy_to_image_energy_bank"
 checkpoint_name = "energy_to_image_energy_bank.pt"
 log_name = "energy_to_image_energy_bank.sqlite"
-note = "empirical AE energy marginal as e2i source; random image pairing"
-tags = ["energy-bank", "emp-prior"]
+note = "probe: empirical AE energy marginal as e2i source; random image pairing"
+tags = ["energy-bank", "emp-prior", "probe"]
 pinned = false

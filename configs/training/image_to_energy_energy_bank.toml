@@ -1,5 +1,5 @@
-# Example: train image→energy against the empirical AE energy bank.
-# Copy/adapt, or load via training_config_from_file after pointing dataset paths.
+# Selectable kind: train image→energy against the empirical AE energy bank.
+# Load via model_kind ``image_to_energy_energy_bank`` in the training notebook.
 
 [image]
 dataset_path = "data/images_32x32_gray.pt"
@@ -37,8 +37,8 @@ max_grad_norm = 1.0
 
 [validation]
 enabled = true
-every = 100
-batch_size = 128
+every = 50
+batch_size = 64
 seed = 30123
 validate_at_end = true
 euler_steps = [1, 4, 16]
@@ -46,13 +46,13 @@ euler_steps = [1, 4, 16]
 [run]
 run_training = true
 resume_from_checkpoint = true
-steps = 10000
+steps = 2000
 seed = 789
-display_every = 5
-log_every = 1
+display_every = 25
+log_every = 5
 run_id = "image_to_energy_energy_bank"
 checkpoint_name = "image_to_energy_energy_bank.pt"
 log_name = "image_to_energy_energy_bank.sqlite"
-note = "empirical AE energy marginal prior; random image pairing"
-tags = ["energy-bank", "emp-prior"]
+note = "probe: empirical AE energy marginal prior; random image pairing"
+tags = ["energy-bank", "emp-prior", "probe"]
 pinned = false
