@@ -14,6 +14,7 @@ from lpap.artifact_sync import (
     download_files,
     download_training_artifacts,
     resolve_hf_token,
+    upload_checkpoint_artifacts,
     upload_files,
     upload_training_artifacts,
 )
@@ -141,6 +142,34 @@ class ArtifactSyncTest(unittest.TestCase):
                 paths = download_training_artifacts(root)
             self.assertEqual(paths, [ckpt, log])
             download_mock.assert_called_once()
+
+    def test_upload_checkpoint_artifacts_uses_basenames(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            ckpt = root / "checkpoints" / "model.pt"
+            log = root / "training_logs" / "model.sqlite"
+            ckpt.parent.mkdir(parents=True)
+            log.parent.mkdir(parents=True)
+            ckpt.write_bytes(b"ckpt")
+            log.write_bytes(b"log")
+            with patch(
+                "lpap.artifact_sync.upload_files",
+                return_value=["checkpoints/model.pt", "training_logs/model.sqlite"],
+            ) as upload_mock:
+                remotes = upload_checkpoint_artifacts(
+                    checkpoint_path=ckpt, log_path=log
+                )
+            self.assertEqual(
+                remotes, ["checkpoints/model.pt", "training_logs/model.sqlite"]
+            )
+            pairs = upload_mock.call_args.args[0]
+            self.assertEqual(
+                [(path.name, remote) for path, remote in pairs],
+                [
+                    ("model.pt", "checkpoints/model.pt"),
+                    ("model.sqlite", "training_logs/model.sqlite"),
+                ],
+            )
 
 
 if __name__ == "__main__":

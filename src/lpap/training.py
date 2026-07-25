@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -7,6 +8,7 @@ from typing import Any
 import torch
 from torch import nn
 
+from lpap.artifact_sync import upload_checkpoint_artifacts
 from lpap.checkpoints import (
     CheckpointMode,
     state_dict_to_cpu,
@@ -35,6 +37,7 @@ class TrainingRunConfig:
     checkpoint_every: int | None = 25
     checkpoint_on_improvement: bool = False
     checkpoint_at_end: bool = True
+    upload_artifacts_on_checkpoint: bool = False
     log_every: int = 1
     display_every: int = 5
     keep_last_runs: int = 10
@@ -230,6 +233,7 @@ class TrainingRun:
             self.best_metric = checkpoint_info.best_metric
             self.best_model_state = checkpoint_info.best_model_state
             improved = checkpoint_info.improved
+            self._maybe_upload_artifacts()
 
         logged = step % self.config.log_every == 0 or step == self.config.total_steps
         if logged:
@@ -256,9 +260,29 @@ class TrainingRun:
             or step == self.config.total_steps,
         )
 
+    def _maybe_upload_artifacts(self) -> None:
+        if not self.config.upload_artifacts_on_checkpoint:
+            return
+        try:
+            uploaded = upload_checkpoint_artifacts(
+                checkpoint_path=self.config.checkpoint_path,
+                log_path=self.config.log_path,
+            )
+        except Exception as exc:
+            warnings.warn(
+                f"artifact upload failed for {self.config.checkpoint_path.name}: {exc}",
+                stacklevel=2,
+            )
+            return
+        print(
+            f"uploaded artifacts: {', '.join(uploaded)}",
+            flush=True,
+        )
+
     def mark_finished(self) -> None:
         mark_run_status(self.config.log_path, run_id=self.run_id, status="finished")
         if self.attempt_id is not None:
             finish_run_attempt(
                 self.config.log_path, attempt_id=self.attempt_id, status="finished"
             )
+        self._maybe_upload_artifacts()

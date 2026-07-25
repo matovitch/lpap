@@ -78,6 +78,14 @@ description = "Download default surrogate checkpoint/log from the HF storage buc
 cmd = "PYTHONPATH=src python -m lpap.artifact_sync upload --project-root ."
 description = "Upload default surrogate checkpoint/log to the HF storage bucket (needs HF_TOKEN)."
 
+[tasks.train-status]
+cmd = "PYTHONPATH=src python -m lpap.training_status --project-root . --checkpoint {{ checkpoint }} --log {{ log }}"
+args = [
+	{ arg = "checkpoint", default = "surrogate_synthetic.pt" },
+	{ arg = "log", default = "surrogate.sqlite" },
+]
+description = "Summarize step/best KPIs from a checkpoint + SQLite training log."
+
 [tasks.data-download]
 cmd = "PYTHONPATH=src python -m lpap.dataset_fetch --project-root ."
 description = "Download and decompress the public 32x32 grayscale image archive into data/."

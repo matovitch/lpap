@@ -127,6 +127,32 @@ def default_artifact_pairs(
     return upload, download
 
 
+def upload_checkpoint_artifacts(
+    *,
+    checkpoint_path: str | Path | None = None,
+    log_path: str | Path | None = None,
+    bucket: str = DEFAULT_BUCKET,
+    token: str | None = None,
+) -> list[str]:
+    """Upload a checkpoint and/or SQLite log into the standard bucket layout.
+
+    Remote keys are ``checkpoints/<name>`` and ``training_logs/<name>``. Missing
+    files are skipped; raises ``FileNotFoundError`` if nothing exists to upload.
+    """
+    pairs: list[tuple[Path, str]] = []
+    if checkpoint_path is not None:
+        path = Path(checkpoint_path)
+        if path.is_file():
+            pairs.append((path, f"checkpoints/{path.name}"))
+    if log_path is not None:
+        path = Path(log_path)
+        if path.is_file():
+            pairs.append((path, f"training_logs/{path.name}"))
+    if not pairs:
+        raise FileNotFoundError("no checkpoint/log files found to upload")
+    return upload_files(pairs, bucket=bucket, token=token)
+
+
 def upload_training_artifacts(
     project_root: Path | str,
     *,

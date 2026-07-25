@@ -177,6 +177,43 @@ class TrainingRunTest(unittest.TestCase):
             self.assertEqual(payload["metric_name"], "validation_loss")
             self.assertEqual(payload["best_metric"], 0.75)
 
+    def test_uploads_artifacts_when_checkpointed_if_enabled(self) -> None:
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            checkpoint_path = root / "checkpoints" / "model.pt"
+            log_path = root / "training_logs" / "run.sqlite"
+            model = nn.Linear(2, 1)
+            run = TrainingRun(
+                config=TrainingRunConfig(
+                    run_id="run-a",
+                    checkpoint_path=checkpoint_path,
+                    log_path=log_path,
+                    total_steps=1,
+                    monitor="validation_loss",
+                    checkpoint_every=None,
+                    checkpoint_on_improvement=True,
+                    checkpoint_at_end=False,
+                    upload_artifacts_on_checkpoint=True,
+                ),
+                model=model,
+            )
+            run.resume_or_initialize()
+            with patch(
+                "lpap.training.upload_checkpoint_artifacts",
+                return_value=["checkpoints/model.pt"],
+            ) as upload_mock:
+                result = run.record_step(
+                    step=1, metrics={"loss": 1.0, "validation_loss": 0.5}
+                )
+                run.mark_finished()
+            self.assertTrue(result.checkpointed)
+            self.assertEqual(upload_mock.call_count, 2)
+            kwargs = upload_mock.call_args_list[0].kwargs
+            self.assertEqual(kwargs["checkpoint_path"], checkpoint_path)
+            self.assertEqual(kwargs["log_path"], log_path)
+
     def test_fresh_start_after_deleted_checkpoint_uses_new_run_instance(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

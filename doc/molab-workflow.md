@@ -18,9 +18,31 @@ Laptop agent (Cursor/Zed)     molab sandbox
 | Local Pixi home | `../lpap` on `main` |
 | Molab / agent home | `../lpap-molab` on `molab-summer` |
 | Pair skill | `~/.cursor/skills/marimo-pair` |
+| Molab wrapper | `.github/skills/molab-workflow/scripts/molab-exec.sh` |
 
 Push package/notebook changes on `molab-summer` and install that ref on molab.
 Do not mix routine Pixi work into the molab worktree unless backporting.
+
+## Pairing commands
+
+```bash
+export MOLAB_URL='https://….sb.molab.run/'
+export MOLAB_TOKEN='…'       # or MARIMO_TOKEN
+export MOLAB_SESSION='s_…'   # optional
+
+bash .github/skills/molab-workflow/scripts/molab-exec.sh -c 'print(1)'
+```
+
+`molab-exec` forwards to marimo-pair `execute-code.sh` (override scripts dir
+with `MARIMO_PAIR_SCRIPTS`). Prefer it over pasting long `--url` / `--token`
+flags on every call.
+
+Companion marimo-pair tools (pass URL/token explicitly, or reuse env via
+wrappers you compose):
+
+- `notebook-map.sh` — DAG / detached-cell audit before cell surgery
+- `notebook-ready.sh` — gate that public names exist in `ctx.globals`
+- `execute-watch.sh` — agent-side short probes until a log pattern matches
 
 ## Capabilities
 
@@ -69,13 +91,27 @@ Put multi-minute trains in **visible cells** (`hide_code=False`, progress bar /
 installs, and artifact sync only.
 
 - Do not start a second `execute-code` while a train cell runs (`MarimoInterrupt`).
-- Prefer chunked training + SQLite polls **between** chunks; resume with
+- Prefer chunked training + status polls **between** chunks; resume with
   `resume_from_checkpoint=True`.
 - DAG: do not redefine `mo` / `torch` / `lpap`; use `_` locals; import training
   helpers once in setup.
 - Cadences: e.g. `display_every=50`, `log_every=10`; checkpoint on improvement.
 
-Poll between chunks:
+Poll between chunks (prefer the helper when `lpap` is installed on molab):
+
+```bash
+bash .github/skills/molab-workflow/scripts/molab-exec.sh <<'PY'
+from lpap.training_status import summarize_training_status
+print(summarize_training_status(
+    project_root="/marimo",
+    checkpoint_name="image_autoencoder_energy_bank.pt",
+    log_name="image_autoencoder_energy_bank.sqlite",
+    run_id="image_autoencoder_energy_bank",
+))
+PY
+```
+
+Or a minimal SQLite peek:
 
 ```python
 import sqlite3
@@ -132,5 +168,6 @@ Surrogate/decoder need no image dataset (synthetic harmonics).
 ## Session checklist
 
 **Human:** open lab notebook → attach RTX Pro 6000 → pair → paste URL/token.  
-**Agent:** connect smoke → code-mode train in chunks → HF upload before idle.  
+**Agent:** connect smoke → code-mode train in chunks → HF upload before idle
+(or enable `upload_artifacts_on_checkpoint=True` on the run).  
 **Local:** `artifacts-download` → `pixi run notebook-surrogate` / `notebook-decoder`.

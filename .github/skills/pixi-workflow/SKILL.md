@@ -19,6 +19,8 @@ When working in this repository:
 - Start agent-assisted marimo sessions with `--no-token` when practical so marimo-pair tooling can discover them. If a marimo server is running, mutate the live notebook through marimo code mode instead of editing the file on disk.
 - Keep marimo notebooks thin: define editable config variables, call reusable helpers in `src/lpap/`, and render outputs. Put training loops, checkpointing, and SQLite logging in source modules with tests.
 - Keep checkpoints under `checkpoints/` and SQLite training logs under `training_logs/`; both should remain local artifacts unless a deliberate model/data versioning system is added.
+- Inspect a run with `pixi run train-status` (defaults: surrogate checkpoint/log). Override filenames with task args, e.g. `pixi run train-status --checkpoint image_autoencoder.pt --log image_autoencoder.sqlite`. On molab, call the same module via `python -m lpap.training_status` inside `molab-exec` after `lpap` is installed.
+- Do **not** wrap marimo-pair / `molab-exec` as Pixi tasks — those need session URL/token, not the project env.
 
 ## Verifying Changes
 

@@ -168,6 +168,7 @@ class ImageAutoencoderRunConfig:
     note: str = ""
     tags: tuple[str, ...] = ()
     pinned: bool = False
+    upload_artifacts_on_checkpoint: bool = False
 
     def validate(self) -> None:
         if self.steps <= 0:
@@ -189,6 +190,7 @@ class ImageAutoencoderRunConfig:
             "note": self.note,
             "tags": self.tags,
             "pinned": self.pinned,
+            "upload_artifacts_on_checkpoint": self.upload_artifacts_on_checkpoint,
         }
 
 
@@ -463,6 +465,9 @@ def image_autoencoder_training_config_from_dict(
             note=str(run_data.get("note", "")),
             tags=tuple(str(tag) for tag in run_data.get("tags", ())),
             pinned=bool(run_data.get("pinned", False)),
+            upload_artifacts_on_checkpoint=bool(
+                run_data.get("upload_artifacts_on_checkpoint", False)
+            ),
         ),
     )
 
@@ -608,6 +613,7 @@ def create_image_autoencoder_training_session(
             checkpoint_every=None,
             checkpoint_on_improvement=True,
             checkpoint_at_end=False,
+            upload_artifacts_on_checkpoint=config.run.upload_artifacts_on_checkpoint,
             log_every=config.run.log_every,
             display_every=config.run.display_every,
             note=config.run.note,
