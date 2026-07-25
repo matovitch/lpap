@@ -3,13 +3,20 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import torch
 
 from torch.utils.data import DataLoader
 
 from lpap.data import SyntheticHarmonicConfig
+from lpap.energy_bank import (
+    EnergyBankConfig,
+    energy_bank_config_from_dict,
+    load_energy_bank,
+    resolve_energy_bank_path,
+    sample_energy_bank_values,
+)
 from lpap.flow import (
     DilatedConvFlow1d,
     FlowMatchingMetrics,
@@ -56,16 +63,39 @@ ImageToEnergyOptimizerConfig = FlowOptimizerConfig
 ImageToEnergyValidationConfig = FlowValidationConfig
 sample_image_to_energy_time = sample_flow_time
 
+ImageToEnergyTargetKind = Literal["harmonics", "energy_bank"]
+
 
 @dataclass(frozen=True)
 class ImageToEnergyTargetConfig:
+    """Flow matching end distribution for image→energy.
+
+    ``harmonics`` (default): sample synthetic harmonic energies.
+    ``energy_bank``: sample rows from an empirical energy ``.pt`` bank,
+    independently of the image batch (marginal prior, not paired map).
+    """
+
+    kind: ImageToEnergyTargetKind = "harmonics"
     harmonics: SyntheticHarmonicConfig = field(default_factory=SyntheticHarmonicConfig)
+    energy_bank: EnergyBankConfig | None = None
 
     def validate(self) -> None:
-        self.harmonics.validate()
+        if self.kind == "energy_bank":
+            if self.energy_bank is None:
+                raise ValueError("target.energy_bank is required when kind=energy_bank")
+            self.energy_bank.validate()
+        elif self.kind == "harmonics":
+            self.harmonics.validate()
+        else:
+            raise ValueError(f"unsupported target kind: {self.kind!r}")
 
     def as_dict(self) -> dict[str, object]:
-        return {"harmonics": self.harmonics.as_dict()}
+        data: dict[str, object] = {"kind": self.kind}
+        if self.kind == "harmonics":
+            data["harmonics"] = self.harmonics.as_dict()
+        if self.energy_bank is not None:
+            data["energy_bank"] = self.energy_bank.as_dict()
+        return data
 
 
 @dataclass(frozen=True)
@@ -159,9 +189,7 @@ def image_to_energy_training_config_from_dict(
         run_data["resume_from_checkpoint"] = resume_from_checkpoint
     return ImageToEnergyTrainingConfig(
         image=image_config_from_dict(data["image"]),
-        target=ImageToEnergyTargetConfig(
-            harmonics=_synthetic_harmonic_config_from_dict(data["target"]["harmonics"])
-        ),
+        target=_image_to_energy_target_config_from_dict(data["target"]),
         flow=flow_model_config_from_dict(data["flow"]),
         time=time_config_from_dict(data["time"]),
         optimizer=optimizer_config_from_dict(data["optimizer"]),
@@ -179,6 +207,29 @@ def image_to_energy_training_config_from_dict(
             note=str(run_data.get("note", "")),
             tags=tuple(str(tag) for tag in run_data.get("tags", ())),
             pinned=bool(run_data.get("pinned", False)),
+        ),
+    )
+
+
+def _image_to_energy_target_config_from_dict(
+    data: dict[str, Any],
+) -> ImageToEnergyTargetConfig:
+    kind = str(data.get("kind", "harmonics"))
+    if kind not in ("harmonics", "energy_bank"):
+        raise ValueError(f"unsupported target kind: {kind!r}")
+    harmonics_data = data.get("harmonics")
+    energy_bank_data = data.get("energy_bank")
+    return ImageToEnergyTargetConfig(
+        kind=kind,  # type: ignore[arg-type]
+        harmonics=(
+            SyntheticHarmonicConfig()
+            if harmonics_data is None
+            else _synthetic_harmonic_config_from_dict(harmonics_data)
+        ),
+        energy_bank=(
+            None
+            if energy_bank_data is None
+            else energy_bank_config_from_dict(energy_bank_data)
         ),
     )
 
@@ -210,6 +261,7 @@ class ImageToEnergyTrainingSession:
     generator: torch.Generator
     validation_generator: torch.Generator
     resume_info: TrainingResumeInfo
+    energy_bank: torch.Tensor | None = None
 
 
 @dataclass(frozen=True)
@@ -225,6 +277,20 @@ def create_image_to_energy_training_session(
     device: str | torch.device | None = None,
 ) -> ImageToEnergyTrainingSession:
     config.validate()
+    root = Path(project_root)
+    energy_bank: torch.Tensor | None = None
+    if config.target.kind == "energy_bank":
+        assert config.target.energy_bank is not None
+        bank_path = resolve_energy_bank_path(root, config.target.energy_bank)
+        energy_bank = load_energy_bank(
+            bank_path, energies_key=config.target.energy_bank.energies_key
+        )
+        if int(energy_bank.shape[-1]) != config.value_count:
+            raise ValueError(
+                "energy bank energy_dim "
+                f"{int(energy_bank.shape[-1])} does not match flow sequence_length "
+                f"{config.value_count}"
+            )
     core = create_flow_session_core(
         project_root=project_root,
         image=config.image,
@@ -251,6 +317,7 @@ def create_image_to_energy_training_session(
         generator=core.generator,
         validation_generator=core.validation_generator,
         resume_info=core.resume_info,
+        energy_bank=energy_bank,
     )
 
 
@@ -260,14 +327,25 @@ def _sample_targets(
     batch_size: int,
     generator: torch.Generator,
     device: torch.device,
+    energy_bank: torch.Tensor | None = None,
 ) -> torch.Tensor:
-    targets = sample_harmonic_values(
-        harmonics=config.target.harmonics,
-        batch_size=batch_size,
-        n=config.value_count,
-        generator=generator,
-        device=device,
-    )
+    if config.target.kind == "energy_bank":
+        if energy_bank is None:
+            raise ValueError("energy_bank tensor is required when target.kind=energy_bank")
+        targets = sample_energy_bank_values(
+            energy_bank,
+            batch_size=batch_size,
+            generator=generator,
+            device=device,
+        )
+    else:
+        targets = sample_harmonic_values(
+            harmonics=config.target.harmonics,
+            batch_size=batch_size,
+            n=config.value_count,
+            generator=generator,
+            device=device,
+        )
     return targets.unsqueeze(1)
 
 
@@ -279,10 +357,15 @@ def train_image_to_energy_step(
     config: ImageToEnergyTrainingConfig,
     generator: torch.Generator,
     device: torch.device,
+    energy_bank: torch.Tensor | None = None,
 ) -> FlowMatchingMetrics:
     start = prepare_image_sequence(images, side=config.image.side, device=device)
     end = _sample_targets(
-        config=config, batch_size=start.shape[0], generator=generator, device=device
+        config=config,
+        batch_size=start.shape[0],
+        generator=generator,
+        device=device,
+        energy_bank=energy_bank,
     )
     return train_flow_matching_step(
         model=model,
@@ -302,13 +385,18 @@ def evaluate_image_to_energy_batch(
     config: ImageToEnergyTrainingConfig,
     generator: torch.Generator,
     device: torch.device,
+    energy_bank: torch.Tensor | None = None,
 ) -> tuple[FlowMatchingMetrics, dict[str, float]]:
     was_training = model.training
     model.eval()
     with torch.no_grad():
         start = prepare_image_sequence(images, side=config.image.side, device=device)
         end = _sample_targets(
-            config=config, batch_size=start.shape[0], generator=generator, device=device
+            config=config,
+            batch_size=start.shape[0],
+            generator=generator,
+            device=device,
+            energy_bank=energy_bank,
         )
         metrics = evaluate_flow_matching_batch(
             model=model,
@@ -391,6 +479,7 @@ def iter_image_to_energy_training(
             config=config,
             generator=session.generator,
             device=session.device,
+            energy_bank=session.energy_bank,
         )
         step_metrics = _metrics_dict(metrics)
         if should_validate_image_to_energy(step=step, config=config):
@@ -401,6 +490,7 @@ def iter_image_to_energy_training(
                 config=config,
                 generator=session.validation_generator,
                 device=session.device,
+                energy_bank=session.energy_bank,
             )
             step_metrics.update(
                 {

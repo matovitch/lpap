@@ -53,11 +53,15 @@ class TrainingNotebookConfigTest(unittest.TestCase):
             image_to_energy.image.dataset_path, "data/images_32x32_gray.pt"
         )
         self.assertEqual(image_to_energy.time.distribution, "beta")
+        self.assertEqual(image_to_energy.target.kind, "harmonics")
+        self.assertIsNone(image_to_energy.target.energy_bank)
         self.assertIsInstance(energy_to_image, EnergyToImageTrainingConfig)
         self.assertEqual(energy_to_image.run.run_id, "energy_to_image")
+        self.assertEqual(energy_to_image.source.kind, "harmonics")
         self.assertEqual(
             energy_to_image.source.decoder_checkpoint_name, "decoder_synthetic.pt"
         )
+        self.assertIsNone(energy_to_image.source.energy_bank)
         self.assertIsInstance(energy_to_image_reflow, EnergyToImageReflowTrainingConfig)
         self.assertEqual(energy_to_image_reflow.run.run_id, "energy_to_image_reflow")
         self.assertEqual(energy_to_image_reflow.reflow.student_steps, 8)

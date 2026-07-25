@@ -6,6 +6,9 @@ normalize = true
 shuffle = true
 num_workers = 0
 
+[target]
+kind = "harmonics"
+
 [target.harmonics]
 harmonic_count = 32
 gain_variance = 1.0
