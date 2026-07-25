@@ -62,7 +62,6 @@ def _(mo):
             "decoder",
             "image_to_energy",
             "energy_to_image",
-            "energy_to_image_reflow",
             "image_autoencoder",
         ],
         value="surrogate",

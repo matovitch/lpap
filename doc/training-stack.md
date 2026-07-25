@@ -2,13 +2,12 @@
 
 See the [documentation index](index.md) for the full documentation map and the [glossary](glossary.md) for project terminology.
 
-LPAP currently has six trainable model kinds wired into one shared marimo training notebook:
+LPAP currently has five trainable model kinds wired into one shared marimo training notebook:
 
 - `surrogate`: learns full-`N` source-index logits for LPAP bucket selections on synthetic harmonic energy.
 - `decoder`: reconstructs source energy values from frozen surrogate logits.
-- `image_to_energy`: trains a flow from Hilbert-flattened grayscale images to synthetic harmonic energy.
-- `energy_to_image`: trains a flow from decoder-projected harmonic energy to Hilbert-flattened grayscale images.
-- `energy_to_image_reflow`: distills a high-step frozen `energy_to_image` teacher into a low-step student flow, with 8 steps as the default target for later unrolled image-autoencoder work.
+- `image_to_energy`: trains a flow from Hilbert-flattened grayscale images to an energy prior (synthetic harmonics or an empirical energy bank).
+- `energy_to_image`: trains a flow from an energy prior (decoder-projected harmonics or an empirical energy bank) to Hilbert-flattened grayscale images.
 - `image_autoencoder`: trains the total end-to-end grayscale image autoencoder over 1D Hilbert-flattened image sequences, using image-to-energy flow, the LPAP surrogate/decoder inner energy path, and energy-to-image flow.
 
 ## Training Overview
@@ -22,9 +21,8 @@ flowchart TD
     kinds --> decoder[decoder]
     kinds --> image_to_energy[image_to_energy]
     kinds --> energy_to_image[energy_to_image]
-    kinds --> energy_to_image_reflow[energy_to_image_reflow]
     kinds --> image_autoencoder[image_autoencoder]
-    surrogate & decoder & image_to_energy & energy_to_image & energy_to_image_reflow & image_autoencoder --> session[Training session]
+    surrogate & decoder & image_to_energy & energy_to_image & image_autoencoder --> session[Training session]
     session --> checkpoint[(Checkpoint files)]
     session --> sqlite[(SQLite logs)]
 ```
@@ -73,20 +71,19 @@ flowchart TD
     decoder_ckpt[Decoder checkpoint]
     image_flow_config[Image to energy TOML]
     energy_flow_config[Energy to image TOML]
-    reflow_config[Energy to image reflow TOML]
+    energy_bank[Empirical energy bank .pt]
     image_autoencoder_config[Image autoencoder TOML]
 
     harmonics_config --> surrogate_ckpt
     surrogate_ckpt --> decoder_ckpt
     surrogate_ckpt --> energy_flow_config
     decoder_ckpt --> energy_flow_config
-    energy_flow_config --> e2i_teacher[High step E2I teacher]
-    e2i_teacher --> reflow_config
+    energy_bank --> image_flow_config
+    energy_bank --> energy_flow_config
     image_flow_config --> image_to_energy[Image to energy training]
     energy_flow_config --> energy_to_image[Energy to image training]
-    reflow_config --> energy_to_image_reflow[Energy to image reflow training]
     image_flow_config --> image_autoencoder_config
-    reflow_config --> image_autoencoder_config
+    energy_flow_config --> image_autoencoder_config
     surrogate_ckpt --> image_autoencoder_config
     decoder_ckpt --> image_autoencoder_config
     image_autoencoder_config --> image_autoencoder[Image autoencoder training]
@@ -96,9 +93,9 @@ flowchart TD
     decoder_ckpt -. decoder projection .-> energy_to_image
 ```
 
-The decoder does not duplicate harmonic source settings in its TOML. It reads them from the surrogate checkpoint. `energy_to_image` follows the same rule: it samples harmonics from the surrogate checkpoint's stored run config, passes them through the frozen surrogate and decoder, and uses the decoder reconstruction as its source distribution.
+The decoder does not duplicate harmonic source settings in its TOML. It reads them from the surrogate checkpoint. In harmonics mode, `energy_to_image` follows the same rule: it samples harmonics from the surrogate checkpoint's stored run config, passes them through the frozen surrogate and decoder (`source.teacher`), and uses the decoder reconstruction as its source distribution. In `energy_bank` mode it samples empirical energies directly and skips surrogate/decoder loading.
 
-`energy_to_image_reflow` keeps that same source distribution, freezes a trained `energy_to_image` flow as a high-step teacher, and trains a student flow by integrating the student for a smaller number of Euler midpoint steps. The default configuration uses a 64-step teacher target and an 8-step student rollout. Its checkpoint is still a plain `DilatedConvFlow1d` state dict, so later experiments can consume it wherever an energy-to-image flow is expected.
+Both image flows can also target/source an empirical energy bank (see `configs/training/*_energy_bank.toml` and `lpap.energy_bank`). Bank rows are sampled independently of image batches so training learns the energy *marginal*, not a paired joint map.
 
 `image_autoencoder` is the total autoencoder. It Hilbert-flattens a grayscale image, rolls an image-to-energy flow forward for a small fixed number of differentiable steps, passes the encoded energy through the LPAP surrogate and decoder, then rolls an energy-to-image flow forward to reconstruct the image.
 
@@ -142,8 +139,7 @@ L       = L_gap + floor_coef * L_floor
   “balanced” win; the floor pushes each side toward ~`tau`.
 
 Current AE defaults also use **16-step** Euler on both flows with the
-**non-reflow** `energy_to_image.pt` teacher, and a longer default budget of
-**20k** steps.
+`energy_to_image.pt` teacher, and a longer default budget of **20k** steps.
 
 ### Dialing AE lambdas
 
@@ -182,8 +178,8 @@ flowchart TD
 
 The direction-specific modules still own the parts that are genuinely different:
 
-- `image_to_energy_training.py` owns image source preparation and direct synthetic harmonic targets.
-- `energy_to_image_training.py` owns surrogate/decoder checkpoint loading and decoder-projected harmonic sources.
+- `image_to_energy_training.py` owns image source preparation and energy prior targets (harmonics or bank).
+- `energy_to_image_training.py` owns energy prior sources (nested harmonics teacher or bank).
 
 ## Notebooks
 
@@ -196,15 +192,14 @@ pixi run notebook-surrogate
 pixi run notebook-decoder
 pixi run notebook-image-to-energy
 pixi run notebook-energy-to-image
-pixi run notebook-energy-to-image-reflow
 pixi run notebook-image-autoencoder
 ```
 
-The visualization notebooks select logged runs from SQLite, load the corresponding checkpoint, and render model-specific galleries. The flow visualizers show integration results at multiple Euler midpoint step counts. The reflow visualizer compares source energy, the high-step teacher image, the low-step student image, a sampled image anchor, and the student-teacher error. The image autoencoder visualizer compares grayscale input/reconstruction/error and encoded/decoded energy/error.
+The visualization notebooks select logged runs from SQLite, load the corresponding checkpoint, and render model-specific galleries. The flow visualizers show integration results at multiple Euler midpoint step counts. The image autoencoder visualizer compares grayscale input/reconstruction/error and encoded/decoded energy/error.
 
 ## Testing
 
-The current test suite covers the LPAP operator, surrogate and decoder behavior, shared logging/checkpointing, Hilbert image ordering, flow matching utilities, training notebook dispatch, gallery rendering, small CPU training loops for both flow directions, energy-to-image reflow, and the total image autoencoder.
+The current test suite covers the LPAP operator, surrogate and decoder behavior, shared logging/checkpointing, Hilbert image ordering, flow matching utilities, energy-bank priors, training notebook dispatch, gallery rendering, small CPU training loops for both flow directions, and the total image autoencoder.
 
 Run all tests with:
 

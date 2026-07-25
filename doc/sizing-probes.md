@@ -19,7 +19,7 @@ code.
 ## Principles
 
 1. **Stage-local.** Size `surrogate` before `decoder`; size each flow before
-   reflow / autoencoder. Do not retune the whole stack in one sweep.
+   autoencoder. Do not retune the whole stack in one sweep.
 2. **Freeze upstream.** When probing stage \(N\), pin upstream checkpoints
    (or a chosen reference pair).
 3. **Short probes, long confirm.** Typical: **1–2k steps** to rank; **~10k**
@@ -40,7 +40,6 @@ code.
 | `decoder` | match surrogate width/depth family if applicable | **surrogate checkpoint** | recon / decoder metrics |
 | `image_to_energy` / `energy_to_image` | `width` ∈ {128, 192, 256}; optional `dilation_cycles` ∈ {2, 3} | sequence length, data | val FM loss + gallery |
 | Integration | Euler / `teacher_steps` / `student_steps` | chosen width | quality vs step-count curve |
-| `energy_to_image_reflow` | student width ≤ teacher; `student_steps` | frozen teacher | gap vs teacher@high steps |
 | `image_autoencoder` | batch, unroll steps | frozen or light FT pieces | image recon + look |
 
 Adjust the numeric sets after the first pass; do not expand the grid until the
@@ -122,7 +121,7 @@ horizon. VRAM is trivial on Pro 6000 for all four.
 1. Optional **10k confirm** on `256×12` vs `256×8` (top-2), same seeds.
 2. Only if 256×12 still wins, promote TOML to `layer_count=12`, retrain a full
    baseline, then **retrain decoder** (and later e2i).
-3. Defer a longer 512-d sweep until after e2i/reflow pressure tests, or run a
+3. Defer a longer 512-d sweep until after e2i pressure tests, or run a
    single 10k `512×8` as a stretch check.
 
 ### 10k confirm (256×8 vs 256×12)

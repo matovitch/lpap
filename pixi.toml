@@ -54,10 +54,6 @@ description = "Open the image-to-energy flow visualization marimo notebook."
 cmd = "PYTHONPATH=src marimo edit notebooks/visualize_energy_to_image.py --no-token"
 description = "Open the energy-to-image flow visualization marimo notebook."
 
-[tasks.notebook-energy-to-image-reflow]
-cmd = "PYTHONPATH=src marimo edit notebooks/visualize_energy_to_image_reflow.py --no-token"
-description = "Open the energy-to-image reflow visualization marimo notebook."
-
 [tasks.notebook-image-autoencoder]
 cmd = "PYTHONPATH=src marimo edit notebooks/visualize_image_autoencoder.py --no-token"
 description = "Open the image autoencoder visualization marimo notebook."

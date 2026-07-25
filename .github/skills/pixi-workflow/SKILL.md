@@ -30,4 +30,4 @@ When working in this repository:
 ## Useful Facts
 
 - This is a research repo: local checkpoint and SQLite schemas are not kept backward-compatible. Regenerate stale artifacts rather than migrating, unless migration is explicitly requested.
-- Train models in dependency order (surrogate → decoder, the two flows, the reflow student) before the end-to-end `image_autoencoder`; model-dependent config (harmonics, bucket layout) is read from upstream checkpoints, not duplicated in TOML.
+- Train models in dependency order (surrogate → decoder, then the two flows) before the end-to-end `image_autoencoder`; model-dependent config (harmonics, bucket layout) is read from upstream checkpoints, not duplicated in TOML.

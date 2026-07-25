@@ -5,10 +5,8 @@ import unittest
 import torch
 
 from lpap.image_to_energy_training import ImageToEnergyGalleryItem
-from lpap.energy_to_image_reflow_training import EnergyToImageReflowGalleryItem
 from lpap.image_autoencoder_training import ImageAutoencoderGalleryItem
 from lpap.training_plots import (
-    render_energy_to_image_reflow_gallery_html,
     render_image_autoencoder_gallery_html,
     render_image_to_energy_gallery_html,
     render_loss_history_svg,
@@ -59,27 +57,6 @@ class TrainingPlotsTest(unittest.TestCase):
         self.assertLess(html.index(">32 steps<"), html.index(">4 steps<"))
         self.assertIn("rgb(255, 255, 255)", html)
         self.assertIn("rgb(255, 0, 0)", html)
-        self.assertIn("rgb(0, 0, 255)", html)
-
-    def test_renders_energy_to_image_reflow_gallery(self) -> None:
-        html = render_energy_to_image_reflow_gallery_html(
-            [
-                EnergyToImageReflowGalleryItem(
-                    source=torch.linspace(-1.0, 1.0, 16),
-                    target=torch.linspace(0.0, 1.0, 16),
-                    teacher=torch.ones(16),
-                    student=torch.zeros(16),
-                    error=-torch.ones(16),
-                )
-            ],
-            size=4,
-        )
-
-        self.assertLess(html.index("source energy"), html.index("image sample"))
-        self.assertLess(html.index("image sample"), html.index("teacher"))
-        self.assertLess(html.index("teacher"), html.index("student"))
-        self.assertLess(html.index("student"), html.index("student - teacher"))
-        self.assertIn("rgb(255, 255, 255)", html)
         self.assertIn("rgb(0, 0, 255)", html)
 
     def test_renders_image_autoencoder_gallery(self) -> None:

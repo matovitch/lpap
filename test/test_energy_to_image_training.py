@@ -11,6 +11,7 @@ from lpap.data import SyntheticHarmonicConfig
 from lpap.decoder import LPAPDecoderTransformer
 from lpap.energy_bank import EnergyBankConfig
 from lpap.energy_to_image_training import (
+    EnergyToImageHarmonicsTeacherConfig,
     EnergyToImageRunConfig,
     EnergyToImageSourceConfig,
     EnergyToImageTrainingConfig,
@@ -112,8 +113,10 @@ class EnergyToImageTrainingTest(unittest.TestCase):
                     shuffle=False,
                 ),
                 source=EnergyToImageSourceConfig(
-                    surrogate_checkpoint_name="surrogate.pt",
-                    decoder_checkpoint_name="decoder.pt",
+                    teacher=EnergyToImageHarmonicsTeacherConfig(
+                        surrogate_checkpoint_name="surrogate.pt",
+                        decoder_checkpoint_name="decoder.pt",
+                    ),
                 ),
                 flow=ImageToEnergyFlowConfig(
                     sequence_length=16,
@@ -143,13 +146,14 @@ class EnergyToImageTrainingTest(unittest.TestCase):
             results = list(iter_energy_to_image_training(session))
 
             self.assertEqual(len(results), 2)
-            self.assertEqual(session.harmonics.harmonic_count, 3)
+            self.assertEqual(session.teacher.harmonics.harmonic_count, 3)
             self.assertTrue(session.checkpoint_path.exists())
             self.assertTrue(session.log_path.exists())
             self.assertIn("loss", results[-1].metrics)
             self.assertIn("validation_loss", results[-1].metrics)
             self.assertIn("validation_generated_image_rms_steps_1", results[-1].metrics)
             self.assertIsNone(session.energy_bank)
+            self.assertIsNotNone(session.teacher)
 
     def test_source_config_defaults_kind_to_harmonics(self) -> None:
         config = energy_to_image_training_config_from_dict(
@@ -238,8 +242,7 @@ class EnergyToImageTrainingTest(unittest.TestCase):
 
             self.assertEqual(len(results), 2)
             self.assertIsNotNone(session.energy_bank)
-            self.assertIsNone(session.surrogate)
-            self.assertIsNone(session.decoder)
+            self.assertIsNone(session.teacher)
             self.assertIn("loss", results[-1].metrics)
 
 

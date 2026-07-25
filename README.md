@@ -52,7 +52,7 @@ operator. See the
 [training stack notes](doc/training-stack.md) for the per-model decomposition.
 
 See the [documentation index](doc/index.md) for the full model-dependency
-diagram, including the reflow student that supplies the energy-to-image flow.
+diagram from surrogate through the image flows to the end-to-end autoencoder.
 Every trainable model writes `.pt` checkpoints under `checkpoints/` and per-step
 KPIs to a SQLite log under `training_logs/`.
 
@@ -64,7 +64,6 @@ Implemented entry points include:
 - `lpap.LPAPSurrogateTransformer`: RoPE transformer surrogate that predicts full-`N` source-index logits for each bucket.
 - `lpap.LPAPDecoderTransformer`: decoder that reconstructs source values from surrogate logits.
 - `lpap.DilatedConvFlow1d`: time-conditioned 1D flow model used by both image/energy directions.
-- `lpap.energy_to_image_reflow_training`: distills a high-step energy-to-image teacher into an 8-step student flow.
 - `lpap.image_autoencoder_training`: end-to-end grayscale image autoencoder using 8-step image-to-energy and energy-to-image flow rollouts around the LPAP surrogate/decoder inner path.
 - `lpap.flow_training`: shared flow-training config, image loading, time sampling, checkpoint/log setup, and flow matching helpers.
 - `lpap.TrainingRun`: generic checkpoint/resume/log-cadence helper for training loops.
@@ -113,7 +112,7 @@ Open the shared LPAP model training notebook with:
 pixi run notebook-train
 ```
 
-The shared training notebook can train the surrogate, decoder, image-to-energy flow model, energy-to-image flow model, energy-to-image reflow student, or end-to-end image autoencoder, resume from checkpoints, rerun a previous configuration from SQLite metadata, and log KPIs to `training_logs/`.
+The shared training notebook can train the surrogate, decoder, image-to-energy flow model, energy-to-image flow model, or end-to-end image autoencoder, resume from checkpoints, rerun a previous configuration from SQLite metadata, and log KPIs to `training_logs/`.
 
 ```mermaid
 flowchart LR
@@ -139,7 +138,8 @@ Editable per-model training configurations live under `configs/training/`:
 - [Decoder training config](configs/training/decoder.toml)
 - [Image-to-energy training config](configs/training/image_to_energy.toml)
 - [Energy-to-image training config](configs/training/energy_to_image.toml)
-- [Energy-to-image reflow training config](configs/training/energy_to_image_reflow.toml)
+- [Image-to-energy energy-bank example](configs/training/image_to_energy_energy_bank.toml)
+- [Energy-to-image energy-bank example](configs/training/energy_to_image_energy_bank.toml)
 - [Image autoencoder training config](configs/training/image_autoencoder.toml)
 
 The shared notebook selects the model kind from a dropdown and loads the matching TOML file before launching a new training run. It also offers a model-specific previous-run dropdown plus a restore button that rewrites the TOML file from SQLite metadata, so a past run can be restored, edited, and launched as a fresh configuration.
@@ -155,11 +155,9 @@ pixi run notebook-surrogate
 pixi run notebook-decoder
 pixi run notebook-image-to-energy
 pixi run notebook-energy-to-image
-pixi run notebook-energy-to-image-reflow
 pixi run notebook-image-autoencoder
 ```
 
-The energy-to-image reflow notebook compares decoder-projected source energy, a high-step frozen teacher image, and the 8-step student image that is intended for later unrolled image-autoencoder experiments.
 The image autoencoder notebook shows grayscale input/reconstruction panels alongside encoded/decoded energy panels from the inner LPAP energy path.
 
 Training checkpoints remain `.pt` files under `checkpoints/`; SQLite stores run names, configuration, metadata, attempts, scalar KPIs, and checkpoint paths.

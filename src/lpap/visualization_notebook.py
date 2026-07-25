@@ -16,11 +16,6 @@ from lpap.energy_to_image_training import (
     create_energy_to_image_training_session,
     energy_to_image_training_config_from_dict,
 )
-from lpap.energy_to_image_reflow_training import (
-    collect_energy_to_image_reflow_gallery,
-    create_energy_to_image_reflow_training_session,
-    energy_to_image_reflow_training_config_from_dict,
-)
 from lpap.flow import DilatedConvFlow1d
 from lpap.image_to_energy_training import (
     collect_image_to_energy_gallery,
@@ -34,7 +29,6 @@ from lpap.image_autoencoder_training import (
 from lpap.training_log import load_run_record
 from lpap.training_plots import (
     render_energy_to_image_gallery_html,
-    render_energy_to_image_reflow_gallery_html,
     render_image_autoencoder_gallery_html,
     render_image_to_energy_gallery_html,
     render_signed_triplet_gallery_html,
@@ -144,37 +138,6 @@ def render_energy_to_image_run_gallery(
         size=config.image.side,
     )
 
-
-def render_energy_to_image_reflow_run_gallery(
-    *,
-    project_root: str | Path,
-    log_path: str | Path,
-    run_id: str,
-    sample_count: int = 3,
-) -> str:
-    root = Path(project_root)
-    record = load_run_record(log_path, run_id=run_id)
-    config = energy_to_image_reflow_training_config_from_dict(
-        record["config"], resume_from_checkpoint=False
-    )
-    session = create_energy_to_image_reflow_training_session(
-        project_root=root, config=config
-    )
-    checkpoint_path = Path(record["checkpoint_path"])
-    if not checkpoint_path.is_absolute():
-        checkpoint_path = root / checkpoint_path
-    payload = load_training_checkpoint(checkpoint_path, map_location=session.device)
-    state = payload.get("best_model_state")
-    if state is None:
-        state = payload["model_state"]
-    session.student_flow.load_state_dict(state)
-    return render_energy_to_image_reflow_gallery_html(
-        collect_energy_to_image_reflow_gallery(
-            session,
-            sample_count=sample_count,
-        ),
-        size=config.image.side,
-    )
 
 
 def render_image_autoencoder_run_gallery(
