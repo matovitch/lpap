@@ -115,17 +115,19 @@ def _(mo):
             "surrogate",
             "decoder",
             "image_to_energy",
+            "image_to_energy_energy_bank",
             "energy_to_image",
+            "energy_to_image_energy_bank",
             "image_autoencoder",
         ],
-        value="surrogate",
+        value="image_to_energy_energy_bank",
         label="Model kind",
     )
     target_steps = mo.ui.number(
-        start=1, stop=1_000_000, step=100, value=10_000, label="Target steps"
+        start=1, stop=1_000_000, step=100, value=2_000, label="Target steps"
     )
     chunk_steps = mo.ui.number(
-        start=1, stop=1_000_000, step=100, value=2_000, label="Chunk steps"
+        start=1, stop=1_000_000, step=100, value=500, label="Chunk steps"
     )
     display_every = mo.ui.number(
         start=1, stop=100_000, step=1, value=50, label="display_every"

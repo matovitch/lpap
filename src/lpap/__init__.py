@@ -260,6 +260,7 @@ _LAZY_MODULE_EXPORTS: dict[str, tuple[str, ...]] = {
         "recent_training_runs",
         "render_recent_runs_table",
         "restore_training_config_from_log",
+        "training_backend_kind",
         "training_config_from_file",
         "training_config_from_log",
         "training_config_from_project_file",

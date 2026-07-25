@@ -74,11 +74,14 @@ class TrainingNotebookConfigTest(unittest.TestCase):
             image_to_energy_bank.target.energy_bank.path,
             "data/encoded_energies_ae_best_131k.pt",
         )
+        self.assertEqual(image_to_energy_bank.run.steps, 2000)
+        self.assertEqual(image_to_energy_bank.validation.every, 50)
         self.assertEqual(energy_to_image_bank.source.kind, "energy_bank")
         self.assertEqual(
             energy_to_image_bank.source.energy_bank.path,
             "data/encoded_energies_ae_best_131k.pt",
         )
+        self.assertEqual(energy_to_image_bank.run.steps, 2000)
         self.assertIsInstance(image_autoencoder, ImageAutoencoderTrainingConfig)
         self.assertEqual(image_autoencoder.run.run_id, "image_autoencoder")
         self.assertEqual(image_autoencoder.integration.image_to_energy_steps, 16)
@@ -105,8 +108,29 @@ class TrainingNotebookConfigTest(unittest.TestCase):
         e2i = default_energy_to_image_energy_bank_training_config()
         self.assertEqual(i2e.target.kind, "energy_bank")
         self.assertEqual(i2e.run.run_id, "image_to_energy_energy_bank")
+        self.assertEqual(i2e.run.steps, 2000)
         self.assertEqual(e2i.source.kind, "energy_bank")
         self.assertEqual(e2i.run.run_id, "energy_to_image_energy_bank")
+        self.assertEqual(e2i.run.steps, 2000)
+
+    def test_energy_bank_kinds_load_from_project_and_map_backend(self) -> None:
+        from lpap.training_notebook import training_backend_kind
+
+        project_root = Path(__file__).resolve().parents[1]
+        i2e = training_config_from_project_file(
+            project_root, "image_to_energy_energy_bank"
+        )
+        e2i = training_config_from_project_file(
+            project_root, "energy_to_image_energy_bank"
+        )
+        self.assertEqual(i2e.target.kind, "energy_bank")
+        self.assertEqual(e2i.source.kind, "energy_bank")
+        self.assertEqual(
+            training_backend_kind("image_to_energy_energy_bank"), "image_to_energy"
+        )
+        self.assertEqual(
+            training_backend_kind("energy_to_image_energy_bank"), "energy_to_image"
+        )
 
     def test_loads_custom_surrogate_toml_config(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

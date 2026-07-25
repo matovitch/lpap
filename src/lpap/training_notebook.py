@@ -78,7 +78,9 @@ TrainingModelKind = Literal[
     "surrogate",
     "decoder",
     "image_to_energy",
+    "image_to_energy_energy_bank",
     "energy_to_image",
+    "energy_to_image_energy_bank",
     "image_autoencoder",
 ]
 TrainingConfig = (
@@ -95,6 +97,15 @@ TrainingSession = (
     | EnergyToImageTrainingSession
     | ImageAutoencoderTrainingSession
 )
+
+
+def training_backend_kind(model_kind: TrainingModelKind) -> str:
+    """Map UI/config kind to the training stack that owns the session."""
+    if model_kind in ("image_to_energy", "image_to_energy_energy_bank"):
+        return "image_to_energy"
+    if model_kind in ("energy_to_image", "energy_to_image_energy_bank"):
+        return "energy_to_image"
+    return model_kind
 
 
 def default_surrogate_training_config() -> LPAPSurrogateTrainingConfig:
@@ -330,19 +341,26 @@ def default_image_to_energy_energy_bank_training_config() -> ImageToEnergyTraini
         flow=config.flow,
         time=config.time,
         optimizer=config.optimizer,
-        validation=config.validation,
+        validation=ImageToEnergyValidationConfig(
+            enabled=True,
+            every=50,
+            batch_size=64,
+            seed=30_123,
+            validate_at_end=True,
+            euler_steps=(1, 4, 16),
+        ),
         run=ImageToEnergyRunConfig(
             run_training=config.run.run_training,
             resume_from_checkpoint=config.run.resume_from_checkpoint,
-            steps=config.run.steps,
+            steps=2_000,
             seed=config.run.seed,
-            display_every=config.run.display_every,
-            log_every=config.run.log_every,
+            display_every=25,
+            log_every=5,
             run_id="image_to_energy_energy_bank",
             checkpoint_name="image_to_energy_energy_bank.pt",
             log_name="image_to_energy_energy_bank.sqlite",
-            note="empirical AE energy marginal prior; random image pairing",
-            tags=("energy-bank", "emp-prior"),
+            note="probe: empirical AE energy marginal prior; random image pairing",
+            tags=("energy-bank", "emp-prior", "probe"),
             pinned=False,
         ),
     )
@@ -361,19 +379,26 @@ def default_energy_to_image_energy_bank_training_config() -> EnergyToImageTraini
         flow=config.flow,
         time=config.time,
         optimizer=config.optimizer,
-        validation=config.validation,
+        validation=ImageToEnergyValidationConfig(
+            enabled=True,
+            every=50,
+            batch_size=64,
+            seed=40_123,
+            validate_at_end=True,
+            euler_steps=(1, 4, 16),
+        ),
         run=EnergyToImageRunConfig(
             run_training=config.run.run_training,
             resume_from_checkpoint=config.run.resume_from_checkpoint,
-            steps=config.run.steps,
+            steps=2_000,
             seed=config.run.seed,
-            display_every=config.run.display_every,
-            log_every=config.run.log_every,
+            display_every=25,
+            log_every=5,
             run_id="energy_to_image_energy_bank",
             checkpoint_name="energy_to_image_energy_bank.pt",
             log_name="energy_to_image_energy_bank.sqlite",
-            note="empirical AE energy marginal as e2i source; random image pairing",
-            tags=("energy-bank", "emp-prior"),
+            note="probe: empirical AE energy marginal as e2i source; random image pairing",
+            tags=("energy-bank", "emp-prior", "probe"),
             pinned=False,
         ),
     )
@@ -464,8 +489,12 @@ def default_training_config(model_kind: TrainingModelKind) -> TrainingConfig:
         return default_decoder_training_config()
     if model_kind == "image_to_energy":
         return default_image_to_energy_training_config()
+    if model_kind == "image_to_energy_energy_bank":
+        return default_image_to_energy_energy_bank_training_config()
     if model_kind == "energy_to_image":
         return default_energy_to_image_training_config()
+    if model_kind == "energy_to_image_energy_bank":
+        return default_energy_to_image_energy_bank_training_config()
     if model_kind == "image_autoencoder":
         return default_image_autoencoder_training_config()
     raise ValueError("unsupported model_kind")
@@ -482,15 +511,16 @@ def training_config_from_file(
 ) -> TrainingConfig:
     with Path(path).open("rb") as file:
         data = tomllib.load(file)
-    if model_kind == "surrogate":
+    backend = training_backend_kind(model_kind)
+    if backend == "surrogate":
         return lpap_surrogate_training_config_from_dict(data)
-    if model_kind == "decoder":
+    if backend == "decoder":
         return lpap_decoder_training_config_from_dict(data)
-    if model_kind == "image_to_energy":
+    if backend == "image_to_energy":
         return image_to_energy_training_config_from_dict(data)
-    if model_kind == "energy_to_image":
+    if backend == "energy_to_image":
         return energy_to_image_training_config_from_dict(data)
-    if model_kind == "image_autoencoder":
+    if backend == "image_autoencoder":
         return image_autoencoder_training_config_from_dict(data)
     raise ValueError("unsupported model_kind")
 
@@ -587,19 +617,20 @@ def training_config_from_log(
 ) -> TrainingConfig:
     config = default_training_config(model_kind) if base_config is None else base_config
     log_path = training_log_path(project_root, config)
-    if model_kind == "surrogate":
+    backend = training_backend_kind(model_kind)
+    if backend == "surrogate":
         return rerun_lpap_surrogate_training_config_from_log(
             log_path, run_id=run_id, resume_from_checkpoint=resume_from_checkpoint
         )
-    if model_kind == "decoder":
+    if backend == "decoder":
         return rerun_lpap_decoder_training_config_from_log(
             log_path, run_id=run_id, resume_from_checkpoint=resume_from_checkpoint
         )
-    if model_kind == "image_to_energy":
+    if backend == "image_to_energy":
         return rerun_image_to_energy_training_config_from_log(
             log_path, run_id=run_id, resume_from_checkpoint=resume_from_checkpoint
         )
-    if model_kind == "energy_to_image":
+    if backend == "energy_to_image":
         return rerun_energy_to_image_training_config_from_log(
             log_path, run_id=run_id, resume_from_checkpoint=resume_from_checkpoint
         )
@@ -624,19 +655,20 @@ def create_training_session(
     project_root: str | Path,
     config: TrainingConfig,
 ) -> TrainingSession:
-    if model_kind == "surrogate":
+    backend = training_backend_kind(model_kind)
+    if backend == "surrogate":
         if not isinstance(config, LPAPSurrogateTrainingConfig):
             raise TypeError("surrogate training requires LPAPSurrogateTrainingConfig")
         return create_lpap_surrogate_training_session(
             project_root=project_root, config=config
         )
-    if model_kind == "decoder":
+    if backend == "decoder":
         if not isinstance(config, LPAPDecoderTrainingConfig):
             raise TypeError("decoder training requires LPAPDecoderTrainingConfig")
         return create_lpap_decoder_training_session(
             project_root=project_root, config=config
         )
-    if model_kind == "image_to_energy":
+    if backend == "image_to_energy":
         if not isinstance(config, ImageToEnergyTrainingConfig):
             raise TypeError(
                 "image_to_energy training requires ImageToEnergyTrainingConfig"
@@ -644,7 +676,7 @@ def create_training_session(
         return create_image_to_energy_training_session(
             project_root=project_root, config=config
         )
-    if model_kind == "energy_to_image":
+    if backend == "energy_to_image":
         if not isinstance(config, EnergyToImageTrainingConfig):
             raise TypeError(
                 "energy_to_image training requires EnergyToImageTrainingConfig"
@@ -662,21 +694,22 @@ def create_training_session(
 
 
 def iter_training(model_kind: TrainingModelKind, session: TrainingSession):
-    if model_kind == "surrogate":
+    backend = training_backend_kind(model_kind)
+    if backend == "surrogate":
         if not isinstance(session, LPAPSurrogateTrainingSession):
             raise TypeError("surrogate training requires LPAPSurrogateTrainingSession")
         return iter_lpap_surrogate_training(session)
-    if model_kind == "decoder":
+    if backend == "decoder":
         if not isinstance(session, LPAPDecoderTrainingSession):
             raise TypeError("decoder training requires LPAPDecoderTrainingSession")
         return iter_lpap_decoder_training(session)
-    if model_kind == "image_to_energy":
+    if backend == "image_to_energy":
         if not isinstance(session, ImageToEnergyTrainingSession):
             raise TypeError(
                 "image_to_energy training requires ImageToEnergyTrainingSession"
             )
         return iter_image_to_energy_training(session)
-    if model_kind == "energy_to_image":
+    if backend == "energy_to_image":
         if not isinstance(session, EnergyToImageTrainingSession):
             raise TypeError(
                 "energy_to_image training requires EnergyToImageTrainingSession"
