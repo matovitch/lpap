@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import torch
 from torch.utils.data import DataLoader
@@ -18,6 +18,13 @@ from lpap.decoder import (
 from lpap.decoder_training import (
     _surrogate_harmonics_from_checkpoint,
     _surrogate_model_config_from_checkpoint,
+)
+from lpap.energy_bank import (
+    EnergyBankConfig,
+    energy_bank_config_from_dict,
+    load_energy_bank,
+    resolve_energy_bank_path,
+    sample_energy_bank_values,
 )
 from lpap.flow import (
     DilatedConvFlow1d,
@@ -64,21 +71,44 @@ EnergyToImageTimeConfig = FlowTimeConfig
 EnergyToImageOptimizerConfig = FlowOptimizerConfig
 EnergyToImageValidationConfig = FlowValidationConfig
 
+EnergyToImageSourceKind = Literal["harmonics", "energy_bank"]
+
 
 @dataclass(frozen=True)
 class EnergyToImageSourceConfig:
+    """Flow matching start distribution for energy→image.
+
+    ``harmonics`` (default): sample synthetic harmonics, project through the
+    frozen surrogate+decoder, and use the reconstruction as the flow source.
+    ``energy_bank``: sample empirical energies directly (no LPAP projection),
+    independently of the image batch. Surrogate/decoder are not loaded.
+    """
+
+    kind: EnergyToImageSourceKind = "harmonics"
     surrogate_checkpoint_name: str = "surrogate_synthetic.pt"
     decoder_checkpoint_name: str = "decoder_synthetic.pt"
     load_best: bool = True
     require_checkpoints: bool = True
+    energy_bank: EnergyBankConfig | None = None
 
-    def as_dict(self) -> dict[str, str | bool]:
-        return {
-            "surrogate_checkpoint_name": self.surrogate_checkpoint_name,
-            "decoder_checkpoint_name": self.decoder_checkpoint_name,
-            "load_best": self.load_best,
-            "require_checkpoints": self.require_checkpoints,
-        }
+    def validate(self) -> None:
+        if self.kind == "energy_bank":
+            if self.energy_bank is None:
+                raise ValueError("source.energy_bank is required when kind=energy_bank")
+            self.energy_bank.validate()
+        elif self.kind != "harmonics":
+            raise ValueError(f"unsupported source kind: {self.kind!r}")
+
+    def as_dict(self) -> dict[str, object]:
+        data: dict[str, object] = {"kind": self.kind}
+        if self.kind == "harmonics":
+            data["surrogate_checkpoint_name"] = self.surrogate_checkpoint_name
+            data["decoder_checkpoint_name"] = self.decoder_checkpoint_name
+            data["load_best"] = self.load_best
+            data["require_checkpoints"] = self.require_checkpoints
+        if self.energy_bank is not None:
+            data["energy_bank"] = self.energy_bank.as_dict()
+        return data
 
 
 @dataclass(frozen=True)
@@ -139,6 +169,7 @@ class EnergyToImageTrainingConfig:
 
     def validate(self) -> None:
         self.image.validate()
+        self.source.validate()
         self.flow.validate()
         self.time.validate()
         self.optimizer.validate()
@@ -160,18 +191,23 @@ class EnergyToImageTrainingConfig:
     def model_config(
         self,
         *,
-        surrogate_model_config: dict[str, int],
-        decoder_model_config: dict[str, object],
-        harmonics: SyntheticHarmonicConfig,
+        surrogate_model_config: dict[str, int] | None = None,
+        decoder_model_config: dict[str, object] | None = None,
+        harmonics: SyntheticHarmonicConfig | None = None,
     ) -> dict[str, object]:
+        extra: dict[str, object] = {"source_kind": self.source.kind}
+        if self.source.kind == "energy_bank" and self.source.energy_bank is not None:
+            extra["energy_bank"] = self.source.energy_bank.as_dict()
+        if surrogate_model_config is not None:
+            extra["surrogate"] = surrogate_model_config
+        if decoder_model_config is not None:
+            extra["decoder"] = decoder_model_config
+        if harmonics is not None:
+            extra["harmonics"] = harmonics.as_dict()
         return flow_model_metadata(
             image=self.image,
             flow=self.flow,
-            extra={
-                "surrogate": surrogate_model_config,
-                "decoder": decoder_model_config,
-                "harmonics": harmonics.as_dict(),
-            },
+            extra=extra,
         )
 
 
@@ -183,12 +219,7 @@ def energy_to_image_training_config_from_dict(
         run_data["resume_from_checkpoint"] = resume_from_checkpoint
     return EnergyToImageTrainingConfig(
         image=image_config_from_dict(data["image"]),
-        source=EnergyToImageSourceConfig(
-            surrogate_checkpoint_name=str(data["source"]["surrogate_checkpoint_name"]),
-            decoder_checkpoint_name=str(data["source"]["decoder_checkpoint_name"]),
-            load_best=bool(data["source"]["load_best"]),
-            require_checkpoints=bool(data["source"]["require_checkpoints"]),
-        ),
+        source=_energy_to_image_source_config_from_dict(data["source"]),
         flow=flow_model_config_from_dict(data["flow"]),
         time=time_config_from_dict(data["time"]),
         optimizer=optimizer_config_from_dict(data["optimizer"]),
@@ -206,6 +237,31 @@ def energy_to_image_training_config_from_dict(
             note=str(run_data.get("note", "")),
             tags=tuple(str(tag) for tag in run_data.get("tags", ())),
             pinned=bool(run_data.get("pinned", False)),
+        ),
+    )
+
+
+def _energy_to_image_source_config_from_dict(
+    data: dict[str, Any],
+) -> EnergyToImageSourceConfig:
+    kind = str(data.get("kind", "harmonics"))
+    if kind not in ("harmonics", "energy_bank"):
+        raise ValueError(f"unsupported source kind: {kind!r}")
+    energy_bank_data = data.get("energy_bank")
+    return EnergyToImageSourceConfig(
+        kind=kind,  # type: ignore[arg-type]
+        surrogate_checkpoint_name=str(
+            data.get("surrogate_checkpoint_name", "surrogate_synthetic.pt")
+        ),
+        decoder_checkpoint_name=str(
+            data.get("decoder_checkpoint_name", "decoder_synthetic.pt")
+        ),
+        load_best=bool(data.get("load_best", True)),
+        require_checkpoints=bool(data.get("require_checkpoints", True)),
+        energy_bank=(
+            None
+            if energy_bank_data is None
+            else energy_bank_config_from_dict(energy_bank_data)
         ),
     )
 
@@ -231,20 +287,22 @@ class EnergyToImageTrainingSession:
     image_dataset_path: Path
     image_loader: DataLoader
     validation_image_loader: DataLoader
-    surrogate_checkpoint_path: Path
-    decoder_checkpoint_path: Path
-    surrogate: LPAPSurrogateTransformer
-    decoder: LPAPDecoderTransformer
     flow: DilatedConvFlow1d
     optimizer: torch.optim.Optimizer
-    permutation: torch.Tensor
-    harmonics: SyntheticHarmonicConfig
-    surrogate_model_config: dict[str, int]
-    decoder_model_config: dict[str, object]
     training_run: TrainingRun
     generator: torch.Generator
     validation_generator: torch.Generator
     resume_info: TrainingResumeInfo
+    energy_bank: torch.Tensor | None = None
+    # Present only for source.kind == "harmonics"
+    surrogate_checkpoint_path: Path | None = None
+    decoder_checkpoint_path: Path | None = None
+    surrogate: LPAPSurrogateTransformer | None = None
+    decoder: LPAPDecoderTransformer | None = None
+    permutation: torch.Tensor | None = None
+    harmonics: SyntheticHarmonicConfig | None = None
+    surrogate_model_config: dict[str, int] | None = None
+    decoder_model_config: dict[str, object] | None = None
 
 
 @dataclass(frozen=True)
@@ -382,34 +440,63 @@ def create_energy_to_image_training_session(
         else torch.device(device)
     )
     torch.manual_seed(config.run.seed)
-    surrogate_checkpoint_path = resolve_checkpoint_path(
-        root, config.source.surrogate_checkpoint_name
-    )
-    decoder_checkpoint_path = resolve_checkpoint_path(
-        root, config.source.decoder_checkpoint_name
-    )
-    surrogate, surrogate_model_config, harmonics = load_surrogate_source(
-        path=surrogate_checkpoint_path,
-        load_best=config.source.load_best,
-        require_checkpoint=config.source.require_checkpoints,
-        device=target_device,
-    )
-    decoder, decoder_model_config = load_decoder_source(
-        path=decoder_checkpoint_path,
-        load_best=config.source.load_best,
-        device=target_device,
-    )
-    validate_source_matches_config(
-        config=config,
-        surrogate_model_config=surrogate_model_config,
-        decoder_model_config=decoder_model_config,
-    )
-    permutation = make_grouped_permutation_indices(
-        value_count=config.value_count,
-        bucket_count=int(decoder_model_config["bucket_count"]),
-        seed=surrogate_model_config["permutation_seed"],
-        device=target_device,
-    )
+
+    energy_bank: torch.Tensor | None = None
+    surrogate_checkpoint_path: Path | None = None
+    decoder_checkpoint_path: Path | None = None
+    surrogate: LPAPSurrogateTransformer | None = None
+    decoder: LPAPDecoderTransformer | None = None
+    permutation: torch.Tensor | None = None
+    harmonics: SyntheticHarmonicConfig | None = None
+    surrogate_model_config: dict[str, int] | None = None
+    decoder_model_config: dict[str, object] | None = None
+    metadata: dict[str, object] = {"source_kind": config.source.kind}
+
+    if config.source.kind == "energy_bank":
+        assert config.source.energy_bank is not None
+        bank_path = resolve_energy_bank_path(root, config.source.energy_bank)
+        energy_bank = load_energy_bank(
+            bank_path, energies_key=config.source.energy_bank.energies_key
+        )
+        if int(energy_bank.shape[-1]) != config.value_count:
+            raise ValueError(
+                "energy bank energy_dim "
+                f"{int(energy_bank.shape[-1])} does not match flow sequence_length "
+                f"{config.value_count}"
+            )
+        metadata["energy_bank_path"] = str(bank_path)
+    else:
+        surrogate_checkpoint_path = resolve_checkpoint_path(
+            root, config.source.surrogate_checkpoint_name
+        )
+        decoder_checkpoint_path = resolve_checkpoint_path(
+            root, config.source.decoder_checkpoint_name
+        )
+        surrogate, surrogate_model_config, harmonics = load_surrogate_source(
+            path=surrogate_checkpoint_path,
+            load_best=config.source.load_best,
+            require_checkpoint=config.source.require_checkpoints,
+            device=target_device,
+        )
+        decoder, decoder_model_config = load_decoder_source(
+            path=decoder_checkpoint_path,
+            load_best=config.source.load_best,
+            device=target_device,
+        )
+        validate_source_matches_config(
+            config=config,
+            surrogate_model_config=surrogate_model_config,
+            decoder_model_config=decoder_model_config,
+        )
+        permutation = make_grouped_permutation_indices(
+            value_count=config.value_count,
+            bucket_count=int(decoder_model_config["bucket_count"]),
+            seed=surrogate_model_config["permutation_seed"],
+            device=target_device,
+        )
+        metadata["surrogate_checkpoint_path"] = str(surrogate_checkpoint_path)
+        metadata["decoder_checkpoint_path"] = str(decoder_checkpoint_path)
+
     core = create_flow_session_core(
         project_root=root,
         image=config.image,
@@ -424,10 +511,7 @@ def create_energy_to_image_training_session(
             decoder_model_config=decoder_model_config,
             harmonics=harmonics,
         ),
-        metadata={
-            "surrogate_checkpoint_path": str(surrogate_checkpoint_path),
-            "decoder_checkpoint_path": str(decoder_checkpoint_path),
-        },
+        metadata=metadata,
         device=target_device,
     )
     return EnergyToImageTrainingSession(
@@ -438,20 +522,21 @@ def create_energy_to_image_training_session(
         image_dataset_path=core.image_dataset_path,
         image_loader=core.image_loader,
         validation_image_loader=core.validation_image_loader,
-        surrogate_checkpoint_path=surrogate_checkpoint_path,
-        decoder_checkpoint_path=decoder_checkpoint_path,
-        surrogate=surrogate,
-        decoder=decoder,
         flow=core.flow,
         optimizer=core.optimizer,
-        permutation=permutation,
-        harmonics=harmonics,
-        surrogate_model_config=surrogate_model_config,
-        decoder_model_config=decoder_model_config,
         training_run=core.training_run,
         generator=core.generator,
         validation_generator=core.validation_generator,
         resume_info=core.resume_info,
+        energy_bank=energy_bank,
+        surrogate_checkpoint_path=surrogate_checkpoint_path,
+        decoder_checkpoint_path=decoder_checkpoint_path,
+        surrogate=surrogate,
+        decoder=decoder,
+        permutation=permutation,
+        harmonics=harmonics,
+        surrogate_model_config=surrogate_model_config,
+        decoder_model_config=decoder_model_config,
     )
 
 
@@ -467,6 +552,20 @@ def _sample_source_energy(
     batch_size: int,
     generator: torch.Generator,
 ) -> torch.Tensor:
+    if session.config.source.kind == "energy_bank":
+        if session.energy_bank is None:
+            raise ValueError(
+                "energy_bank tensor is required when source.kind=energy_bank"
+            )
+        values = sample_energy_bank_values(
+            session.energy_bank,
+            batch_size=batch_size,
+            generator=generator,
+            device=session.device,
+        )
+        return values.unsqueeze(1)
+
+    assert session.harmonics is not None
     values = sample_harmonic_values(
         harmonics=session.harmonics,
         batch_size=batch_size,
@@ -474,6 +573,11 @@ def _sample_source_energy(
         generator=generator,
         device=session.device,
     )
+    assert session.surrogate is not None
+    assert session.decoder is not None
+    assert session.permutation is not None
+    assert session.surrogate_model_config is not None
+    assert session.decoder_model_config is not None
     with torch.no_grad():
         surrogate_tokens = prepare_lpap_surrogate_batch(
             values,
@@ -650,8 +754,17 @@ def iter_energy_to_image_training(
                 "seed": config.run.seed,
                 "validation_seed": config.validation.seed,
                 "image_dataset_path": str(session.image_dataset_path),
-                "surrogate_checkpoint_path": str(session.surrogate_checkpoint_path),
-                "decoder_checkpoint_path": str(session.decoder_checkpoint_path),
+                "source_kind": config.source.kind,
+                "surrogate_checkpoint_path": (
+                    None
+                    if session.surrogate_checkpoint_path is None
+                    else str(session.surrogate_checkpoint_path)
+                ),
+                "decoder_checkpoint_path": (
+                    None
+                    if session.decoder_checkpoint_path is None
+                    else str(session.decoder_checkpoint_path)
+                ),
             },
         )
 

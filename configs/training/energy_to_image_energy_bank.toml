@@ -1,3 +1,6 @@
+# Example: train energy→image from the empirical AE energy bank (direct source).
+# No surrogate/decoder checkpoints are required for this mode.
+
 [image]
 dataset_path = "data/images_32x32_gray.pt"
 batch_size = 32
@@ -7,11 +10,11 @@ shuffle = true
 num_workers = 0
 
 [source]
-kind = "harmonics"
-surrogate_checkpoint_name = "surrogate_synthetic.pt"
-decoder_checkpoint_name = "decoder_synthetic.pt"
-load_best = true
-require_checkpoints = true
+kind = "energy_bank"
+
+[source.energy_bank]
+path = "data/encoded_energies_ae_best_131k.pt"
+energies_key = "energies"
 
 [flow]
 sequence_length = 1024
@@ -47,9 +50,9 @@ steps = 10000
 seed = 987
 display_every = 5
 log_every = 1
-run_id = "energy_to_image"
-checkpoint_name = "energy_to_image.pt"
-log_name = "energy_to_image.sqlite"
-note = ""
-tags = ["baseline"]
+run_id = "energy_to_image_energy_bank"
+checkpoint_name = "energy_to_image_energy_bank.pt"
+log_name = "energy_to_image_energy_bank.sqlite"
+note = "empirical AE energy marginal as e2i source; random image pairing"
+tags = ["energy-bank", "emp-prior"]
 pinned = false

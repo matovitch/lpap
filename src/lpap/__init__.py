@@ -26,6 +26,13 @@ from lpap.data import (
     sample_synthetic_harmonic_batch,
     synthetic_harmonic_dataloader,
 )
+from lpap.energy_bank import (
+    EnergyBankConfig,
+    energy_bank_config_from_dict,
+    load_energy_bank,
+    resolve_energy_bank_path,
+    sample_energy_bank_values,
+)
 from lpap.decoder import (
     LPAPDecoderBatch,
     LPAPDecoderMetrics,
@@ -320,6 +327,7 @@ __all__ = sorted(
         "CheckpointInfo",
         "DilatedConvFlow1d",
         "DilatedResidualBlock1d",
+        "EnergyBankConfig",
         "FlowMatchingMetrics",
         "ImageTensorDataset",
         "LPAPDecoderBatch",
@@ -341,6 +349,7 @@ __all__ = sorted(
         "apply_rope",
         "circular_previous_attention_mask",
         "decoder_dibs_from_source_logits",
+        "energy_bank_config_from_dict",
         "evaluate_lpap_decoder_batch",
         "evaluate_lpap_surrogate_batch",
         "finish_run_attempt",
@@ -359,6 +368,7 @@ __all__ = sorted(
         "invert_permutation_indices",
         "list_training_runs",
         "load_best_metric_row",
+        "load_energy_bank",
         "load_image_tensor_dataset",
         "load_metric_history",
         "load_recent_metrics",
@@ -379,7 +389,9 @@ __all__ = sorted(
         "prepare_lpap_surrogate_batch",
         "reconstruct_lpap_bucket_values",
         "reconstruct_lpap_decoder_values",
+        "resolve_energy_bank_path",
         "reverse_grouped_permutation",
+        "sample_energy_bank_values",
         "sample_synthetic_harmonic_batch",
         "save_training_checkpoint",
         "start_run_attempt",
