@@ -121,8 +121,10 @@ print(conn.execute("SELECT MAX(step) FROM step_metrics").fetchone()[0])
 
 ## Artifact sync (HF Storage Bucket)
 
-Bucket: `matovitch/lpap-molab-artifacts` (public). Write token on molab via
-`/marimo/.hf_token` or `HF_TOKEN` (gitignored). Local download needs no login.
+Bucket defaults come from [`configs/storage.toml`](../configs/storage.toml)
+(`artifacts.bucket`; public by default). Write token on molab via paths listed
+in `auth.token_files` (e.g. `/marimo/.hf_token`) or `HF_TOKEN` (gitignored).
+Local download needs no login.
 
 ```python
 # molab
@@ -147,8 +149,8 @@ local `checkpoints/<name>`.
 
 ## Image dataset (separate bucket)
 
-Training images: public bucket `matovitch/lpap-images`
-(`images_32x32_gray.pt.zst`). Local or molab:
+Training images: `images.bucket` / `images.remote_zst` from storage.toml
+(public by default). Local or molab:
 
 ```bash
 pixi run data-download

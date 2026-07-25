@@ -1,8 +1,9 @@
 """Sync training artifacts to/from a Hugging Face Storage Bucket.
 
 Designed for the molab summer workflow: upload from the paired kernel with
-``HF_TOKEN`` / ``/marimo/.hf_token``, download locally without auth when the
-bucket is public.
+``HF_TOKEN`` / token files from storage config, download locally without auth
+when the bucket is public. Bucket defaults live in ``configs/storage.toml``
+(packaged fallback: ``lpap/default_storage.toml``).
 """
 
 from __future__ import annotations
@@ -12,14 +13,32 @@ import os
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
-DEFAULT_BUCKET = "matovitch/lpap-molab-artifacts"
-DEFAULT_TOKEN_FILES = (
-    Path("/marimo/.hf_token"),
-    Path(".hf_token"),
+from lpap.storage import (
+    infer_project_root_from_checkpoint,
+    load_storage_config,
 )
 
 
-def resolve_hf_token(*, token: str | None = None) -> str | None:
+def default_artifacts_bucket(
+    project_root: str | Path | None = None,
+) -> str:
+    return load_storage_config(project_root).artifacts.bucket
+
+
+def default_token_files(
+    project_root: str | Path | None = None,
+) -> tuple[Path, ...]:
+    return tuple(
+        Path(path) for path in load_storage_config(project_root).auth.token_files
+    )
+
+
+def resolve_hf_token(
+    *,
+    token: str | None = None,
+    token_files: Sequence[Path | str] | None = None,
+    project_root: str | Path | None = None,
+) -> str | None:
     """Return an HF token from ``token``, env, or a local token file."""
     if token:
         return token.strip() or None
@@ -27,7 +46,12 @@ def resolve_hf_token(*, token: str | None = None) -> str | None:
         value = os.environ.get(key)
         if value and value.strip():
             return value.strip()
-    for path in DEFAULT_TOKEN_FILES:
+    paths = (
+        tuple(Path(path) for path in token_files)
+        if token_files is not None
+        else default_token_files(project_root)
+    )
+    for path in paths:
         if path.is_file():
             text = path.read_text(encoding="utf-8").strip()
             if text:
@@ -35,9 +59,16 @@ def resolve_hf_token(*, token: str | None = None) -> str | None:
     return None
 
 
-def apply_hf_token(*, token: str | None = None) -> str | None:
+def apply_hf_token(
+    *,
+    token: str | None = None,
+    token_files: Sequence[Path | str] | None = None,
+    project_root: str | Path | None = None,
+) -> str | None:
     """Load a token into ``HF_TOKEN`` if available; return the resolved value."""
-    resolved = resolve_hf_token(token=token)
+    resolved = resolve_hf_token(
+        token=token, token_files=token_files, project_root=project_root
+    )
     if resolved:
         os.environ["HF_TOKEN"] = resolved
     return resolved
@@ -51,19 +82,22 @@ def bucket_uri(bucket: str, remote_path: str) -> str:
 def upload_files(
     pairs: Sequence[tuple[Path | str, str]],
     *,
-    bucket: str = DEFAULT_BUCKET,
+    bucket: str | None = None,
     token: str | None = None,
+    project_root: str | Path | None = None,
 ) -> list[str]:
     """Upload ``(local_path, remote_path)`` pairs to a storage bucket.
 
-    Requires a write-capable token (env, ``token=``, or ``.hf_token``).
+    Requires a write-capable token (env, ``token=``, or token files).
     """
     from huggingface_hub import HfApi
 
-    resolved = apply_hf_token(token=token)
+    resolved_bucket = bucket or default_artifacts_bucket(project_root)
+    resolved = apply_hf_token(token=token, project_root=project_root)
     if not resolved:
         raise RuntimeError(
-            "HF write token not found; set HF_TOKEN or create .hf_token"
+            "HF write token not found; set HF_TOKEN or create a token file "
+            "(see configs/storage.toml auth.token_files)"
         )
 
     add: list[tuple[str, str]] = []
@@ -73,15 +107,16 @@ def upload_files(
             raise FileNotFoundError(path)
         add.append((str(path), remote.lstrip("/")))
 
-    HfApi().batch_bucket_files(bucket, add=add)
+    HfApi().batch_bucket_files(resolved_bucket, add=add)
     return [remote for _, remote in add]
 
 
 def download_files(
     pairs: Sequence[tuple[str, Path | str]],
     *,
-    bucket: str = DEFAULT_BUCKET,
+    bucket: str | None = None,
     token: str | None = None,
+    project_root: str | Path | None = None,
 ) -> list[Path]:
     """Download ``(remote_path, local_path)`` pairs from a storage bucket.
 
@@ -90,13 +125,14 @@ def download_files(
     """
     from huggingface_hub import HfFileSystem
 
-    resolved = apply_hf_token(token=token)
+    resolved_bucket = bucket or default_artifacts_bucket(project_root)
+    resolved = apply_hf_token(token=token, project_root=project_root)
     fs = HfFileSystem(token=resolved if resolved else False)
     written: list[Path] = []
     for remote, local in pairs:
         dest = Path(local)
         dest.parent.mkdir(parents=True, exist_ok=True)
-        uri = bucket_uri(bucket, remote)
+        uri = bucket_uri(resolved_bucket, remote)
         if not fs.exists(uri):
             raise FileNotFoundError(uri)
         fs.get(uri, str(dest))
@@ -131,13 +167,16 @@ def upload_checkpoint_artifacts(
     *,
     checkpoint_path: str | Path | None = None,
     log_path: str | Path | None = None,
-    bucket: str = DEFAULT_BUCKET,
+    bucket: str | None = None,
     token: str | None = None,
+    project_root: str | Path | None = None,
 ) -> list[str]:
     """Upload a checkpoint and/or SQLite log into the standard bucket layout.
 
     Remote keys are ``checkpoints/<name>`` and ``training_logs/<name>``. Missing
     files are skipped; raises ``FileNotFoundError`` if nothing exists to upload.
+    When ``bucket`` is omitted, storage config is loaded from ``project_root`` or
+    inferred from ``…/checkpoints/<file>``.
     """
     pairs: list[tuple[Path, str]] = []
     if checkpoint_path is not None:
@@ -150,13 +189,18 @@ def upload_checkpoint_artifacts(
             pairs.append((path, f"training_logs/{path.name}"))
     if not pairs:
         raise FileNotFoundError("no checkpoint/log files found to upload")
-    return upload_files(pairs, bucket=bucket, token=token)
+    root = project_root
+    if root is None and checkpoint_path is not None:
+        root = infer_project_root_from_checkpoint(checkpoint_path)
+    return upload_files(
+        pairs, bucket=bucket, token=token, project_root=root
+    )
 
 
 def upload_training_artifacts(
     project_root: Path | str,
     *,
-    bucket: str = DEFAULT_BUCKET,
+    bucket: str | None = None,
     checkpoint_names: Sequence[str] = ("surrogate_synthetic.pt",),
     log_names: Sequence[str] = ("surrogate.sqlite",),
     token: str | None = None,
@@ -172,13 +216,15 @@ def upload_training_artifacts(
         raise FileNotFoundError(
             f"no artifacts found under {Path(project_root)} for upload"
         )
-    return upload_files(existing, bucket=bucket, token=token)
+    return upload_files(
+        existing, bucket=bucket, token=token, project_root=project_root
+    )
 
 
 def download_training_artifacts(
     project_root: Path | str,
     *,
-    bucket: str = DEFAULT_BUCKET,
+    bucket: str | None = None,
     checkpoint_names: Sequence[str] = ("surrogate_synthetic.pt",),
     log_names: Sequence[str] = ("surrogate.sqlite",),
     token: str | None = None,
@@ -189,7 +235,9 @@ def download_training_artifacts(
         checkpoint_names=checkpoint_names,
         log_names=log_names,
     )
-    return download_files(download_pairs, bucket=bucket, token=token)
+    return download_files(
+        download_pairs, bucket=bucket, token=token, project_root=project_root
+    )
 
 
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -207,8 +255,8 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--bucket",
-        default=DEFAULT_BUCKET,
-        help=f"HF storage bucket id (default: {DEFAULT_BUCKET})",
+        default=None,
+        help="HF storage bucket id (default: configs/storage.toml artifacts.bucket)",
     )
     parser.add_argument(
         "--checkpoint",
@@ -229,10 +277,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
     checkpoints = tuple(args.checkpoint or ("surrogate_synthetic.pt",))
     logs = tuple(args.log or ("surrogate.sqlite",))
+    bucket = args.bucket or default_artifacts_bucket(args.project_root)
     if args.action == "upload":
         remotes = upload_training_artifacts(
             args.project_root,
-            bucket=args.bucket,
+            bucket=bucket,
             checkpoint_names=checkpoints,
             log_names=logs,
         )
@@ -241,7 +290,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     else:
         paths = download_training_artifacts(
             args.project_root,
-            bucket=args.bucket,
+            bucket=bucket,
             checkpoint_names=checkpoints,
             log_names=logs,
         )

@@ -6,9 +6,15 @@ The image archive is too large for normal Git history. GitHub rejects regular fi
 
 ## Public download (recommended)
 
-The training images live on the public Hugging Face storage bucket
-[`matovitch/lpap-images`](https://huggingface.co/buckets/matovitch/lpap-images)
-as `images_32x32_gray.pt.zst`. Fetch and decompress into `data/`:
+Bucket ids, remote archive names, and local paths are configured in
+[`configs/storage.toml`](../configs/storage.toml) (packaged fallback:
+`lpap/default_storage.toml` for installs without the repo checkout). Override
+buckets at runtime with `LPAP_ARTIFACTS_BUCKET` / `LPAP_IMAGES_BUCKET`.
+
+The training images live on the public Hugging Face storage bucket named in
+`images.bucket` (default
+[`matovitch/lpap-images`](https://huggingface.co/buckets/matovitch/lpap-images))
+as `images.remote_zst`. Fetch and decompress into `data/`:
 
 ```sh
 pixi run data-download
@@ -16,12 +22,12 @@ pixi run data-download
 PYTHONPATH=src python -m lpap.dataset_fetch --project-root .
 ```
 
-This writes `data/images_32x32_gray.pt` and keeps the local `.zst` as a cache
-unless you pass `--delete-zst`. If the `.pt` already exists, the download is
-skipped. Use `--force-download` to refresh from the bucket.
+This writes the configured `images.local_pt` and keeps the local `.zst` as a
+cache unless you pass `--delete-zst`. If the `.pt` already exists, the download
+is skipped. Use `--force-download` to refresh from the bucket.
 
 Training checkpoints and molab run artifacts use a **different** bucket
-(`matovitch/lpap-molab-artifacts`); do not mix the two.
+(`artifacts.bucket`); do not mix the two.
 
 Other options (DVC, Git LFS, GitHub Releases) remain possible, but the HF
 bucket + `lpap.dataset_fetch` path is the default for public clones.

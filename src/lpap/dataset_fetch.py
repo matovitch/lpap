@@ -1,7 +1,7 @@
 """Fetch the public grayscale image tensor archive from Hugging Face.
 
-The canonical training file is ``data/images_32x32_gray.pt``. Distribution uses
-a zstd-compressed copy on the public storage bucket ``matovitch/lpap-images``.
+The canonical training file path and bucket come from ``configs/storage.toml``
+(packaged fallback: ``lpap/default_storage.toml``).
 """
 
 from __future__ import annotations
@@ -10,18 +10,25 @@ import argparse
 from collections.abc import Sequence
 from pathlib import Path
 
-DEFAULT_IMAGE_BUCKET = "matovitch/lpap-images"
-DEFAULT_REMOTE_ZST = "images_32x32_gray.pt.zst"
-DEFAULT_LOCAL_PT_NAME = "images_32x32_gray.pt"
-DEFAULT_LOCAL_ZST_NAME = "images_32x32_gray.pt.zst"
+from lpap.storage import load_storage_config
+
+
+def default_images_bucket(project_root: str | Path | None = None) -> str:
+    return load_storage_config(project_root).images.bucket
+
+
+def default_remote_zst(project_root: str | Path | None = None) -> str:
+    return load_storage_config(project_root).images.remote_zst
 
 
 def default_image_pt_path(project_root: str | Path) -> Path:
-    return Path(project_root) / "data" / DEFAULT_LOCAL_PT_NAME
+    config = load_storage_config(project_root)
+    return Path(project_root) / config.images.local_pt
 
 
 def default_image_zst_path(project_root: str | Path) -> Path:
-    return Path(project_root) / "data" / DEFAULT_LOCAL_ZST_NAME
+    config = load_storage_config(project_root)
+    return Path(project_root) / config.images.local_zst
 
 
 def decompress_zstd_file(source: Path, destination: Path) -> Path:
@@ -40,15 +47,19 @@ def decompress_zstd_file(source: Path, destination: Path) -> Path:
 def download_image_zst(
     destination: Path,
     *,
-    bucket: str = DEFAULT_IMAGE_BUCKET,
-    remote_path: str = DEFAULT_REMOTE_ZST,
+    bucket: str | None = None,
+    remote_path: str | None = None,
     token: str | bool | None = None,
+    project_root: str | Path | None = None,
 ) -> Path:
     """Download the compressed archive from the public HF storage bucket."""
     from huggingface_hub import HfFileSystem
 
+    config = load_storage_config(project_root)
+    resolved_bucket = bucket or config.images.bucket
+    resolved_remote = remote_path or config.images.remote_zst
     destination.parent.mkdir(parents=True, exist_ok=True)
-    uri = f"hf://buckets/{bucket}/{remote_path.lstrip('/')}"
+    uri = f"hf://buckets/{resolved_bucket}/{resolved_remote.lstrip('/')}"
     fs = HfFileSystem(token=False if token is None else token)
     if not fs.exists(uri):
         raise FileNotFoundError(uri)
@@ -63,11 +74,11 @@ def ensure_image_tensor_archive(
     *,
     force_download: bool = False,
     keep_zst: bool = True,
-    bucket: str = DEFAULT_IMAGE_BUCKET,
-    remote_path: str = DEFAULT_REMOTE_ZST,
+    bucket: str | None = None,
+    remote_path: str | None = None,
     token: str | bool | None = None,
 ) -> Path:
-    """Return ``data/images_32x32_gray.pt``, downloading/decompressing if needed.
+    """Return the configured ``.pt`` archive, downloading/decompressing if needed.
 
     If the ``.pt`` already exists and ``force_download`` is false, it is reused.
     Otherwise the public ``.pt.zst`` is downloaded (unless a local ``.zst`` is
@@ -82,7 +93,11 @@ def ensure_image_tensor_archive(
 
     if force_download or not zst_path.is_file():
         download_image_zst(
-            zst_path, bucket=bucket, remote_path=remote_path, token=token
+            zst_path,
+            bucket=bucket,
+            remote_path=remote_path,
+            token=token,
+            project_root=root,
         )
 
     decompress_zstd_file(zst_path, pt_path)
@@ -111,8 +126,8 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--bucket",
-        default=DEFAULT_IMAGE_BUCKET,
-        help=f"HF storage bucket id (default: {DEFAULT_IMAGE_BUCKET})",
+        default=None,
+        help="HF storage bucket id (default: configs/storage.toml images.bucket)",
     )
     return parser.parse_args(argv)
 

@@ -7,10 +7,10 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from lpap.artifact_sync import (
-    DEFAULT_BUCKET,
     apply_hf_token,
     bucket_uri,
     default_artifact_pairs,
+    default_artifacts_bucket,
     download_files,
     download_training_artifacts,
     resolve_hf_token,
@@ -18,27 +18,51 @@ from lpap.artifact_sync import (
     upload_files,
     upload_training_artifacts,
 )
+from lpap.storage import load_storage_config
 
 
 class ArtifactSyncTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._env_patch = patch.dict(
+            os.environ,
+            {"LPAP_ARTIFACTS_BUCKET": "", "LPAP_IMAGES_BUCKET": ""},
+            clear=False,
+        )
+        self._env_patch.start()
+
+    def tearDown(self) -> None:
+        self._env_patch.stop()
+
     def test_bucket_uri(self) -> None:
         self.assertEqual(
             bucket_uri("matovitch/lpap-molab-artifacts", "/checkpoints/a.pt"),
             "hf://buckets/matovitch/lpap-molab-artifacts/checkpoints/a.pt",
         )
 
+    def test_default_artifacts_bucket_from_packaged_config(self) -> None:
+        self.assertEqual(
+            default_artifacts_bucket(),
+            load_storage_config().artifacts.bucket,
+        )
+        self.assertEqual(
+            default_artifacts_bucket(),
+            "matovitch/lpap-molab-artifacts",
+        )
+
     def test_resolve_hf_token_prefers_explicit_then_env_then_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             token_path = Path(temp_dir) / ".hf_token"
             token_path.write_text("file-token\n", encoding="utf-8")
-            with patch("lpap.artifact_sync.DEFAULT_TOKEN_FILES", (token_path,)):
-                self.assertEqual(resolve_hf_token(token=" explicit "), "explicit")
-                with patch.dict(os.environ, {"HF_TOKEN": "env-token"}, clear=False):
-                    self.assertEqual(resolve_hf_token(), "env-token")
-                with patch.dict(os.environ, {"HF_TOKEN": ""}, clear=False):
-                    os.environ.pop("HF_TOKEN", None)
-                    os.environ.pop("HUGGING_FACE_HUB_TOKEN", None)
-                    self.assertEqual(resolve_hf_token(), "file-token")
+            self.assertEqual(resolve_hf_token(token=" explicit "), "explicit")
+            with patch.dict(os.environ, {"HF_TOKEN": "env-token"}, clear=False):
+                self.assertEqual(resolve_hf_token(), "env-token")
+            with patch.dict(os.environ, {"HF_TOKEN": ""}, clear=False):
+                os.environ.pop("HF_TOKEN", None)
+                os.environ.pop("HUGGING_FACE_HUB_TOKEN", None)
+                self.assertEqual(
+                    resolve_hf_token(token_files=(token_path,)),
+                    "file-token",
+                )
 
     def test_apply_hf_token_sets_env(self) -> None:
         with patch.dict(os.environ, {}, clear=False):
@@ -56,15 +80,27 @@ class ArtifactSyncTest(unittest.TestCase):
         self.assertEqual(
             upload,
             [
-                (root / "checkpoints" / "surrogate_synthetic.pt", "checkpoints/surrogate_synthetic.pt"),
-                (root / "training_logs" / "surrogate.sqlite", "training_logs/surrogate.sqlite"),
+                (
+                    root / "checkpoints" / "surrogate_synthetic.pt",
+                    "checkpoints/surrogate_synthetic.pt",
+                ),
+                (
+                    root / "training_logs" / "surrogate.sqlite",
+                    "training_logs/surrogate.sqlite",
+                ),
             ],
         )
         self.assertEqual(
             download,
             [
-                ("checkpoints/surrogate_synthetic.pt", root / "checkpoints" / "surrogate_synthetic.pt"),
-                ("training_logs/surrogate.sqlite", root / "training_logs" / "surrogate.sqlite"),
+                (
+                    "checkpoints/surrogate_synthetic.pt",
+                    root / "checkpoints" / "surrogate_synthetic.pt",
+                ),
+                (
+                    "training_logs/surrogate.sqlite",
+                    root / "training_logs" / "surrogate.sqlite",
+                ),
             ],
         )
 
@@ -75,7 +111,9 @@ class ArtifactSyncTest(unittest.TestCase):
             with patch.dict(os.environ, {}, clear=False):
                 os.environ.pop("HF_TOKEN", None)
                 os.environ.pop("HUGGING_FACE_HUB_TOKEN", None)
-                with patch("lpap.artifact_sync.DEFAULT_TOKEN_FILES", ()):
+                with patch(
+                    "lpap.artifact_sync.default_token_files", return_value=()
+                ):
                     with self.assertRaises(RuntimeError):
                         upload_files([(local, "checkpoints/a.pt")])
 
@@ -84,7 +122,9 @@ class ArtifactSyncTest(unittest.TestCase):
                 patch("lpap.artifact_sync.apply_hf_token", return_value="tok"),
                 patch("huggingface_hub.HfApi", return_value=mock_api),
             ):
-                remotes = upload_files([(local, "checkpoints/a.pt")], bucket="user/bucket")
+                remotes = upload_files(
+                    [(local, "checkpoints/a.pt")], bucket="user/bucket"
+                )
             self.assertEqual(remotes, ["checkpoints/a.pt"])
             mock_api.batch_bucket_files.assert_called_once_with(
                 "user/bucket",
@@ -102,18 +142,19 @@ class ArtifactSyncTest(unittest.TestCase):
                 Path(local).write_bytes(b"data")
 
             mock_fs.get.side_effect = _get
+            bucket = default_artifacts_bucket()
             with (
                 patch("lpap.artifact_sync.apply_hf_token", return_value=None),
                 patch("huggingface_hub.HfFileSystem", return_value=mock_fs),
             ):
                 paths = download_files(
                     [("checkpoints/a.pt", dest)],
-                    bucket=DEFAULT_BUCKET,
+                    bucket=bucket,
                 )
             self.assertEqual(paths, [dest])
             self.assertEqual(dest.read_bytes(), b"data")
             mock_fs.exists.assert_called_once_with(
-                bucket_uri(DEFAULT_BUCKET, "checkpoints/a.pt")
+                bucket_uri(bucket, "checkpoints/a.pt")
             )
 
     def test_upload_and_download_training_artifacts_wrappers(self) -> None:
@@ -133,7 +174,10 @@ class ArtifactSyncTest(unittest.TestCase):
             self.assertEqual(remotes, ["checkpoints/x"])
             upload_mock.assert_called_once()
             pairs = upload_mock.call_args.args[0]
-            self.assertEqual([path.name for path, _ in pairs], ["surrogate_synthetic.pt", "surrogate.sqlite"])
+            self.assertEqual(
+                [path.name for path, _ in pairs],
+                ["surrogate_synthetic.pt", "surrogate.sqlite"],
+            )
 
             with patch(
                 "lpap.artifact_sync.download_files",
@@ -169,6 +213,10 @@ class ArtifactSyncTest(unittest.TestCase):
                     ("model.pt", "checkpoints/model.pt"),
                     ("model.sqlite", "training_logs/model.sqlite"),
                 ],
+            )
+            self.assertEqual(
+                upload_mock.call_args.kwargs["project_root"],
+                root,
             )
 
 

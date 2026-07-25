@@ -59,12 +59,13 @@ Read [doc/molab-workflow.md](../../doc/molab-workflow.md) for full notes.
    pip install "jaxtyping>=0.3.7"
    ```
 
-6. **Sync artifacts** with `lpap.artifact_sync` ↔ bucket
-   `matovitch/lpap-molab-artifacts` before idle kill. For long AE runs, set
-   `upload_artifacts_on_checkpoint=True` on the run config so each improved
-   checkpoint (+ SQLite) uploads automatically (and again on `mark_finished`).
-7. **Images** from public bucket `matovitch/lpap-images` via
-   `ensure_image_tensor_archive` / `pixi run data-download` (cached `.pt`).
+6. **Sync artifacts** with `lpap.artifact_sync` ↔ `artifacts.bucket` from
+   `configs/storage.toml` (packaged default) before idle kill. For long AE
+   runs, set `upload_artifacts_on_checkpoint=True` on the run config so each
+   improved checkpoint (+ SQLite) uploads automatically (and again on
+   `mark_finished`).
+7. **Images** via `ensure_image_tensor_archive` / `pixi run data-download`
+   using `images.*` from storage.toml (cached `.pt`).
 
 ## Background worker status (notebook host)
 
