@@ -7,7 +7,7 @@ Use the matching skill; don’t mix host/project logic into marimo-pair.
 | Layer | Skill | Tools | Pixi? |
 | --- | --- | --- | --- |
 | **marimo** | `~/.cursor/skills/marimo-pair` | `execute-code`, `execute-watch`, `notebook-map`, `notebook-ready` | No |
-| **molab** | `.github/skills/molab-workflow` | `molab-exec.sh` (`MOLAB_URL` / `MOLAB_TOKEN` / `MOLAB_SESSION`) | No |
+| **molab** | `.github/skills/molab-workflow` | `molab-exec.sh`, `molab-sync.sh`, …; helpers in repo `molab/` (synced to `/marimo/molab/`) | No |
 | **project** | `.github/skills/pixi-workflow` | `pixi run …`, `src/lpap/` (e.g. `train-status`, `artifacts-*`) | Yes locally |
 
 On molab, call the same `lpap` modules inside `molab-exec` after git install. Details: [doc/molab-workflow.md](doc/molab-workflow.md).
@@ -22,4 +22,9 @@ On molab, call the same `lpap` modules inside `molab-exec` after git install. De
 
 ## Molab (summer)
 
-Worktree `lpap-molab` / `molab-summer` (leave `../lpap` on `main`). One paired notebook; human opens GPU + pair URL/token. Visible train cells; scratchpad = short probes only. No second `execute-code` during a long cell. Chunk + `train-status` / short `molab-exec` polls. Install: `pip install --no-deps "lpap @ git+…@molab-summer"` + `jaxtyping`. Full rules: `.github/skills/molab-workflow/SKILL.md`.
+Worktree `lpap-molab` / `molab-summer` (leave `../lpap` on `main`). One paired
+notebook; human opens GPU + pair URL/token. **Default long AE:** `molab-sync` →
+`molab-launch-ae-energy-bank` → `molab-train-status` (Pushover/HF). Short/shared
+only → visible code-mode cells. Scratchpad = probes. Leave `MOLAB_SESSION`
+unset unless multi-session (`molab-exec` errors on stale ids). Full rules:
+`.github/skills/molab-workflow/SKILL.md`.

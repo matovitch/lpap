@@ -76,3 +76,13 @@ flowchart TD
 Checkpoints are authoritative for model-dependent configuration. In particular, decoder training and `energy_to_image` read harmonic source configuration from the surrogate checkpoint rather than from duplicated TOML or SQLite fields.
 
 SQLite logs are for discovery, plotting, and rerun ergonomics. Because this repository is a research experiment, stale checkpoint or SQLite schemas should usually be regenerated rather than migrated.
+
+## Training artifacts bucket
+
+Checkpoints and SQLite logs can sync to `artifacts.bucket` in
+[`configs/storage.toml`](../configs/storage.toml) via
+`pixi run artifacts-upload` / `artifacts-download` (or
+`lpap.artifact_sync`). Writes need `HF_TOKEN` (export locally, or
+`configs/secrets.toml` → `molab-inject-secrets.sh` on molab). Public image
+downloads need no token. Details for remote runs:
+[molab workflow](molab-workflow.md).

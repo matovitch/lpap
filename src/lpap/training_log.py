@@ -510,3 +510,15 @@ def load_best_metric_row(
     if mode == "max":
         return max(candidates, key=lambda row: float(row[metric_name]))
     raise ValueError("mode must be 'min' or 'max'")
+
+
+def max_logged_step(path: str | Path, *, run_id: str) -> int | None:
+    initialize_training_log(path)
+    with closing(_connect(path)) as connection:
+        row = connection.execute(
+            "SELECT MAX(step) FROM step_metrics WHERE run_id = ?",
+            (run_id,),
+        ).fetchone()
+    if row is None or row[0] is None:
+        return None
+    return int(row[0])

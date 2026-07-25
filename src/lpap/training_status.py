@@ -2,12 +2,16 @@
 
 Usable locally (``pixi run train-status``) or on a remote kernel after
 ``lpap`` is installed (e.g. inside ``molab-exec``).
+
+Optional ``--bg-stem`` adds detached-worker liveness and last log step.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -18,7 +22,10 @@ from lpap.training_log import (
     load_best_metric_row,
     load_recent_metrics,
     load_run_record,
+    max_logged_step,
 )
+
+_STEP_RE = re.compile(r"(?:^|\s)step=(\d+)\b")
 
 
 def resolve_artifact_path(
@@ -37,6 +44,48 @@ def resolve_artifact_path(
     return Path(project_root) / subdirectory / path
 
 
+def _read_pid(pid_path: Path) -> int | None:
+    if not pid_path.is_file():
+        return None
+    raw = pid_path.read_text(encoding="utf-8").strip()
+    if not raw:
+        return None
+    return int(raw)
+
+
+def _process_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _bg_worker_status(pid_path: Path) -> dict[str, Any]:
+    pid = _read_pid(pid_path)
+    return {
+        "pid_path": str(pid_path),
+        "pid": pid,
+        "alive": False if pid is None else _process_alive(pid),
+    }
+
+
+def _last_bg_log_step(log_path: Path) -> int | None:
+    if not log_path.is_file():
+        return None
+    text = log_path.read_text(encoding="utf-8", errors="replace")
+    steps = [int(match.group(1)) for match in _STEP_RE.finditer(text)]
+    return steps[-1] if steps else None
+
+
+def _bg_log_tail(log_path: Path, *, lines: int = 12) -> list[str]:
+    if not log_path.is_file() or lines <= 0:
+        return []
+    return log_path.read_text(encoding="utf-8", errors="replace").splitlines()[
+        -lines:
+    ]
+
+
 def summarize_training_status(
     *,
     project_root: str | Path = ".",
@@ -46,11 +95,16 @@ def summarize_training_status(
     metric_name: str = "validation_loss",
     metric_mode: str = "min",
     recent_limit: int = 5,
+    bg_stem: str | None = None,
+    log_tail_lines: int = 8,
 ) -> dict[str, Any]:
     """Return a JSON-serializable status dict for one training run.
 
     Paths may be bare filenames under ``checkpoints/`` / ``training_logs/``,
     relative paths under ``project_root``, or absolute paths.
+
+    When ``bg_stem`` is set, also reports
+    ``training_logs/<stem>.pid`` / ``.log`` liveness and last logged step.
     """
     root = Path(project_root)
     checkpoint_path = resolve_artifact_path(
@@ -68,6 +122,8 @@ def summarize_training_status(
         "run": None,
         "best_metric_row": None,
         "recent_metrics": [],
+        "log_max_step": None,
+        "bg": None,
     }
 
     if checkpoint_path is not None:
@@ -108,6 +164,21 @@ def summarize_training_status(
         summary["recent_metrics"] = load_recent_metrics(
             log_path, run_id=resolved_run_id, limit=recent_limit
         )
+        summary["log_max_step"] = max_logged_step(
+            log_path, run_id=resolved_run_id
+        )
+
+    if bg_stem is not None and str(bg_stem).strip():
+        stem = str(bg_stem).strip()
+        pid_path = root / "training_logs" / f"{stem}.pid"
+        bg_log_path = root / "training_logs" / f"{stem}.log"
+        status = _bg_worker_status(pid_path)
+        summary["bg"] = {
+            **status,
+            "log_path": str(bg_log_path),
+            "log_last_step": _last_bg_log_step(bg_log_path),
+            "log_tail": _bg_log_tail(bg_log_path, lines=log_tail_lines),
+        }
 
     if summary["checkpoint"] is None and summary["run"] is None:
         raise ValueError("provide --checkpoint and/or --log")
@@ -127,6 +198,8 @@ def format_training_status(summary: Mapping[str, Any]) -> str:
             f"step={checkpoint.get('step')} best_metric={checkpoint.get('best_metric')}"
         )
         lines.append(f"checkpoint_path: {summary.get('checkpoint_path')}")
+    if summary.get("log_max_step") is not None:
+        lines.append(f"log_max_step: {summary.get('log_max_step')}")
     run = summary.get("run")
     if isinstance(run, Mapping):
         lines.append(
@@ -156,6 +229,19 @@ def format_training_status(summary: Mapping[str, Any]) -> str:
             step = row.get("step")
             loss = row.get("loss", row.get("validation_loss"))
             lines.append(f"  step={step} loss={loss} best={row.get('best')}")
+    bg = summary.get("bg")
+    if isinstance(bg, Mapping):
+        lines.append(
+            "bg: "
+            f"alive={bg.get('alive')} pid={bg.get('pid')} "
+            f"log_last_step={bg.get('log_last_step')}"
+        )
+        lines.append(f"bg_log_path: {bg.get('log_path')}")
+        tail = bg.get("log_tail") or []
+        if tail:
+            lines.append("bg_log_tail:")
+            for line in tail:
+                lines.append(f"  {line}")
     return "\n".join(lines)
 
 
@@ -200,6 +286,11 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="how many recent metric steps to include",
     )
     parser.add_argument(
+        "--bg-stem",
+        default=None,
+        help="training_logs/<stem>.pid/.log for detached worker status",
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
         help="print machine-readable JSON instead of text",
@@ -217,6 +308,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         metric_name=args.metric_name,
         metric_mode=args.metric_mode,
         recent_limit=args.recent_limit,
+        bg_stem=args.bg_stem,
     )
     if args.json:
         print(json.dumps(summary, indent=2, sort_keys=True, default=str))

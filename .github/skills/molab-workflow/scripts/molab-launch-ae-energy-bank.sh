@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# Launch the versioned AE energy-bank detached worker on molab.
+#
+# Requires a prior molab-sync (so lpap + secrets are present). Refuses if the
+# previous bg pid is still alive.
+#
+# Required env: MOLAB_URL, MOLAB_TOKEN or MARIMO_TOKEN
+# Optional: MOLAB_SESSION (prefer unset unless multi-session)
+#
+# Usage:
+#   bash .github/skills/molab-workflow/scripts/molab-launch-ae-energy-bank.sh --target-steps 58200
+#   bash .github/skills/molab-workflow/scripts/molab-launch-ae-energy-bank.sh --target-steps 58200 --json
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+molab_exec="$script_dir/molab-exec.sh"
+target_steps=""
+as_json=0
+note=""
+upload=1
+notify=1
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --target-steps)
+      target_steps="$2"
+      shift 2
+      ;;
+    --note)
+      note="$2"
+      shift 2
+      ;;
+    --no-upload)
+      upload=0
+      shift
+      ;;
+    --no-notify)
+      notify=0
+      shift
+      ;;
+    --json)
+      as_json=1
+      shift
+      ;;
+    -h|--help)
+      sed -n '2,16p' "$0" | sed 's/^# \?//'
+      exit 0
+      ;;
+    *)
+      echo "molab-launch-ae-energy-bank: unknown arg: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [[ -z "$target_steps" ]]; then
+  echo "molab-launch-ae-energy-bank: --target-steps is required" >&2
+  exit 1
+fi
+if [[ ! "$target_steps" =~ ^[0-9]+$ ]]; then
+  echo "molab-launch-ae-energy-bank: --target-steps must be an integer" >&2
+  exit 1
+fi
+
+note_b64=""
+if [[ -n "$note" ]]; then
+  note_b64="$(printf '%s' "$note" | python3 -c 'import sys, base64; print(base64.b64encode(sys.stdin.buffer.read()).decode())')"
+fi
+
+# Values are embedded: molab-exec runs on the remote kernel (no local env forward).
+"$molab_exec" <<PY
+import base64
+import json
+import sys
+
+sys.path.insert(0, "/marimo")
+from molab.jobs import launch_ae_energy_bank_bg
+
+note = None
+note_b64 = "${note_b64}"
+if note_b64:
+    note = base64.b64decode(note_b64).decode("utf-8")
+result = launch_ae_energy_bank_bg(
+    project_root="/marimo",
+    target_steps=${target_steps},
+    upload_artifacts_on_checkpoint=${upload} == 1,
+    notify_on_finished=${notify} == 1,
+    note=note,
+)
+if ${as_json} == 1:
+    print(json.dumps(result, indent=2, sort_keys=True))
+else:
+    print(
+        f"spawned pid={result['pid']} target={result['target_steps']} "
+        f"log={result['log_path']}"
+    )
+PY

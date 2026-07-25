@@ -28,14 +28,15 @@ Do not mix routine Pixi work into the molab worktree unless backporting.
 ```bash
 export MOLAB_URL='https://….sb.molab.run/'
 export MOLAB_TOKEN='…'       # or MARIMO_TOKEN
-export MOLAB_SESSION='s_…'   # optional
+# Leave MOLAB_SESSION unset unless the server has multiple sessions.
 
 bash .github/skills/molab-workflow/scripts/molab-exec.sh -c 'print(1)'
 ```
 
 `molab-exec` forwards to marimo-pair `execute-code.sh` (override scripts dir
 with `MARIMO_PAIR_SCRIPTS`). Prefer it over pasting long `--url` / `--token`
-flags on every call.
+flags on every call. When `MOLAB_SESSION` / `--session` is set, it validates
+the id against `/api/sessions` and fails loudly if stale.
 
 ### Secrets injection
 
@@ -48,12 +49,24 @@ That file is the only secret store — inject sets kernel env only (no
 bash .github/skills/molab-workflow/scripts/molab-inject-secrets.sh
 ```
 
-Do not put secrets in notebook cells. Re-run after every kernel restart; pass
-the same env explicitly when spawning detached training workers.
+Prefer the one-shot post-push sync (reinstall `lpap`, copy `storage.toml`,
+copy repo `molab/` helpers → `/marimo/molab/`, inject secrets):
+
+```bash
+bash .github/skills/molab-workflow/scripts/molab-sync.sh
+# or pin a SHA:  bash …/molab-sync.sh --ref abd69b3
+```
+
+Do not put secrets in notebook cells. Re-run sync/inject after every kernel
+restart; detached workers inherit env at spawn time.
 
 With Pushover creds present, inject also sets `LPAP_NOTIFY_ON_FINISHED=1` so
 `TrainingRun.mark_finished` pings you (or set `notify_on_finished=True` on the
 run config). Helpers: `lpap.notify.send_pushover` / `notify_training_finished`.
+
+Prefer **omitting** `MOLAB_SESSION` unless the server has multiple sessions.
+When set, `molab-exec` checks `/api/sessions` and exits if the id is missing
+(stale ids used to fail silently).
 
 Companion marimo-pair tools (pass URL/token explicitly, or reuse env via
 wrappers you compose):
@@ -77,12 +90,13 @@ URL + token. Prefer reusing the same molab notebook URL across sessions.
 
 | Notebook | Purpose |
 | --- | --- |
-| `notebooks/molab_lab.py` | Primary remote lab: install, CUDA smoke, chunked train by `model_kind` |
+| `notebooks/molab_lab.py` | Primary remote lab: install, CUDA smoke, short shared trains by `model_kind` |
 | Local `notebooks/train.py` | Pixi training UI on `main` |
 | Local `notebooks/visualize_*.py` | Curves/galleries after `pixi run artifacts-download` |
 
 Controls on the lab notebook: model kind, target steps, chunk steps,
-`display_every`, `log_every`. Train logic stays in `src/lpap/`.
+`display_every`, `log_every`. For multi-hour AE prefer the detached launcher
+instead of long lab cells. Train logic stays in `src/lpap/`.
 
 While paired, mutate the **live** notebook with `cm` (not the `.py` on disk).
 Backport stable cell structure to `molab_lab.py` on `molab-summer` when useful.
@@ -102,22 +116,38 @@ python -m pip install "jaxtyping>=0.3.7"
 Sandbox artifacts: `/marimo/checkpoints/*.pt`, `/marimo/training_logs/*.sqlite`
 (idle ~90 min / session ~12 h).
 
-## Shared training (code mode)
+## Shared training
 
-Put multi-minute trains in **visible cells** (`hide_code=False`, progress bar /
-`mo.output.replace`) so the human sees the run. Scratchpad is for probes,
-installs, and artifact sync only.
+**Default for multi-hour AE:** versioned detached worker (pidfile + log), not a
+blocking code-mode cell:
+
+```bash
+bash .github/skills/molab-workflow/scripts/molab-sync.sh
+bash .github/skills/molab-workflow/scripts/molab-launch-ae-energy-bank.sh --target-steps 58200
+bash .github/skills/molab-workflow/scripts/molab-train-status.sh
+```
+
+Launcher refuses if the previous bg pid is still alive. Status reports
+checkpoint step, SQLite max step, and bg liveness / last log step.
+Agent-side waits use the harness sleep/poll loop (`AwaitShell` + short
+`molab-train-status`); do not `sleep` in the kernel.
+
+**Short / shared chunks only:** visible code-mode cells (`hide_code=False`,
+progress bar / `mo.output.replace`) when the human should watch the run.
+Scratchpad is for probes, installs, and artifact sync — not long training.
 
 - Do not start a second `execute-code` while a train cell runs (`MarimoInterrupt`).
-- Prefer chunked training + status polls **between** chunks; resume with
+- For cell chunks: status polls **between** chunks; resume with
   `resume_from_checkpoint=True`.
 - DAG: do not redefine `mo` / `torch` / `lpap`; use `_` locals; import training
   helpers once in setup.
 - Cadences: e.g. `display_every=50`, `log_every=10`; checkpoint on improvement.
 
-Poll between chunks (prefer the helper when `lpap` is installed on molab):
+Poll KPIs (local or inside `molab-exec`):
 
 ```bash
+bash .github/skills/molab-workflow/scripts/molab-train-status.sh
+# or:
 bash .github/skills/molab-workflow/scripts/molab-exec.sh <<'PY'
 from lpap.training_status import summarize_training_status
 print(summarize_training_status(
@@ -125,26 +155,18 @@ print(summarize_training_status(
     checkpoint_name="image_autoencoder_energy_bank.pt",
     log_name="image_autoencoder_energy_bank.sqlite",
     run_id="image_autoencoder_energy_bank",
+    bg_stem="image_autoencoder_energy_bank_bg",
 ))
 PY
-```
-
-Or a minimal SQLite peek:
-
-```python
-import sqlite3
-conn = sqlite3.connect("/marimo/training_logs/<model>.sqlite")
-print(conn.execute("SELECT MAX(step) FROM step_metrics").fetchone()[0])
 ```
 
 ## Artifact sync (HF Storage Bucket)
 
 Bucket settings come from [`configs/storage.toml`](../configs/storage.toml)
-(`/artifacts.bucket`). On molab, copy that file once to
+(`/artifacts.bucket`). On molab, `molab-sync.sh` copies that file to
 `/marimo/configs/storage.toml` (upload/fetch raise if it is missing). Write
-auth is `HF_TOKEN` only — from `configs/secrets.toml` via
-`molab-inject-secrets.sh`, or `export HF_TOKEN=…` locally. Local download of
-public buckets needs no login.
+auth is `HF_TOKEN` only — from `configs/secrets.toml` via inject, or
+`export HF_TOKEN=…` locally. Local download of public buckets needs no login.
 
 ```python
 # molab
@@ -189,7 +211,9 @@ Surrogate/decoder need no image dataset (synthetic harmonics).
 
 ## Session checklist
 
-**Human:** open lab notebook → attach RTX Pro 6000 → pair → paste URL/token.  
-**Agent:** connect smoke → code-mode train in chunks → HF upload before idle
-(or enable `upload_artifacts_on_checkpoint=True` on the run).  
-**Local:** `artifacts-download` → `pixi run notebook-surrogate` / `notebook-decoder`.
+**Human:** open lab notebook → attach GPU → pair → paste URL/token (leave
+`MOLAB_SESSION` unset unless multi-session).  
+**Agent (long AE):** `molab-sync` → `molab-launch-ae-energy-bank` → poll
+`molab-train-status` (Pushover + HF upload-on-checkpoint).  
+**Agent (short/shared):** visible code-mode cells only.  
+**Local:** `artifacts-download` → viz notebooks.

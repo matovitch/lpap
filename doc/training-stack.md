@@ -2,13 +2,14 @@
 
 See the [documentation index](index.md) for the full documentation map and the [glossary](glossary.md) for project terminology.
 
-LPAP currently has five trainable model kinds wired into one shared marimo training notebook:
+LPAP currently wires these trainable model kinds into the shared marimo training
+notebook (energy-bank variants share the corresponding flow backend):
 
 - `surrogate`: learns full-`N` source-index logits for LPAP bucket selections on synthetic harmonic energy.
 - `decoder`: reconstructs source energy values from frozen surrogate logits.
-- `image_to_energy`: trains a flow from Hilbert-flattened grayscale images to an energy prior (synthetic harmonics or an empirical energy bank).
-- `energy_to_image`: trains a flow from an energy prior (decoder-projected harmonics or an empirical energy bank) to Hilbert-flattened grayscale images.
-- `image_autoencoder`: trains the total end-to-end grayscale image autoencoder over 1D Hilbert-flattened image sequences, using image-to-energy flow, the LPAP surrogate/decoder inner energy path, and energy-to-image flow.
+- `image_to_energy` / `image_to_energy_energy_bank`: flow from Hilbert-flattened grayscale images to an energy prior (synthetic harmonics or an empirical energy bank).
+- `energy_to_image` / `energy_to_image_energy_bank`: flow from an energy prior (decoder-projected harmonics or an empirical energy bank) to Hilbert-flattened grayscale images.
+- `image_autoencoder`: end-to-end grayscale AE (image-to-energy → LPAP surrogate/decoder → energy-to-image).
 
 ## Training Overview
 
@@ -19,8 +20,8 @@ flowchart TD
     dispatch --> kinds{{Model kind}}
     kinds --> surrogate[surrogate]
     kinds --> decoder[decoder]
-    kinds --> image_to_energy[image_to_energy]
-    kinds --> energy_to_image[energy_to_image]
+    kinds --> image_to_energy[image_to_energy (+ energy_bank)]
+    kinds --> energy_to_image[energy_to_image (+ energy_bank)]
     kinds --> image_autoencoder[image_autoencoder]
     surrogate & decoder & image_to_energy & energy_to_image & image_autoencoder --> session[Training session]
     session --> checkpoint[(Checkpoint files)]
@@ -197,11 +198,14 @@ pixi run notebook-image-autoencoder
 
 The visualization notebooks select logged runs from SQLite, load the corresponding checkpoint, and render model-specific galleries. The flow visualizers show integration results at multiple Euler midpoint step counts. The image autoencoder visualizer compares grayscale input/reconstruction/error and encoded/decoded energy/error.
 
+For multi-hour AE runs on remote GPUs, prefer the detached molab launcher rather
+than long local notebook cells — see [molab workflow](molab-workflow.md).
+`TrainingRun` supports `upload_artifacts_on_checkpoint` and `notify_on_finished`
+(Pushover via env / secrets inject).
+
 ## Testing
 
-The current test suite covers the LPAP operator, surrogate and decoder behavior, shared logging/checkpointing, Hilbert image ordering, flow matching utilities, energy-bank priors, training notebook dispatch, gallery rendering, small CPU training loops for both flow directions, and the total image autoencoder.
-
-Run all tests with:
+The suite covers the LPAP operator, surrogate/decoder behavior, logging/checkpoints, Hilbert ordering, flow matching, energy-bank priors, notebook dispatch, galleries, small CPU flow/AE loops, storage config, artifact sync helpers, and notify. Repo-top `molab/` helpers have their own unit tests (`PYTHONPATH=src:.`).
 
 ```sh
 pixi run test

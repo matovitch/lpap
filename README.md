@@ -2,17 +2,20 @@
 
 LPAP stands for Linear Probing Amplitude Pooling.
 
-This repository is a research scaffold around a pooling operator and a small training stack for probing whether LPAP-like sparse energy representations can be learned, decoded, and connected to images through flow matching.
+Research scaffold around a pooling operator and a small training stack for
+probing whether LPAP-like sparse energy representations can be learned, decoded,
+and connected to images through flow matching.
 
-LPAP reduces a flat tensor of `N` values into `C` buckets, where `N` is a multiple of `C`. Values are selected by largest absolute amplitude, placed into a compact bucket table, and tracked with integer DIB values that record distance from each value's initial bucket. The operator is intended for batched use, with a `k_max` argument that limits the maximum number of probing rolls per batch item.
+LPAP reduces a flat tensor of `N` values into `C` buckets (`N` multiple of `C`).
+Values are selected by largest absolute amplitude into a compact bucket table,
+with integer DIB values recording distance from each value's initial bucket.
+Batched use is limited by `k_max` (max probing rolls per batch item).
 
-## Current Stack
+## Current stack
 
-The headline model is the end-to-end image autoencoder. A grayscale image is
-Hilbert-flattened, pushed through an image-to-energy flow to an encoded energy
-sequence, reconstructed by the LPAP surrogate/decoder inner path, then pushed
-back through an energy-to-image flow. The whole chain is trained jointly under
-one weighted loss:
+The headline model is the end-to-end image autoencoder: grayscale image →
+Hilbert flatten → image-to-energy flow → LPAP surrogate/decoder →
+energy-to-image flow, trained jointly:
 
 ```mermaid
 flowchart LR
@@ -33,139 +36,74 @@ flowchart LR
     il2 --> total
 ```
 
-The total training loss is a fixed-weight sum (no schedule):
+Loss weights and extra terms (e.g. signed-mass) live in the training configs;
+see [training stack notes](doc/training-stack.md). Model dependency order:
+[documentation index](doc/index.md).
 
-$$
-\mathcal{L} =
-\lambda_{\text{image}}\,\lVert \hat{x}-x \rVert_2^2 +
-\lambda_{\text{energy}}\,\lVert \hat{e}-e \rVert_1 +
-\lambda_{\text{ce}}\,\mathrm{CE}_{\text{LPAP}}
-$$
+Every trainable model writes `.pt` under `checkpoints/` and KPIs to SQLite under
+`training_logs/`. Checkpoints are authoritative for model-dependent config;
+local artifacts are not kept backward-compatible.
 
-where $x$ is the input image, $\hat{x}$ the reconstruction, $e$ the encoded
-energy, $\hat{e}$ the decoder-reconstructed energy, and $\mathrm{CE}_{\text{LPAP}}$
-the amplitude-weighted cross-entropy of the surrogate against exact LPAP source
-indices. Defaults: $\lambda_{\text{image}}=1.0$, $\lambda_{\text{energy}}=0.25$,
-$\lambda_{\text{ce}}=0.1$. The inner energy L1 is the self-reconstruction target
-of the LPAP path; the teacher CE keeps the surrogate aligned with the exact
-operator. See the
-[training stack notes](doc/training-stack.md) for the per-model decomposition.
-
-See the [documentation index](doc/index.md) for the full model-dependency
-diagram from surrogate through the image flows to the end-to-end autoencoder.
-Every trainable model writes `.pt` checkpoints under `checkpoints/` and per-step
-KPIs to a SQLite log under `training_logs/`.
-
-Implemented entry points include:
-
-- `lpap.lpap_torch`: PyTorch reference implementation.
-- `lpap.lpap_triton`: Triton implementation with CPU fallback for non-CUDA tensors.
-- `lpap.make_grouped_permutation_indices`: fixed seeded LPAP front-end permutation.
-- `lpap.LPAPSurrogateTransformer`: RoPE transformer surrogate that predicts full-`N` source-index logits for each bucket.
-- `lpap.LPAPDecoderTransformer`: decoder that reconstructs source values from surrogate logits.
-- `lpap.DilatedConvFlow1d`: time-conditioned 1D flow model used by both image/energy directions.
-- `lpap.image_autoencoder_training`: end-to-end grayscale image autoencoder using 8-step image-to-energy and energy-to-image flow rollouts around the LPAP surrogate/decoder inner path.
-- `lpap.flow_training`: shared flow-training config, image loading, time sampling, checkpoint/log setup, and flow matching helpers.
-- `lpap.TrainingRun`: generic checkpoint/resume/log-cadence helper for training loops.
-- `lpap.training_log`: SQLite run configuration, attempts, and arbitrary KPI logging helpers.
+Useful modules: `lpap.lpap_torch` / `lpap.lpap_triton`, surrogate and decoder
+transformers, `lpap.DilatedConvFlow1d`, `lpap.image_autoencoder_training`,
+`lpap.flow_training`, `lpap.TrainingRun`, `lpap.training_log`.
 
 ## Documentation
 
 - [Documentation index](doc/index.md)
 - [Glossary](doc/glossary.md)
-- [LPAP operator notes](doc/lpap.md)
-- [Dataset storage notes](doc/data-storage.md)
-- [Training stack notes](doc/training-stack.md)
-- [Image-to-energy model notes](doc/image-to-energy-implementation.md)
+- [LPAP operator](doc/lpap.md)
+- [Training stack](doc/training-stack.md)
+- [Dataset / storage](doc/data-storage.md)
+- [Molab remote GPU](doc/molab-workflow.md)
 
-## Environment
-
-The project uses Pixi. From the repository root:
+## Local environment (Pixi)
 
 ```sh
 pixi install
-```
-
-The declared environment includes Python, PyTorch GPU, Triton, jaxtyping, Ruff, and marimo.
-
-Run the test suite with:
-
-```sh
 pixi run test
-```
-
-Run a small LPAP implementation benchmark with:
-
-```sh
 pixi run bench-lpap
-```
-
-Open the synthetic harmonic visualization notebook with:
-
-```sh
+pixi run notebook-train          # surrogate → decoder → flows → AE
 pixi run notebook-synthetic
-```
-
-Open the shared LPAP model training notebook with:
-
-```sh
-pixi run notebook-train
-```
-
-The shared training notebook can train the surrogate, decoder, image-to-energy flow model, energy-to-image flow model, or end-to-end image autoencoder, resume from checkpoints, rerun a previous configuration from SQLite metadata, and log KPIs to `training_logs/`.
-
-```mermaid
-flowchart LR
-    toml[Training TOML]
-    train[notebooks/train.py]
-    session[training session]
-    checkpoint[checkpoint payload]
-    sqlite[SQLite run log]
-    viz[visualization notebooks]
-
-    toml --> train --> session
-    session --> checkpoint
-    session --> sqlite
-    checkpoint --> session
-    sqlite --> train
-    checkpoint --> viz
-    sqlite --> viz
-```
-
-Editable per-model training configurations live under `configs/training/`:
-
-- [Surrogate training config](configs/training/surrogate.toml)
-- [Decoder training config](configs/training/decoder.toml)
-- [Image-to-energy training config](configs/training/image_to_energy.toml)
-- [Energy-to-image training config](configs/training/energy_to_image.toml)
-- [Image-to-energy energy-bank example](configs/training/image_to_energy_energy_bank.toml)
-- [Energy-to-image energy-bank example](configs/training/energy_to_image_energy_bank.toml)
-- [Image autoencoder training config](configs/training/image_autoencoder.toml)
-
-The shared notebook selects the model kind from a dropdown and loads the matching TOML file before launching a new training run. It also offers a model-specific previous-run dropdown plus a restore button that rewrites the TOML file from SQLite metadata, so a past run can be restored, edited, and launched as a fresh configuration.
-
-Decoder training uses an adaptive weighted cross-entropy regularizer on source logits as a temporary gradient crutch for the reconstruction L1 objective. Validation regularizer metrics are logged separately and can be overlaid on the validation loss plot without adding extra noisy training curves.
-
-The decoder and energy-to-image flow intentionally derive harmonic source configuration from the surrogate checkpoint. SQLite logs are useful for discovery and reruns, but model-dependent configuration is checkpoint-authoritative.
-
-Open model-specific visualization notebooks with:
-
-```sh
-pixi run notebook-surrogate
-pixi run notebook-decoder
-pixi run notebook-image-to-energy
+pixi run notebook-surrogate      # also: notebook-decoder, notebook-image-to-energy,
 pixi run notebook-energy-to-image
 pixi run notebook-image-autoencoder
 ```
 
-The image autoencoder notebook shows grayscale input/reconstruction panels alongside encoded/decoded energy panels from the inner LPAP energy path.
+Editable per-model TOMLs: [`configs/training/`](configs/training/). The shared
+train notebook picks a model kind, loads the matching TOML, and can restore a
+past run from SQLite metadata. Details: [training stack](doc/training-stack.md).
 
-Training checkpoints remain `.pt` files under `checkpoints/`; SQLite stores run names, configuration, metadata, attempts, scalar KPIs, and checkpoint paths.
+```mermaid
+flowchart LR
+    toml[Training TOML] --> train[notebooks/train.py] --> session[training session]
+    session --> checkpoint[checkpoint payload]
+    session --> sqlite[SQLite run log]
+    checkpoint --> session
+    sqlite --> train
+    checkpoint --> viz[visualization notebooks]
+    sqlite --> viz
+```
 
-Local checkpoints and SQLite logs are research artifacts. The project does not preserve backward compatibility for old checkpoint/log schemas unless that is explicitly needed; stale artifacts should be regenerated when schemas change.
+## Data and HF storage
 
-## Data
+`pixi run data-download` fetches the public image archive into
+`data/images_32x32_gray.pt` (`data/` is gitignored). Bucket paths live in
+[`configs/storage.toml`](configs/storage.toml); write auth is `HF_TOKEN` only
+(from env or gitignored `configs/secrets.toml`). Artifact upload/download:
+`pixi run artifacts-upload` / `artifacts-download`. See
+[data-storage](doc/data-storage.md).
 
-Large local dataset artifacts under `data/` are intentionally ignored by Git. Fetch the public archive with `pixi run data-download` (writes `data/images_32x32_gray.pt`), then load it with `lpap.data.load_image_tensor_dataset` or `lpap.data.image_dataloader`. Details: [Dataset storage notes](doc/data-storage.md).
+## Remote GPU (molab)
 
-The project also includes a batched synthetic harmonic generator. Use `lpap.data.sample_synthetic_harmonic_batch` for direct tensor generation, or `lpap.data.synthetic_harmonic_dataloader` for a prebatched iterable dataloader.
+Summer worktree / branch `molab-summer`: pair a molab notebook, then sync and
+run long AE jobs with detached workers (Pushover + HF upload-on-checkpoint).
+Short shared work stays in visible notebook cells.
+
+```sh
+bash .github/skills/molab-workflow/scripts/molab-sync.sh
+bash .github/skills/molab-workflow/scripts/molab-launch-ae-energy-bank.sh --target-steps 58200
+bash .github/skills/molab-workflow/scripts/molab-train-status.sh
+```
+
+Full pairing, secrets, and agent rules: [molab workflow](doc/molab-workflow.md).

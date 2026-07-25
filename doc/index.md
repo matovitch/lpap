@@ -15,13 +15,16 @@ Start here when navigating the LPAP research stack.
 
 ## Data And Artifacts
 
-- [Dataset storage notes](data-storage.md): public HF image archive download, local `.pt` cache, and ignored large artifacts.
+- [Dataset storage notes](data-storage.md): public HF image archive download, local `.pt` cache, `configs/storage.toml`, and ignored large artifacts.
+- [Molab remote GPU workflow](molab-workflow.md): pairing, `molab-sync`, detached AE runs, secrets, artifact sync.
 
 ## Common Workflows
 
 ```sh
 pixi run test
 pixi run ae-loss-probe
+pixi run data-download
+pixi run artifacts-download
 pixi run notebook-train
 pixi run notebook-synthetic
 pixi run notebook-surrogate
@@ -30,6 +33,9 @@ pixi run notebook-image-to-energy
 pixi run notebook-energy-to-image
 pixi run notebook-image-autoencoder
 ```
+
+Remote GPU (branch `molab-summer`): [molab workflow](molab-workflow.md)
+(`molab-sync` → launch → `molab-train-status`).
 
 ## Model Order
 

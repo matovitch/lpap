@@ -11,15 +11,15 @@ cuda = "12.0"
 [tasks]
 
 [tasks.test]
-cmd = "PYTHONPATH=src python -m unittest discover -s test"
+cmd = "PYTHONPATH=src:. python -m unittest discover -s test"
 description = "Run the project test suite."
 
 [tasks.lint]
-cmd = "ruff check src/lpap test notebooks bench"
+cmd = "ruff check src/lpap molab test notebooks bench"
 description = "Run Ruff lint checks."
 
 [tasks.format]
-cmd = "ruff format src/lpap test notebooks bench"
+cmd = "ruff format src/lpap molab test notebooks bench"
 description = "Format Python source with Ruff."
 
 [tasks.bench-lpap]

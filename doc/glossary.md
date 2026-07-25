@@ -37,3 +37,6 @@
 - **SQLite log**: A local database under `training_logs/` containing run configuration, run attempts, scalar KPIs, and checkpoint paths.
 - **Run config**: The serializable TOML-compatible configuration that describes a training run.
 - **Model config**: Checkpoint metadata describing model-dependent dimensions and source settings. Checkpoints are authoritative for this information.
+- **`configs/storage.toml`**: Project HF bucket ids and image archive paths (required under the project root; no packaged default).
+- **`configs/secrets.toml`**: Gitignored local secrets (`HF_TOKEN`, Pushover); injected to molab as env only.
+- **Molab**: Hosted marimo GPU notebooks; see [molab workflow](molab-workflow.md). Repo helpers live in top-level `molab/` (synced to `/marimo/molab/`), not in the installable `lpap` package.

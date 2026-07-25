@@ -2,9 +2,15 @@
 
 See the [documentation index](index.md) for the full documentation map and the [glossary](glossary.md) for project terminology.
 
-The `image_to_energy` model kind trains a one-way flow-matching vector field from 32x32 grayscale images to the repository's synthetic harmonic energy distribution.
+The `image_to_energy` / `energy_to_image` model kinds train one-way flow-matching
+vector fields between 32×32 grayscale images (Hilbert-flattened) and an energy
+prior. The prior is either **synthetic harmonics** (default TOMLs below) or an
+**empirical energy bank** (`*_energy_bank.toml` / `lpap.energy_bank`) — see
+[training stack](training-stack.md).
 
-The `energy_to_image` model kind trains the reverse distributional direction. Its source distribution is sampled from the surrogate checkpoint's harmonic config, passed through the frozen surrogate and decoder checkpoints, and then used as the flow start point toward Hilbert-flattened grayscale image targets.
+In harmonics mode, `energy_to_image` samples from the surrogate checkpoint's
+harmonic config, passes samples through the frozen surrogate and decoder, and
+uses that reconstruction as the flow source toward Hilbert image targets.
 
 It is integrated with the shared LPAP training stack:
 
