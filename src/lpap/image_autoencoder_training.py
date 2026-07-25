@@ -16,7 +16,7 @@ from lpap.decoder import (
     reconstruct_lpap_decoder_values,
 )
 from lpap.energy_to_image_training import (
-    EnergyToImageSourceConfig,
+    EnergyToImageHarmonicsTeacherConfig,
     resolve_checkpoint_path,
     load_decoder_source,
     load_surrogate_source,
@@ -518,7 +518,7 @@ def create_image_autoencoder_training_session(
         root, config.source.energy_to_image_checkpoint_name
     )
 
-    surrogate_source = EnergyToImageSourceConfig(
+    surrogate_source = EnergyToImageHarmonicsTeacherConfig(
         surrogate_checkpoint_name=config.source.surrogate_checkpoint_name,
         decoder_checkpoint_name=config.source.decoder_checkpoint_name,
         load_best=config.source.load_best,

@@ -47,7 +47,9 @@ from lpap.image_autoencoder_training import (
     iter_image_autoencoder_training,
     rerun_image_autoencoder_training_config_from_log,
 )
+from lpap.energy_bank import EnergyBankConfig
 from lpap.energy_to_image_training import (
+    EnergyToImageHarmonicsTeacherConfig,
     EnergyToImageRunConfig,
     EnergyToImageSourceConfig,
     EnergyToImageTrainingConfig,
@@ -56,17 +58,6 @@ from lpap.energy_to_image_training import (
     energy_to_image_training_config_from_dict,
     iter_energy_to_image_training,
     rerun_energy_to_image_training_config_from_log,
-)
-from lpap.energy_to_image_reflow_training import (
-    EnergyToImageReflowConfig,
-    EnergyToImageReflowRunConfig,
-    EnergyToImageReflowTeacherConfig,
-    EnergyToImageReflowTrainingConfig,
-    EnergyToImageReflowTrainingSession,
-    create_energy_to_image_reflow_training_session,
-    energy_to_image_reflow_training_config_from_dict,
-    iter_energy_to_image_reflow_training,
-    rerun_energy_to_image_reflow_training_config_from_log,
 )
 from lpap.surrogate_training import (
     LPAPSurrogateDataConfig,
@@ -88,7 +79,6 @@ TrainingModelKind = Literal[
     "decoder",
     "image_to_energy",
     "energy_to_image",
-    "energy_to_image_reflow",
     "image_autoencoder",
 ]
 TrainingConfig = (
@@ -96,7 +86,6 @@ TrainingConfig = (
     | LPAPDecoderTrainingConfig
     | ImageToEnergyTrainingConfig
     | EnergyToImageTrainingConfig
-    | EnergyToImageReflowTrainingConfig
     | ImageAutoencoderTrainingConfig
 )
 TrainingSession = (
@@ -104,7 +93,6 @@ TrainingSession = (
     | LPAPDecoderTrainingSession
     | ImageToEnergyTrainingSession
     | EnergyToImageTrainingSession
-    | EnergyToImageReflowTrainingSession
     | ImageAutoencoderTrainingSession
 )
 
@@ -278,10 +266,12 @@ def default_energy_to_image_training_config() -> EnergyToImageTrainingConfig:
             num_workers=0,
         ),
         source=EnergyToImageSourceConfig(
-            surrogate_checkpoint_name="surrogate_synthetic.pt",
-            decoder_checkpoint_name="decoder_synthetic.pt",
-            load_best=True,
-            require_checkpoints=True,
+            teacher=EnergyToImageHarmonicsTeacherConfig(
+                surrogate_checkpoint_name="surrogate_synthetic.pt",
+                decoder_checkpoint_name="decoder_synthetic.pt",
+                load_best=True,
+                require_checkpoints=True,
+            ),
         ),
         flow=ImageToEnergyFlowConfig(
             sequence_length=1024,
@@ -327,69 +317,63 @@ def default_energy_to_image_training_config() -> EnergyToImageTrainingConfig:
     )
 
 
-def default_energy_to_image_reflow_training_config() -> (
-    EnergyToImageReflowTrainingConfig
-):
-    return EnergyToImageReflowTrainingConfig(
-        image=ImageToEnergyImageConfig(
-            dataset_path="data/images_32x32_gray.pt",
-            batch_size=32,
-            side=32,
-            normalize=True,
-            shuffle=True,
-            num_workers=0,
+def default_image_to_energy_energy_bank_training_config() -> ImageToEnergyTrainingConfig:
+    config = default_image_to_energy_training_config()
+    return ImageToEnergyTrainingConfig(
+        image=config.image,
+        target=ImageToEnergyTargetConfig(
+            kind="energy_bank",
+            energy_bank=EnergyBankConfig(
+                path="data/encoded_energies_ae_best_131k.pt",
+            ),
         ),
+        flow=config.flow,
+        time=config.time,
+        optimizer=config.optimizer,
+        validation=config.validation,
+        run=ImageToEnergyRunConfig(
+            run_training=config.run.run_training,
+            resume_from_checkpoint=config.run.resume_from_checkpoint,
+            steps=config.run.steps,
+            seed=config.run.seed,
+            display_every=config.run.display_every,
+            log_every=config.run.log_every,
+            run_id="image_to_energy_energy_bank",
+            checkpoint_name="image_to_energy_energy_bank.pt",
+            log_name="image_to_energy_energy_bank.sqlite",
+            note="empirical AE energy marginal prior; random image pairing",
+            tags=("energy-bank", "emp-prior"),
+            pinned=False,
+        ),
+    )
+
+
+def default_energy_to_image_energy_bank_training_config() -> EnergyToImageTrainingConfig:
+    config = default_energy_to_image_training_config()
+    return EnergyToImageTrainingConfig(
+        image=config.image,
         source=EnergyToImageSourceConfig(
-            surrogate_checkpoint_name="surrogate_synthetic.pt",
-            decoder_checkpoint_name="decoder_synthetic.pt",
-            load_best=True,
-            require_checkpoints=True,
+            kind="energy_bank",
+            energy_bank=EnergyBankConfig(
+                path="data/encoded_energies_ae_best_131k.pt",
+            ),
         ),
-        flow=ImageToEnergyFlowConfig(
-            sequence_length=1024,
-            width=128,
-            time_dim=128,
-            dilation_cycles=2,
-            dilations=(1, 2, 4, 8, 16, 32, 64, 128),
-            kernel_size=3,
-            zero_init_output=True,
-        ),
-        teacher=EnergyToImageReflowTeacherConfig(
-            checkpoint_name="energy_to_image.pt",
-            load_best=True,
-            require_checkpoint=True,
-            teacher_steps=64,
-            warm_start_student=True,
-        ),
-        reflow=EnergyToImageReflowConfig(
-            student_steps=8,
-            endpoint_l2_weight=1.0,
-            image_anchor_l2_weight=0.25,
-        ),
-        optimizer=ImageToEnergyOptimizerConfig(
-            learning_rate=5.0e-5,
-            max_grad_norm=1.0,
-        ),
-        validation=ImageToEnergyValidationConfig(
-            enabled=True,
-            every=100,
-            batch_size=128,
-            seed=50_123,
-            validate_at_end=True,
-            euler_steps=(4, 8, 16),
-        ),
-        run=EnergyToImageReflowRunConfig(
-            run_training=True,
-            resume_from_checkpoint=True,
-            steps=10_000,
-            seed=1_987,
-            display_every=5,
-            log_every=1,
-            run_id="energy_to_image_reflow",
-            checkpoint_name="energy_to_image_reflow_8.pt",
-            log_name="energy_to_image_reflow.sqlite",
-            note="",
-            tags=("reflow", "8-step"),
+        flow=config.flow,
+        time=config.time,
+        optimizer=config.optimizer,
+        validation=config.validation,
+        run=EnergyToImageRunConfig(
+            run_training=config.run.run_training,
+            resume_from_checkpoint=config.run.resume_from_checkpoint,
+            steps=config.run.steps,
+            seed=config.run.seed,
+            display_every=config.run.display_every,
+            log_every=config.run.log_every,
+            run_id="energy_to_image_energy_bank",
+            checkpoint_name="energy_to_image_energy_bank.pt",
+            log_name="energy_to_image_energy_bank.sqlite",
+            note="empirical AE energy marginal as e2i source; random image pairing",
+            tags=("energy-bank", "emp-prior"),
             pinned=False,
         ),
     )
@@ -482,8 +466,6 @@ def default_training_config(model_kind: TrainingModelKind) -> TrainingConfig:
         return default_image_to_energy_training_config()
     if model_kind == "energy_to_image":
         return default_energy_to_image_training_config()
-    if model_kind == "energy_to_image_reflow":
-        return default_energy_to_image_reflow_training_config()
     if model_kind == "image_autoencoder":
         return default_image_autoencoder_training_config()
     raise ValueError("unsupported model_kind")
@@ -508,8 +490,6 @@ def training_config_from_file(
         return image_to_energy_training_config_from_dict(data)
     if model_kind == "energy_to_image":
         return energy_to_image_training_config_from_dict(data)
-    if model_kind == "energy_to_image_reflow":
-        return energy_to_image_reflow_training_config_from_dict(data)
     if model_kind == "image_autoencoder":
         return image_autoencoder_training_config_from_dict(data)
     raise ValueError("unsupported model_kind")
@@ -623,10 +603,6 @@ def training_config_from_log(
         return rerun_energy_to_image_training_config_from_log(
             log_path, run_id=run_id, resume_from_checkpoint=resume_from_checkpoint
         )
-    if model_kind == "energy_to_image_reflow":
-        return rerun_energy_to_image_reflow_training_config_from_log(
-            log_path, run_id=run_id, resume_from_checkpoint=resume_from_checkpoint
-        )
     return rerun_image_autoencoder_training_config_from_log(
         log_path, run_id=run_id, resume_from_checkpoint=resume_from_checkpoint
     )
@@ -676,14 +652,6 @@ def create_training_session(
         return create_energy_to_image_training_session(
             project_root=project_root, config=config
         )
-    if model_kind == "energy_to_image_reflow":
-        if not isinstance(config, EnergyToImageReflowTrainingConfig):
-            raise TypeError(
-                "energy_to_image_reflow training requires EnergyToImageReflowTrainingConfig"
-            )
-        return create_energy_to_image_reflow_training_session(
-            project_root=project_root, config=config
-        )
     if not isinstance(config, ImageAutoencoderTrainingConfig):
         raise TypeError(
             "image_autoencoder training requires ImageAutoencoderTrainingConfig"
@@ -714,12 +682,6 @@ def iter_training(model_kind: TrainingModelKind, session: TrainingSession):
                 "energy_to_image training requires EnergyToImageTrainingSession"
             )
         return iter_energy_to_image_training(session)
-    if model_kind == "energy_to_image_reflow":
-        if not isinstance(session, EnergyToImageReflowTrainingSession):
-            raise TypeError(
-                "energy_to_image_reflow training requires EnergyToImageReflowTrainingSession"
-            )
-        return iter_energy_to_image_reflow_training(session)
     if not isinstance(session, ImageAutoencoderTrainingSession):
         raise TypeError(
             "image_autoencoder training requires ImageAutoencoderTrainingSession"

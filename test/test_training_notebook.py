@@ -6,12 +6,13 @@ from pathlib import Path
 
 from lpap.decoder_training import LPAPDecoderTrainingConfig
 from lpap.energy_to_image_training import EnergyToImageTrainingConfig
-from lpap.energy_to_image_reflow_training import EnergyToImageReflowTrainingConfig
 from lpap.image_autoencoder_training import ImageAutoencoderTrainingConfig
 from lpap.image_to_energy_training import ImageToEnergyTrainingConfig
 from lpap.surrogate_training import LPAPSurrogateTrainingConfig
 from lpap.training_log import upsert_run
 from lpap.training_notebook import (
+    default_energy_to_image_energy_bank_training_config,
+    default_image_to_energy_energy_bank_training_config,
     restore_training_config_from_log,
     training_config_from_file,
     training_config_from_project_file,
@@ -33,11 +34,16 @@ class TrainingNotebookConfigTest(unittest.TestCase):
         energy_to_image = training_config_from_project_file(
             project_root, "energy_to_image"
         )
-        energy_to_image_reflow = training_config_from_project_file(
-            project_root, "energy_to_image_reflow"
-        )
         image_autoencoder = training_config_from_project_file(
             project_root, "image_autoencoder"
+        )
+        image_to_energy_bank = training_config_from_file(
+            project_root / "configs/training/image_to_energy_energy_bank.toml",
+            "image_to_energy",
+        )
+        energy_to_image_bank = training_config_from_file(
+            project_root / "configs/training/energy_to_image_energy_bank.toml",
+            "energy_to_image",
         )
 
         self.assertIsInstance(surrogate, LPAPSurrogateTrainingConfig)
@@ -59,14 +65,19 @@ class TrainingNotebookConfigTest(unittest.TestCase):
         self.assertEqual(energy_to_image.run.run_id, "energy_to_image")
         self.assertEqual(energy_to_image.source.kind, "harmonics")
         self.assertEqual(
-            energy_to_image.source.decoder_checkpoint_name, "decoder_synthetic.pt"
+            energy_to_image.source.teacher.decoder_checkpoint_name,
+            "decoder_synthetic.pt",
         )
         self.assertIsNone(energy_to_image.source.energy_bank)
-        self.assertIsInstance(energy_to_image_reflow, EnergyToImageReflowTrainingConfig)
-        self.assertEqual(energy_to_image_reflow.run.run_id, "energy_to_image_reflow")
-        self.assertEqual(energy_to_image_reflow.reflow.student_steps, 8)
+        self.assertEqual(image_to_energy_bank.target.kind, "energy_bank")
         self.assertEqual(
-            energy_to_image_reflow.teacher.checkpoint_name, "energy_to_image.pt"
+            image_to_energy_bank.target.energy_bank.path,
+            "data/encoded_energies_ae_best_131k.pt",
+        )
+        self.assertEqual(energy_to_image_bank.source.kind, "energy_bank")
+        self.assertEqual(
+            energy_to_image_bank.source.energy_bank.path,
+            "data/encoded_energies_ae_best_131k.pt",
         )
         self.assertIsInstance(image_autoencoder, ImageAutoencoderTrainingConfig)
         self.assertEqual(image_autoencoder.run.run_id, "image_autoencoder")
@@ -76,7 +87,10 @@ class TrainingNotebookConfigTest(unittest.TestCase):
             image_autoencoder.source.energy_to_image_checkpoint_name,
             "energy_to_image.pt",
         )
-        self.assertEqual(image_autoencoder.run.tags, ("e2e", "16-step", "no-reflow", "signed-mass", "dialed", "bs32"))
+        self.assertEqual(
+            image_autoencoder.run.tags,
+            ("e2e", "16-step", "no-reflow", "signed-mass", "dialed", "bs32"),
+        )
         self.assertEqual(image_autoencoder.loss.signed_mass_balance_weight, 0.02)
         self.assertEqual(image_autoencoder.loss.energy_l1_weight, 0.5)
         self.assertEqual(image_autoencoder.loss.surrogate_teacher_weight, 0.05)
@@ -85,6 +99,14 @@ class TrainingNotebookConfigTest(unittest.TestCase):
         self.assertEqual(image_autoencoder.run.steps, 20_000)
         self.assertEqual(image_autoencoder.image.batch_size, 32)
         self.assertEqual(image_autoencoder.validation.batch_size, 32)
+
+    def test_default_energy_bank_helpers(self) -> None:
+        i2e = default_image_to_energy_energy_bank_training_config()
+        e2i = default_energy_to_image_energy_bank_training_config()
+        self.assertEqual(i2e.target.kind, "energy_bank")
+        self.assertEqual(i2e.run.run_id, "image_to_energy_energy_bank")
+        self.assertEqual(e2i.source.kind, "energy_bank")
+        self.assertEqual(e2i.run.run_id, "energy_to_image_energy_bank")
 
     def test_loads_custom_surrogate_toml_config(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -170,6 +192,13 @@ class TrainingNotebookConfigTest(unittest.TestCase):
 
         self.assertNotIn("[data.harmonics]", text)
         self.assertIn("[teacher]", text)
+
+    def test_energy_to_image_serializes_nested_teacher(self) -> None:
+        project_root = Path(__file__).resolve().parents[1]
+        config = training_config_from_project_file(project_root, "energy_to_image")
+        text = training_config_to_toml(config)
+        self.assertIn("[source.teacher]", text)
+        self.assertIn('kind = "harmonics"', text)
 
     def test_restores_training_toml_from_run_log(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

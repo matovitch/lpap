@@ -15,15 +15,14 @@
 - **LPAP operator**: The exact pooling rule that selects high-amplitude values into buckets with DIB metadata.
 - **Surrogate**: A transformer trained to predict full-`N` source-index logits for each LPAP bucket.
 - **Decoder**: A transformer that reconstructs source energy values from surrogate logits and LPAP-derived decoder tokens.
-- **Teacher**: A frozen model or exact operator used to supervise another model. The surrogate is supervised by exact LPAP targets; reflow uses a high-step energy-to-image flow teacher.
+- **Teacher**: A frozen model or exact operator used to supervise another model. The surrogate is supervised by exact LPAP targets; energy-to-image harmonics mode freezes surrogate+decoder as a projection teacher.
 
 ## Flow Models
 
-- **Image-to-energy flow (`image_to_energy`)**: A 1D flow that maps Hilbert-flattened grayscale images to energy.
-- **Energy-to-image flow (`energy_to_image`)**: A 1D flow that maps decoder-projected energy to Hilbert-flattened grayscale images.
-- **Reflow (`energy_to_image_reflow`)**: Distillation that trains a low-step student flow to match a high-step energy-to-image teacher.
-- **Student steps**: The number of unrolled Euler midpoint steps used by a low-step flow during reflow or image-autoencoder training.
-- **Teacher steps**: The larger number of integration steps used to produce a higher-quality reflow target.
+- **Image-to-energy flow (`image_to_energy`)**: A 1D flow that maps Hilbert-flattened grayscale images to an energy prior (harmonics or energy bank).
+- **Energy-to-image flow (`energy_to_image`)**: A 1D flow that maps an energy prior (decoder-projected harmonics or energy bank) to Hilbert-flattened grayscale images.
+- **Student steps**: The number of unrolled Euler midpoint steps used during image-autoencoder training.
+- **Energy bank**: A float tensor of shape `(n, energy_dim)` of empirical energies (typically i2e encodings). Flow training samples bank rows independently of image batches so the learned map targets the energy marginal rather than a paired joint.
 
 ## Autoencoders
 

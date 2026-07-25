@@ -28,7 +28,6 @@ pixi run notebook-surrogate
 pixi run notebook-decoder
 pixi run notebook-image-to-energy
 pixi run notebook-energy-to-image
-pixi run notebook-energy-to-image-reflow
 pixi run notebook-image-autoencoder
 ```
 
@@ -42,7 +41,7 @@ flowchart TD
     synthetic[Synthetic harmonic energy] --> surrogate[Surrogate]
     surrogate --> decoder[Decoder]
     i2e[Image-to-energy flow]
-    e2i[Energy-to-image flow] --> reflow[Energy-to-image reflow<br/>8-step student]
+    e2i[Energy-to-image flow]
 
     subgraph inner [Inner LPAP energy path]
         surrogate
@@ -50,11 +49,11 @@ flowchart TD
     end
 
     i2e --> autoencoder[Image autoencoder]
+    e2i --> autoencoder
     inner --> autoencoder
-    reflow --> autoencoder
 ```
 
 The image autoencoder is the total end-to-end model. The inner energy path is the
 LPAP surrogate and decoder operating on encoded energy; the image-to-energy and
-energy-to-image (reflow student) flows wrap it. See the
+energy-to-image flows wrap it. See the
 [README loss diagram](../README.md) for the joint training objective.

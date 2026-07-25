@@ -42,4 +42,4 @@ Read [doc/molab-workflow.md](../../doc/molab-workflow.md) for full notes.
 
 ## Training order
 
-`surrogate` → `decoder` → image flows → reflow → `image_autoencoder`.
+`surrogate` → `decoder` → image flows → `image_autoencoder`.

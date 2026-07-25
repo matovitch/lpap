@@ -120,7 +120,7 @@ def _build_tiny_autoencoder_session(root: Path) -> ImageAutoencoderTrainingSessi
         training_state={"model_config": {"sequence_length": 16}},
     )
     save_training_checkpoint(
-        checkpoint_dir / "energy_to_image_reflow_8.pt",
+        checkpoint_dir / "energy_to_image.pt",
         model=energy_to_image,
         step=1,
         training_state={"model_config": {"sequence_length": 16}},
@@ -138,7 +138,7 @@ def _build_tiny_autoencoder_session(root: Path) -> ImageAutoencoderTrainingSessi
             surrogate_checkpoint_name="surrogate.pt",
             decoder_checkpoint_name="decoder.pt",
             image_to_energy_checkpoint_name="image_to_energy.pt",
-            energy_to_image_checkpoint_name="energy_to_image_reflow_8.pt",
+            energy_to_image_checkpoint_name="energy_to_image.pt",
             train_image_to_energy_flow=True,
             train_surrogate=True,
             train_decoder=True,

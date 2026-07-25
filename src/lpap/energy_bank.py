@@ -10,10 +10,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import torch
 from jaxtyping import Float
+
+from lpap.data import SyntheticHarmonicConfig
+
+
+EnergyPriorKind = Literal["harmonics", "energy_bank"]
 
 
 @dataclass(frozen=True)
@@ -78,9 +83,7 @@ def load_energy_bank(
             f"energy bank at {path} must be a Tensor or dict, got {type(payload)}"
         )
     if not isinstance(energies, torch.Tensor):
-        raise TypeError(
-            f"energy bank values must be a Tensor, got {type(energies)}"
-        )
+        raise TypeError(f"energy bank values must be a Tensor, got {type(energies)}")
     if energies.ndim != 2:
         raise ValueError(
             f"energy bank must have shape (n, energy_dim), got {tuple(energies.shape)}"
@@ -89,9 +92,30 @@ def load_energy_bank(
         raise ValueError("energy bank must contain at least one row")
     if energies.shape[1] == 0:
         raise ValueError("energy bank energy_dim must be positive")
-    if energies.dtype not in (torch.float16, torch.bfloat16, torch.float32, torch.float64):
-        raise TypeError(
-            f"energy bank dtype must be floating, got {energies.dtype}"
+    if energies.dtype not in (
+        torch.float16,
+        torch.bfloat16,
+        torch.float32,
+        torch.float64,
+    ):
+        raise TypeError(f"energy bank dtype must be floating, got {energies.dtype}")
+    return energies
+
+
+def load_energy_bank_for_flow(
+    root: Path,
+    config: EnergyBankConfig,
+    *,
+    sequence_length: int,
+) -> Float[torch.Tensor, "n energy"]:
+    """Load a bank and check it matches the flow sequence length."""
+    path = resolve_energy_bank_path(root, config)
+    energies = load_energy_bank(path, energies_key=config.energies_key)
+    if int(energies.shape[-1]) != sequence_length:
+        raise ValueError(
+            "energy bank energy_dim "
+            f"{int(energies.shape[-1])} does not match flow sequence_length "
+            f"{sequence_length}"
         )
     return energies
 
@@ -108,14 +132,55 @@ def sample_energy_bank_values(
         raise ValueError("batch_size must be positive")
     n = int(energies.shape[0])
     indices = torch.randint(n, (batch_size,), generator=generator)
-    sampled = energies[indices].to(device=device, dtype=torch.float32)
-    return sampled
+    return energies[indices].to(device=device, dtype=torch.float32)
+
+
+def sample_energy_prior_values(
+    *,
+    kind: EnergyPriorKind,
+    batch_size: int,
+    generator: torch.Generator,
+    device: torch.device,
+    sequence_length: int,
+    harmonics: SyntheticHarmonicConfig | None = None,
+    energy_bank: Float[torch.Tensor, "n energy"] | None = None,
+) -> Float[torch.Tensor, "batch energy"]:
+    """Sample a flow energy prior batch ``(batch, sequence_length)``.
+
+    Image batches must be drawn independently so training targets the energy
+    marginal rather than a paired ``(image, energy)`` map.
+    """
+    if kind == "energy_bank":
+        if energy_bank is None:
+            raise ValueError("energy_bank tensor is required when kind=energy_bank")
+        return sample_energy_bank_values(
+            energy_bank,
+            batch_size=batch_size,
+            generator=generator,
+            device=device,
+        )
+    if kind == "harmonics":
+        if harmonics is None:
+            raise ValueError("harmonics config is required when kind=harmonics")
+        values = harmonics.sample_batch(
+            batch_size=batch_size,
+            n=sequence_length,
+            generator=generator,
+            device=device,
+        )
+        if not isinstance(values, torch.Tensor):
+            raise TypeError("expected harmonic values tensor")
+        return values
+    raise ValueError(f"unsupported energy prior kind: {kind!r}")
 
 
 __all__ = [
     "EnergyBankConfig",
+    "EnergyPriorKind",
     "energy_bank_config_from_dict",
     "load_energy_bank",
+    "load_energy_bank_for_flow",
     "resolve_energy_bank_path",
     "sample_energy_bank_values",
+    "sample_energy_prior_values",
 ]

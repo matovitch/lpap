@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import torch
 
@@ -12,10 +12,10 @@ from torch.utils.data import DataLoader
 from lpap.data import SyntheticHarmonicConfig
 from lpap.energy_bank import (
     EnergyBankConfig,
+    EnergyPriorKind,
     energy_bank_config_from_dict,
-    load_energy_bank,
-    resolve_energy_bank_path,
-    sample_energy_bank_values,
+    load_energy_bank_for_flow,
+    sample_energy_prior_values,
 )
 from lpap.flow import (
     DilatedConvFlow1d,
@@ -39,7 +39,6 @@ from lpap.flow_training import (
     integration_diagnostics,
     optimizer_config_from_dict,
     prepare_image_sequence,
-    sample_harmonic_values,
     sample_flow_time,
     should_validate_flow,
     time_config_from_dict,
@@ -63,8 +62,6 @@ ImageToEnergyOptimizerConfig = FlowOptimizerConfig
 ImageToEnergyValidationConfig = FlowValidationConfig
 sample_image_to_energy_time = sample_flow_time
 
-ImageToEnergyTargetKind = Literal["harmonics", "energy_bank"]
-
 
 @dataclass(frozen=True)
 class ImageToEnergyTargetConfig:
@@ -75,7 +72,7 @@ class ImageToEnergyTargetConfig:
     independently of the image batch (marginal prior, not paired map).
     """
 
-    kind: ImageToEnergyTargetKind = "harmonics"
+    kind: EnergyPriorKind = "harmonics"
     harmonics: SyntheticHarmonicConfig = field(default_factory=SyntheticHarmonicConfig)
     energy_bank: EnergyBankConfig | None = None
 
@@ -281,16 +278,11 @@ def create_image_to_energy_training_session(
     energy_bank: torch.Tensor | None = None
     if config.target.kind == "energy_bank":
         assert config.target.energy_bank is not None
-        bank_path = resolve_energy_bank_path(root, config.target.energy_bank)
-        energy_bank = load_energy_bank(
-            bank_path, energies_key=config.target.energy_bank.energies_key
+        energy_bank = load_energy_bank_for_flow(
+            root,
+            config.target.energy_bank,
+            sequence_length=config.value_count,
         )
-        if int(energy_bank.shape[-1]) != config.value_count:
-            raise ValueError(
-                "energy bank energy_dim "
-                f"{int(energy_bank.shape[-1])} does not match flow sequence_length "
-                f"{config.value_count}"
-            )
     core = create_flow_session_core(
         project_root=project_root,
         image=config.image,
@@ -329,23 +321,15 @@ def _sample_targets(
     device: torch.device,
     energy_bank: torch.Tensor | None = None,
 ) -> torch.Tensor:
-    if config.target.kind == "energy_bank":
-        if energy_bank is None:
-            raise ValueError("energy_bank tensor is required when target.kind=energy_bank")
-        targets = sample_energy_bank_values(
-            energy_bank,
-            batch_size=batch_size,
-            generator=generator,
-            device=device,
-        )
-    else:
-        targets = sample_harmonic_values(
-            harmonics=config.target.harmonics,
-            batch_size=batch_size,
-            n=config.value_count,
-            generator=generator,
-            device=device,
-        )
+    targets = sample_energy_prior_values(
+        kind=config.target.kind,
+        batch_size=batch_size,
+        generator=generator,
+        device=device,
+        sequence_length=config.value_count,
+        harmonics=config.target.harmonics,
+        energy_bank=energy_bank,
+    )
     return targets.unsqueeze(1)
 
 

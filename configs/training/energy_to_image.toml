@@ -8,6 +8,8 @@ num_workers = 0
 
 [source]
 kind = "harmonics"
+
+[source.teacher]
 surrogate_checkpoint_name = "surrogate_synthetic.pt"
 decoder_checkpoint_name = "decoder_synthetic.pt"
 load_best = true

@@ -126,7 +126,7 @@ Caches `data/images_32x32_gray.pt` (skips if present). Do not confuse with
 
 ## Training order
 
-`surrogate` → `decoder` → image flows → reflow → `image_autoencoder`.
+`surrogate` → `decoder` → image flows → `image_autoencoder`.
 Surrogate/decoder need no image dataset (synthetic harmonics).
 
 ## Session checklist
