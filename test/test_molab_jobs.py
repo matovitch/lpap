@@ -32,6 +32,9 @@ class MolabJobsTest(unittest.TestCase):
         self.assertIn('name="c256"', source)
         self.assertIn("surrogate_c256.pt", source)
         self.assertIn("decoder_c256.pt", source)
+        self.assertIn("image_to_energy.pt", source)
+        self.assertIn("energy_to_image.pt", source)
+        self.assertNotIn("image_to_energy_energy_bank.pt", source)
         compile(source, "<ae_worker>", "exec")
 
     def test_launch_writes_script_and_spawns(self) -> None:

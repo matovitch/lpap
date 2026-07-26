@@ -18,11 +18,11 @@ from molab.bg_worker import (
     spawn_detached_python,
 )
 
-AE_ENERGY_BANK_RUN_ID = "image_autoencoder_energy_bank"
-AE_ENERGY_BANK_CHECKPOINT = "image_autoencoder_energy_bank.pt"
-AE_ENERGY_BANK_LOG = "image_autoencoder_energy_bank.sqlite"
-AE_ENERGY_BANK_BG_STEM = "image_autoencoder_energy_bank_bg"
-AE_ENERGY_BANK_SCRIPT = "train_image_autoencoder_energy_bank_bg.py"
+AE_ENERGY_BANK_RUN_ID = "image_autoencoder_multi_harmonics"
+AE_ENERGY_BANK_CHECKPOINT = "image_autoencoder_multi_harmonics.pt"
+AE_ENERGY_BANK_LOG = "image_autoencoder_multi_harmonics.sqlite"
+AE_ENERGY_BANK_BG_STEM = "image_autoencoder_multi_harmonics_bg"
+AE_ENERGY_BANK_SCRIPT = "train_image_autoencoder_multi_harmonics_bg.py"
 
 
 def ae_energy_bank_worker_source(
@@ -33,12 +33,17 @@ def ae_energy_bank_worker_source(
     notify_on_finished: bool = True,
     comment: str | None = None,
 ) -> str:
-    """Return the Python source for the AE energy-bank detached worker."""
+    """Return the Python source for the multi-pair AE detached worker.
+
+    Initializes shared i2e/e2i from **harmonics-pretrained** flow checkpoints
+    (not the weak energy-bank probes), with parallel c128+c256 LPAP teachers.
+    """
     if target_steps <= 0:
         raise ValueError("target_steps must be positive")
     root = Path(project_root)
     resolved_comment = comment or (
-        f"energy-bank AE c128+c256 bg to {target_steps}; HF upload + notify"
+        f"multi-pair AE c128+c256 from harmonics flows; bg to {target_steps}; "
+        "HF upload + notify"
     )
     upload = "True" if upload_artifacts_on_checkpoint else "False"
     notify = "True" if notify_on_finished else "False"
@@ -77,8 +82,8 @@ config = replace(
                 name="c256",
             ),
         ),
-        image_to_energy_checkpoint_name="image_to_energy_energy_bank.pt",
-        energy_to_image_checkpoint_name="energy_to_image_energy_bank.pt",
+        image_to_energy_checkpoint_name="image_to_energy.pt",
+        energy_to_image_checkpoint_name="energy_to_image.pt",
         load_best=True,
         require_checkpoints=True,
         train_image_to_energy_flow=True,
@@ -115,6 +120,10 @@ print(
 )
 print(session.resume_info.message, flush=True)
 print(f"best_so_far={{session.training_run.best_metric}}", flush=True)
+print(
+    "flows=image_to_energy.pt,energy_to_image.pt pairs=c128,c256",
+    flush=True,
+)
 for result in iter_training("image_autoencoder", session):
     if result.should_display or result.improved or result.step % 50 == 0:
         loss = result.metrics.get("loss", float("nan"))
@@ -134,7 +143,7 @@ for result in iter_training("image_autoencoder", session):
             f"best={{best}}{{mark}}{{ck}}",
             flush=True,
         )
-print("AE_ENERGY_BANK_DONE", flush=True)
+print("AE_MULTI_HARMONICS_DONE", flush=True)
 '''
 
 
