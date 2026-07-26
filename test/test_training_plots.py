@@ -97,6 +97,52 @@ class TrainingPlotsTest(unittest.TestCase):
         self.assertLess(html.index("c128 image"), html.index("Δ image c256"))
         self.assertIn("data:image/png;base64,", html)
         self.assertIn("energy then image", html)
+        self.assertIn("display γ=1", html)
+
+    def test_display_gamma_lifts_small_values_and_rejects_nonpositive(self) -> None:
+        from lpap.training_plots import _apply_display_gamma
+
+        self.assertAlmostEqual(_apply_display_gamma(0.25, gamma=1.0), 0.25)
+        self.assertGreater(_apply_display_gamma(0.25, gamma=0.5), 0.25)
+        self.assertLess(_apply_display_gamma(0.25, gamma=2.0), 0.25)
+        self.assertAlmostEqual(_apply_display_gamma(-0.25, gamma=0.5), -0.5)
+        with self.assertRaises(ValueError):
+            _apply_display_gamma(0.5, gamma=0.0)
+
+        from lpap.image_autoencoder_training import ImageAutoencoderGalleryPairItem
+
+        html = render_image_autoencoder_gallery_html(
+            [
+                ImageAutoencoderGalleryItem(
+                    image=torch.linspace(0.0, 1.0, 16),
+                    encoded_energy=torch.linspace(-1.0, 1.0, 16),
+                    pairs=(
+                        ImageAutoencoderGalleryPairItem(
+                            name="c256",
+                            decoded_energy=torch.linspace(1.0, -1.0, 16),
+                            reconstructed_image=torch.ones(16),
+                            energy_error=-torch.ones(16),
+                            image_error=torch.linspace(-1.0, 1.0, 16),
+                        ),
+                    ),
+                )
+            ],
+            size=4,
+            gamma=0.5,
+        )
+        self.assertIn("display γ=0.5", html)
+        with self.assertRaises(ValueError):
+            render_image_autoencoder_gallery_html(
+                [
+                    ImageAutoencoderGalleryItem(
+                        image=torch.zeros(16),
+                        encoded_energy=torch.zeros(16),
+                        pairs=(),
+                    )
+                ],
+                size=4,
+                gamma=0.0,
+            )
 
 
 if __name__ == "__main__":

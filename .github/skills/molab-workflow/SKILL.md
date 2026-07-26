@@ -69,6 +69,33 @@ Read [doc/molab-workflow.md](../../doc/molab-workflow.md) for full notes.
 
   Prefer `edit_cell` / delete detached POC cells over stacking new ones.
 
+## Cell names (shared notebook)
+
+Humans usually **cannot see marimo cell ids** (`QWLa`, …). Name every durable
+lab cell so agent and human share the same labels.
+
+- Set a marimo **cell name** via `ctx.edit_cell(..., name="…")` /
+  `ctx.create_cell(..., name="…")`. Prefer snake_case role names
+  (`ae_setup`, `status`, `gallery_cache`, `gallery_gamma`, `gallery_view`,
+  `e0_peak_probe`).
+- Put `# cell: <name>` as the **first line** of the cell body (matches the
+  marimo name). Update it if you rename.
+- In chat, refer to cells **by name** (“re-run `gallery_cache`”), not by id.
+- Agents may still use ids internally; `notebook-map.sh` prints both.
+- Avoid naming markdown-only cells (clutters the UI). Scratchpad probes stay
+  unnamed / ephemeral — promote + name only if they become durable.
+
+Current AE lab roles (rename/extend as the notebook evolves):
+
+| Name | Role |
+|------|------|
+| `ae_setup` | imports + AE config |
+| `status` | bg worker / train status |
+| `gallery_cache` | ckpt load + forward (slow refresh) |
+| `gallery_gamma` | display-γ slider |
+| `gallery_view` | PNG gallery render (cheap) |
+| `e0_peak_probe` | e0 peak diagnostics |
+
 ## Hard rules
 
 1. **One paired notebook** (`notebooks/molab_lab.py` as the durable surface).
@@ -87,6 +114,7 @@ Read [doc/molab-workflow.md](../../doc/molab-workflow.md) for full notes.
    `upload_artifacts_on_checkpoint=True` (+ notify on finished).
 7. **Images** via `ensure_image_tensor_archive` / `pixi run data-download`
    using `images.*` from that same storage.toml (cached `.pt`).
+8. **Name durable cells** (see above); talk about them by name with the human.
 
 ## Long AE energy-bank runs (default)
 

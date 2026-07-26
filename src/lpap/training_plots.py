@@ -240,17 +240,29 @@ def _rgb_png_data_uri(rgb: bytes, *, width: int, height: int) -> str:
     return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
 
 
+def _apply_display_gamma(scaled: float, *, gamma: float) -> float:
+    """Apply gamma in normalized space; ``gamma < 1`` lifts small magnitudes."""
+    if gamma <= 0:
+        raise ValueError("gamma must be positive")
+    if gamma == 1.0:
+        return scaled
+    sign = 1.0 if scaled >= 0.0 else -1.0
+    return sign * (abs(scaled) ** gamma)
+
+
 def _grayscale_png_img(
     values: torch.Tensor,
     *,
     size: int,
     display_px: int,
     label: str,
+    gamma: float = 1.0,
 ) -> str:
     flat = values.detach().cpu().reshape(size * size)
     rgb = bytearray()
     for amplitude in flat.tolist():
-        level = round(255 * max(0.0, min(1.0, float(amplitude))))
+        unit = max(0.0, min(1.0, float(amplitude)))
+        level = round(255 * _apply_display_gamma(unit, gamma=gamma))
         rgb.extend((level, level, level))
     uri = _rgb_png_data_uri(bytes(rgb), width=size, height=size)
     return f"""
@@ -270,14 +282,16 @@ def _signed_png_img(
     max_abs: float,
     display_px: int,
     label: str,
+    gamma: float = 1.0,
 ) -> str:
     flat = values.detach().cpu().reshape(size * size)
     scale = max(float(max_abs), 1.0e-12)
     rgb = bytearray()
     for amplitude in flat.tolist():
         scaled = max(-1.0, min(1.0, float(amplitude) / scale))
-        red = round(255 * max(scaled, 0.0))
-        blue = round(255 * max(-scaled, 0.0))
+        shaped = _apply_display_gamma(scaled, gamma=gamma)
+        red = round(255 * max(shaped, 0.0))
+        blue = round(255 * max(-shaped, 0.0))
         rgb.extend((red, 0, blue))
     uri = _rgb_png_data_uri(bytes(rgb), width=size, height=size)
     return f"""
@@ -484,10 +498,13 @@ def render_image_autoencoder_gallery_html(
     items: Sequence[Any],
     *,
     size: int = 32,
-    display_px: int = 96,
+    display_px: int = 154,
+    gamma: float = 1.0,
 ) -> str:
     if not items:
         return "<p>No image autoencoder gallery samples are available.</p>"
+    if gamma <= 0:
+        raise ValueError("gamma must be positive")
 
     expected_count = size * size
     panels = []
@@ -553,6 +570,7 @@ def render_image_autoencoder_gallery_html(
                 max_abs=energy_max_abs,
                 display_px=display_px,
                 label="source energy",
+                gamma=gamma,
             )
         ]
         energy_row.extend(
@@ -562,6 +580,7 @@ def render_image_autoencoder_gallery_html(
                 max_abs=energy_max_abs,
                 display_px=display_px,
                 label=f"{pair.name} energy",
+                gamma=gamma,
             )
             for pair in pairs
         )
@@ -572,6 +591,7 @@ def render_image_autoencoder_gallery_html(
                 max_abs=energy_error_max_abs,
                 display_px=display_px,
                 label=f"Δ energy {pair.name}",
+                gamma=gamma,
             )
             for pair in pairs
         )
@@ -582,6 +602,7 @@ def render_image_autoencoder_gallery_html(
                 size=size,
                 display_px=display_px,
                 label="source image",
+                gamma=gamma,
             )
         ]
         image_row.extend(
@@ -590,6 +611,7 @@ def render_image_autoencoder_gallery_html(
                 size=size,
                 display_px=display_px,
                 label=f"{pair.name} image",
+                gamma=gamma,
             )
             for pair in pairs
         )
@@ -600,6 +622,7 @@ def render_image_autoencoder_gallery_html(
                 max_abs=image_error_max_abs,
                 display_px=display_px,
                 label=f"Δ image {pair.name}",
+                gamma=gamma,
             )
             for pair in pairs
         )
@@ -629,7 +652,7 @@ def render_image_autoencoder_gallery_html(
             {"".join(panels)}
             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                 <span style="width: 44px; height: 12px; background: linear-gradient(90deg, #004cff, #000, #ff2600); border: 1px solid #30333a;"></span>
-                <span>energy then image: source → c256 → c128 → diffs (signed: − / 0 / +)</span>
+                <span>energy then image: source → c256 → c128 → diffs (signed: − / 0 / +); display γ={gamma:g} (&lt;1 lifts small values)</span>
             </div>
         </div>
         """

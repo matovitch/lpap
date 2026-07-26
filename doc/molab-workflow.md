@@ -101,6 +101,10 @@ instead of long lab cells. Train logic stays in `src/lpap/`.
 While paired, mutate the **live** notebook with `cm` (not the `.py` on disk).
 Backport stable cell structure to `molab_lab.py` on `molab-summer` when useful.
 
+**Cell naming:** durable lab cells get a marimo name + `# cell: <name>` first
+line (`ae_setup`, `status`, `gallery_cache`, …). Talk about cells by name, not
+by opaque ids. See `.github/skills/molab-workflow/SKILL.md`.
+
 ## Package install
 
 ```bash

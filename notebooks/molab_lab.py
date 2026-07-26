@@ -5,7 +5,9 @@ app = marimo.App(width="medium")
 
 
 @app.cell
-def _():
+def ae_setup():
+    # cell: ae_setup
+    import os
     import subprocess
     import sys
     from dataclasses import replace
@@ -14,36 +16,9 @@ def _():
     import marimo as mo
     import torch
 
-    install_spec = (
-        "lpap @ git+https://github.com/matovitch/lpap.git@molab-summer"
-    )
-    try:
-        import lpap  # noqa: F401
-        install_note = "lpap already importable"
-    except ImportError:
-        lpap_cmd = [
-            sys.executable,
-            "-m",
-            "pip",
-            "install",
-            "--no-deps",
-            install_spec,
-        ]
-        deps_cmd = [
-            sys.executable,
-            "-m",
-            "pip",
-            "install",
-            "jaxtyping>=0.3.7",
-        ]
-        subprocess.check_call(lpap_cmd)
-        subprocess.check_call(deps_cmd)
-        install_note = (
-            f"installed via: {' '.join(lpap_cmd)} ; {' '.join(deps_cmd)}"
-        )
-
-    # Molab sandbox cwd is typically /marimo; local checkout uses repo root.
-    if Path("/marimo").is_dir() and Path("/marimo/notebook.py").exists():
+    if Path("/marimo").is_dir() and (
+        Path("/marimo/notebook.py").exists() or Path("/marimo/checkpoints").is_dir()
+    ):
         project_root = Path("/marimo")
     else:
         project_root = Path(__file__).resolve().parents[1]
@@ -51,329 +26,500 @@ def _():
         if str(src_path) not in sys.path:
             sys.path.insert(0, str(src_path))
 
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+
     (project_root / "checkpoints").mkdir(parents=True, exist_ok=True)
     (project_root / "training_logs").mkdir(parents=True, exist_ok=True)
 
-    from lpap.training_log import load_best_metric_row, load_metric_history
+    if not os.environ.get("HF_TOKEN", "").strip() and project_root == Path("/marimo"):
+        mo.status.toast("HF_TOKEN missing — run molab-inject-secrets.sh", kind="danger")
+
+    install_spec = "lpap @ git+https://github.com/matovitch/lpap.git@molab-summer"
+    _force = os.environ.get("LPAP_FORCE_REINSTALL", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+    try:
+        import lpap  # noqa: F401
+        if _force:
+            raise ImportError("LPAP_FORCE_REINSTALL")
+        install_note = "lpap already importable"
+    except ImportError:
+        if project_root == Path("/marimo"):
+            subprocess.check_call(
+                [
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "install",
+                    "--upgrade",
+                    "--force-reinstall",
+                    "--no-deps",
+                    install_spec,
+                ]
+            )
+            subprocess.check_call(
+                [
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "install",
+                    "jaxtyping>=0.3.7",
+                    "zstandard>=0.25.0,<0.26",
+                    "huggingface_hub>=1.21.0,<2",
+                ]
+            )
+            for _mod in list(sys.modules):
+                if _mod == "lpap" or _mod.startswith("lpap."):
+                    del sys.modules[_mod]
+            install_note = f"force-reinstalled {install_spec}"
+        else:
+            install_note = f"using local sources at {project_root / 'src'}"
+
+    from lpap.image_autoencoder_training import (
+        ImageAutoencoderLpapPairConfig,
+        ImageAutoencoderRunConfig,
+        ImageAutoencoderSourceConfig,
+        collect_image_autoencoder_gallery,
+        create_image_autoencoder_training_session,
+    )
+    from lpap.training import load_training_checkpoint
     from lpap.training_notebook import (
         create_training_session,
+        default_image_autoencoder_training_config,
         iter_training,
-        recent_training_runs,
-        render_recent_runs_table,
-        training_config_from_project_file,
-        training_config_path,
-        validation_regularizer_metric_names,
     )
-    from lpap.training_plots import render_loss_history_svg
+    from lpap.training_plots import render_image_autoencoder_gallery_html
+
+    _base = default_image_autoencoder_training_config()
+    ae_base = replace(
+        _base,
+        source=ImageAutoencoderSourceConfig(
+            lpap_pairs=(
+                ImageAutoencoderLpapPairConfig(
+                    surrogate_checkpoint_name="surrogate_synthetic.pt",
+                    decoder_checkpoint_name="decoder_synthetic.pt",
+                    name="c128",
+                ),
+                ImageAutoencoderLpapPairConfig(
+                    surrogate_checkpoint_name="surrogate_c256.pt",
+                    decoder_checkpoint_name="decoder_c256.pt",
+                    name="c256",
+                ),
+            ),
+            image_to_energy_checkpoint_name="image_to_energy.pt",
+            energy_to_image_checkpoint_name="energy_to_image.pt",
+            load_best=True,
+            require_checkpoints=True,
+            train_image_to_energy_flow=True,
+            train_surrogate=True,
+            train_decoder=True,
+            train_energy_to_image_flow=True,
+        ),
+        run=ImageAutoencoderRunConfig(
+            run_training=True,
+            resume_from_checkpoint=True,
+            steps=20_000,
+            seed=_base.run.seed,
+            display_every=25,
+            log_every=5,
+            run_id="image_autoencoder_multi_harmonics",
+            checkpoint_name="image_autoencoder_multi_harmonics.pt",
+            log_name="image_autoencoder_multi_harmonics.sqlite",
+            comment="multi-pair c128+c256 from harmonics flows; fresh 20k",
+            pinned=False,
+        ),
+    )
+    _pair_names = [p.name for p in ae_base.source.lpap_pairs]
+    assert len(ae_base.source.lpap_pairs) == 2
+
+    mo.md(
+        f"""
+    ## image_autoencoder setup (harmonics flows · multi-C)
+
+    - install: `{install_note}`
+    - HF: `{"HF_TOKEN set" if os.environ.get("HF_TOKEN", "").strip() else "HF_TOKEN missing"}`
+    - LPAP pairs: `{", ".join(_pair_names)}`
+    - flows: i2e=`{ae_base.source.image_to_energy_checkpoint_name}` · e2i=`{ae_base.source.energy_to_image_checkpoint_name}`
+    - Euler: i2e=`{ae_base.integration.image_to_energy_steps}` · e2i=`{ae_base.integration.energy_to_image_steps}`
+    - ckpt / log: `{ae_base.run.checkpoint_name}` / `{ae_base.run.log_name}`
+    - steps: `{ae_base.run.steps}`
+    - comment: `{ae_base.run.comment}`
+    """
+    )
 
     return (
+        ImageAutoencoderLpapPairConfig,
+        ImageAutoencoderRunConfig,
+        ImageAutoencoderSourceConfig,
+        Path,
+        ae_base,
+        collect_image_autoencoder_gallery,
+        create_image_autoencoder_training_session,
         create_training_session,
+        default_image_autoencoder_training_config,
         install_note,
         install_spec,
         iter_training,
-        load_best_metric_row,
-        load_metric_history,
+        load_training_checkpoint,
         mo,
+        os,
         project_root,
-        recent_training_runs,
-        render_loss_history_svg,
-        render_recent_runs_table,
+        render_image_autoencoder_gallery_html,
         replace,
+        subprocess,
+        sys,
         torch,
-        training_config_from_project_file,
-        training_config_path,
-        validation_regularizer_metric_names,
     )
 
 
 @app.cell
-def _(install_note, mo, project_root, torch):
-    cuda_ok = torch.cuda.is_available()
-    device_name = torch.cuda.get_device_name(0) if cuda_ok else "cpu"
+def status(ae_base, mo, project_root, torch):
+    # cell: status
+    from molab.bg_worker import (
+        bg_log_tail as _bg_log_tail,
+        bg_worker_status as _bg_worker_status,
+        last_bg_log_step as _last_bg_log_step,
+    )
+    import json as _json
+
+    _needed = {
+        "c128_surr": project_root / "checkpoints" / "surrogate_synthetic.pt",
+        "c128_dec": project_root / "checkpoints" / "decoder_synthetic.pt",
+        "c256_surr": project_root / "checkpoints" / "surrogate_c256.pt",
+        "c256_dec": project_root / "checkpoints" / "decoder_c256.pt",
+        "i2e": project_root / "checkpoints" / "image_to_energy.pt",
+        "e2i": project_root / "checkpoints" / "energy_to_image.pt",
+        "ae": project_root / "checkpoints" / ae_base.run.checkpoint_name,
+    }
+    _lines = []
+    for label, path in _needed.items():
+        if not path.is_file():
+            _lines.append(f"- `{label}`: **missing**")
+            continue
+        _p = torch.load(path, map_location="cpu", weights_only=False)
+        _ts = _p.get("training_state_json")
+        if isinstance(_ts, str):
+            _ts = _json.loads(_ts)
+        _mc = (_ts or {}).get("model_config") or {}
+        _n = _mc.get("value_count")
+        _c = _mc.get("bucket_count")
+        _extra = f" N={_n} C={_c}" if _n is not None else ""
+        _lines.append(
+            f"- `{label}`: step={_p.get('step')} best={_p.get('best_metric')}{_extra}"
+        )
+
+    _ae_pid = _bg_worker_status(
+        project_root / "training_logs" / "image_autoencoder_multi_harmonics_bg.pid"
+    )
+    _ae_step = _last_bg_log_step(
+        project_root / "training_logs" / "image_autoencoder_multi_harmonics_bg.log"
+    )
+    _tail = _bg_log_tail(
+        project_root / "training_logs" / "image_autoencoder_multi_harmonics_bg.log",
+        lines=8,
+    )
+
     mo.md(
         f"""
-# LPAP molab lab
+    ### Artifact readiness (multi-pair AE · harmonics flows)
 
-Single durable notebook for remote GPU work (see `doc/molab-workflow.md`).
+    {chr(10).join(_lines)}
 
-- install: `{install_note}`
-- project root: `{project_root}`
-- torch: `{torch.__version__}`
-- CUDA: **{cuda_ok}** (`{device_name}`)
-
-Prefer **one** marimo-pair session. Train in **chunks** so the agent can poll
-SQLite between runs without interrupting a long cell.
-"""
-    )
-    return cuda_ok, device_name
-
-
-@app.cell
-def _(mo):
-    model_kind_picker = mo.ui.dropdown(
-        options=[
-            "surrogate",
-            "decoder",
-            "image_to_energy",
-            "image_to_energy_energy_bank",
-            "energy_to_image",
-            "energy_to_image_energy_bank",
-            "image_autoencoder",
-        ],
-        value="image_to_energy_energy_bank",
-        label="Model kind",
-    )
-    target_steps = mo.ui.number(
-        start=1, stop=1_000_000, step=100, value=2_000, label="Target steps"
-    )
-    chunk_steps = mo.ui.number(
-        start=1, stop=1_000_000, step=100, value=500, label="Chunk steps"
-    )
-    display_every = mo.ui.number(
-        start=1, stop=100_000, step=1, value=50, label="display_every"
-    )
-    log_every = mo.ui.number(
-        start=1, stop=100_000, step=1, value=10, label="log_every"
-    )
-    run_training = mo.ui.checkbox(value=True, label="Run training chunk")
-    mo.vstack(
-        [
-            model_kind_picker,
-            mo.hstack([target_steps, chunk_steps]),
-            mo.hstack([display_every, log_every]),
-            run_training,
-        ]
-    )
-    return (
-        chunk_steps,
-        display_every,
-        log_every,
-        model_kind_picker,
-        run_training,
-        target_steps,
+    - AE bg alive: **{_ae_pid.get("alive")}** (pid={_ae_pid.get("pid")}) · log step: `{_ae_step}`
+    ```
+    {chr(10).join(_tail) if _tail else "(no AE bg log yet)"}
+    ```
+    """
     )
 
-
-@app.cell
-def _(
-    display_every,
-    log_every,
-    model_kind_picker,
-    mo,
-    project_root,
-    recent_training_runs,
-    render_recent_runs_table,
-    replace,
-    target_steps,
-    training_config_from_project_file,
-    training_config_path,
-):
-    model_kind = model_kind_picker.value
-    config_file = training_config_path(project_root, model_kind)
-    base_config = training_config_from_project_file(project_root, model_kind)
-    # Apply molab-friendly run knobs; steps are finalized per chunk below.
-    config = replace(
-        base_config,
-        run=replace(
-            base_config.run,
-            steps=int(target_steps.value),
-            display_every=int(display_every.value),
-            log_every=int(log_every.value),
-            resume_from_checkpoint=True,
-            comment="molab lab chunk",
-        ),
-    )
-    recent_runs = recent_training_runs(project_root, config, limit=10)
-    source = (
-        f"TOML `{config_file}`"
-        if config_file.exists()
-        else f"defaults (`{type(base_config).__name__}`)"
-    )
-    mo.vstack(
-        [
-            mo.md(
-                f"**model**: `{model_kind}`  \n"
-                f"**config source**: {source}  \n"
-                f"**target steps**: `{config.run.steps}`"
-            ),
-            mo.Html(render_recent_runs_table(recent_runs)),
-        ]
-    )
-    return base_config, config, config_file, model_kind, recent_runs, source
-
-
-@app.cell
-def _(
-    chunk_steps,
-    config,
-    create_training_session,
-    cuda_ok,
-    iter_training,
-    load_best_metric_row,
-    load_metric_history,
-    mo,
-    model_kind,
-    project_root,
-    render_loss_history_svg,
-    replace,
-    run_training,
-    target_steps,
-    torch,
-    validation_regularizer_metric_names,
-):
-    def loss_history_plot(session):
-        regularizer_metrics = validation_regularizer_metric_names(session.config)
-        rows = load_metric_history(
-            session.log_path,
-            run_id=session.resume_info.run_id,
-            metric_names=("loss", "validation_loss", *regularizer_metrics),
-        )
-        return mo.Html(
-            render_loss_history_svg(
-                rows, validation_regularizer_metrics=regularizer_metrics
-            )
-        )
-
-    def best_checkpoint_weighted_accuracy(session):
-        row = load_best_metric_row(
-            session.log_path,
-            run_id=session.resume_info.run_id,
-            metric_name="validation_loss",
-        )
-        if row is None or row.get("validation_weighted_accuracy") is None:
-            return "n/a"
-        return f"{row['validation_weighted_accuracy']:.4f}"
-
-    def render_training_output(*, rows, session, best_metric, message):
-        best_metric_label = "n/a" if best_metric is None else f"{best_metric:.4f}"
-        best_weighted_accuracy = best_checkpoint_weighted_accuracy(session)
-
-        def metric_cell(row, name):
-            value = row.get(name)
-            return "" if value is None else f"{value:.4f}"
-
-        try:
-            ckpt_label = str(session.checkpoint_path.relative_to(project_root))
-            log_label = str(session.log_path.relative_to(project_root))
-        except ValueError:
-            ckpt_label = str(session.checkpoint_path)
-            log_label = str(session.log_path)
-
-        panels = [
-            mo.md(
-                f"""
-                **name**: `{session.resume_info.display_name}`  
-                **experiment**: `{session.resume_info.base_run_id}`  
-                **run instance**: `{session.resume_info.run_id}`  
-                **checkpoint**: `{ckpt_label}`  
-                **log**: `{log_label}`  
-                **device**: `{session.device}` (cuda_ok={cuda_ok})  
-                **best validation loss**: `{best_metric_label}`  
-                **best checkpoint validation weighted accuracy**: `{best_weighted_accuracy}`
-                {message}
-                """
-            ),
-            loss_history_plot(session),
-            mo.Html(
-                """
-                <table>
-                  <thead><tr><th>step</th><th>train loss</th><th>validation loss</th><th>train weighted accuracy</th><th>validation weighted accuracy</th><th>best</th></tr></thead>
-                  <tbody>
-                """
-                + "".join(
-                    f"<tr><td>{row['step']}</td>"
-                    f"<td>{metric_cell(row, 'loss')}</td>"
-                    f"<td>{metric_cell(row, 'validation_loss')}</td>"
-                    f"<td>{metric_cell(row, 'weighted_accuracy')}</td>"
-                    f"<td>{metric_cell(row, 'validation_weighted_accuracy')}</td>"
-                    f"<td>{'yes' if row['best'] else ''}</td></tr>"
-                    for row in rows[-12:]
-                )
-                + "</tbody></table>"
-            ),
-        ]
-        return mo.vstack(panels)
-
-    if not run_training.value:
-        output = mo.md("Enable **Run training chunk** to train.")
-    else:
-        try:
-            target = int(target_steps.value)
-            chunk = int(chunk_steps.value)
-            ckpt_path = project_root / "checkpoints" / config.run.checkpoint_name
-            if config.run.resume_from_checkpoint and ckpt_path.exists():
-                _payload = torch.load(
-                    ckpt_path, map_location="cpu", weights_only=True
-                )
-                start_step = int(_payload["step"]) + 1
-            else:
-                start_step = 1
-            chunk_end = min(start_step + chunk - 1, target)
-            chunk_config = replace(
-                config, run=replace(config.run, steps=chunk_end)
-            )
-            session = create_training_session(
-                model_kind, project_root=project_root, config=chunk_config
-            )
-        except (FileNotFoundError, ValueError, TypeError, KeyError, OSError) as error:
-            output = mo.md(f"**Setup error:** {error}")
-        else:
-            history = []
-            mo.output.replace(
-                mo.md(
-                    f"Chunk `{model_kind}` on `{session.device}`: "
-                    f"steps `{session.resume_info.start_step}`…`{chunk_end}` "
-                    f"(target `{target}`); {session.resume_info.message}."
-                )
-            )
-            step_range = range(session.resume_info.start_step, chunk_end + 1)
-            progress = mo.status.progress_bar(
-                step_range,
-                title=f"Training LPAP {model_kind} (chunk)",
-                total=max(len(step_range), 1),
-            )
-            events = iter_training(model_kind, session)
-            for _step_index, result in zip(progress, events, strict=False):
-                history.append(
-                    {"step": result.step, "best": result.improved, **result.metrics}
-                )
-                if result.should_display:
-                    mo.output.replace(
-                        render_training_output(
-                            rows=history,
-                            session=session,
-                            best_metric=result.best_metric,
-                            message=(
-                                f"Step `{result.step}` / chunk end `{chunk_end}` "
-                                f"(target `{target}`)."
-                            ),
-                        )
-                    )
-
-            if history:
-                final = history[-1]
-                remaining = max(0, target - final["step"])
-                output = render_training_output(
-                    rows=history,
-                    session=session,
-                    best_metric=session.training_run.best_metric,
-                    message=(
-                        f"Chunk finished at step `{final['step']}` "
-                        f"(train loss `{final['loss']:.4f}`). "
-                        f"Remaining to target: `{remaining}`. "
-                        "Re-run this cell for the next chunk; agents should poll "
-                        "SQLite between chunks, not during them."
-                    ),
-                )
-            else:
-                output = mo.md(
-                    f"Already at/past chunk end. "
-                    f"start=`{session.resume_info.start_step}`, "
-                    f"chunk_end=`{chunk_end}`, target=`{target}`."
-                )
-
-    output
     return
+
+
+@app.cell
+def gallery_cache(ae_base, collect_image_autoencoder_gallery, create_image_autoencoder_training_session, load_training_checkpoint, project_root, replace):
+    # cell: gallery_cache
+    import shutil as _shutil
+
+    _live = project_root / "checkpoints" / ae_base.run.checkpoint_name
+    _ckpt = project_root / "checkpoints" / "_gallery_snapshot.pt"
+    if _live.is_file():
+        try:
+            _shutil.copy2(_live, _ckpt)
+        except Exception:
+            _ckpt = _live
+    elif not _ckpt.is_file():
+        _ckpt = _live
+
+    ae_gallery_items = None
+    ae_gallery_meta = {"ok": False, "message": f"Gallery waiting for checkpoint `{ae_base.run.checkpoint_name}`."}
+
+    if _ckpt.is_file():
+        _gallery_cfg = replace(
+            ae_base,
+            run=replace(ae_base.run, resume_from_checkpoint=False, run_training=False),
+        )
+        _gallery_session = create_image_autoencoder_training_session(
+            project_root=project_root, config=_gallery_cfg
+        )
+        _payload = load_training_checkpoint(_ckpt, map_location=_gallery_session.device)
+        _state = _payload.get("best_model_state") or _payload["model_state"]
+        _gallery_session.model.load_state_dict(_state)
+        ae_gallery_items = collect_image_autoencoder_gallery(
+            _gallery_session, sample_count=4
+        )
+        ae_gallery_meta = {
+            "ok": True,
+            "step": _payload.get("step"),
+            "best": _payload.get("best_metric"),
+            "checkpoint_name": ae_base.run.checkpoint_name,
+            "side": ae_base.image.side,
+        }
+
+    return (
+        ae_gallery_items,
+        ae_gallery_meta,
+    )
+
+
+@app.cell
+def gallery_gamma(mo):
+    # cell: gallery_gamma
+    display_gamma = mo.ui.slider(
+        start=0.2,
+        stop=2.0,
+        value=1.0,
+        step=0.05,
+        label="display γ (<1 lifts small diffs / energy magnitudes)",
+        show_value=True,
+    )
+    display_gamma
+
+    return (display_gamma,)
+
+
+@app.cell
+def gallery_view(ae_gallery_items, ae_gallery_meta, display_gamma, mo):
+    # cell: gallery_view
+    from lpap.training_plots import render_image_autoencoder_gallery_html as _render_ae_gallery
+
+    if not ae_gallery_meta.get("ok") or ae_gallery_items is None:
+        ae_gallery = mo.md(ae_gallery_meta.get("message", "Gallery unavailable."))
+    else:
+        _html = _render_ae_gallery(
+            ae_gallery_items,
+            size=int(ae_gallery_meta["side"]),
+            display_px=154,
+            gamma=float(display_gamma.value),
+        )
+        ae_gallery = mo.vstack(
+            [
+                mo.md(
+                    f"### AE gallery (4 samples) · ckpt step=`{ae_gallery_meta['step']}` "
+                    f"best=`{ae_gallery_meta['best']}` · `{ae_gallery_meta['checkpoint_name']}` · "
+                    f"γ=`{float(display_gamma.value):g}`"
+                ),
+                display_gamma,
+                mo.Html(_html),
+            ]
+        )
+    ae_gallery
+
+    return (ae_gallery,)
+
+
+@app.cell
+def e0_peak_probe(ae_base, create_image_autoencoder_training_session, load_training_checkpoint, mo, project_root, replace, torch):
+    # cell: e0_peak_probe
+    from lpap.flow import integrate_euler_midpoint_time
+    from lpap.flow_training import cycle_image_batches, prepare_image_sequence
+    from lpap.hilbert import hilbert_unflatten_images
+    from lpap.training_plots import _grayscale_png_img, _signed_png_img
+
+    _ckpt = project_root / "checkpoints" / "_gallery_snapshot.pt"
+    if not _ckpt.is_file():
+        _ckpt = project_root / "checkpoints" / ae_base.run.checkpoint_name
+    _peak_n_dist = 64
+    _peak_n_show = 4
+    _peak_display = 120
+
+    if not _ckpt.is_file():
+        peak_probe = mo.md(f"Peak probe waiting for `{_ckpt.name}`.")
+    else:
+        _peak_cfg = replace(
+            ae_base,
+            run=replace(ae_base.run, resume_from_checkpoint=False, run_training=False),
+        )
+        _peak_session = create_image_autoencoder_training_session(
+            project_root=project_root, config=_peak_cfg
+        )
+        _payload = load_training_checkpoint(_ckpt, map_location=_peak_session.device)
+        _state = _payload.get("best_model_state") or _payload["model_state"]
+        _peak_session.model.load_state_dict(_state)
+        _peak_session.model.eval()
+
+        _side = _peak_session.config.image.side
+        _i2e_steps = _peak_session.config.integration.image_to_energy_steps
+        _e2i_steps = _peak_session.config.integration.energy_to_image_steps
+        _images = next(cycle_image_batches(_peak_session.validation_image_loader))[
+            :_peak_n_dist
+        ]
+        _seq = prepare_image_sequence(_images, side=_side, device=_peak_session.device)
+        with torch.no_grad():
+            _encoded = integrate_euler_midpoint_time(
+                _peak_session.model.image_to_energy_flow, _seq, _i2e_steps
+            )[
+                :, 0
+            ]  # (B, N)
+            _e0 = _encoded[:, 0].detach().float().cpu()
+            _qs = torch.tensor([0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0])
+            _qvals = torch.quantile(_e0, _qs)
+
+            # Sweep: only-peak energies at distribution quantiles → e2i
+            _sweep_vals = _qvals
+            _sweep_energy = torch.zeros(
+                len(_sweep_vals), 1, _encoded.shape[-1], device=_peak_session.device
+            )
+            for _i, _v in enumerate(_sweep_vals.tolist()):
+                _sweep_energy[_i, 0, 0] = float(_v)
+            _sweep_img = integrate_euler_midpoint_time(
+                _peak_session.model.energy_to_image_flow, _sweep_energy, _e2i_steps
+            )
+            _sweep_spatial = hilbert_unflatten_images(_sweep_img, side=_side)[:, 0]
+
+            # Per-sample ablations on first K images
+            _show = _encoded[:_peak_n_show]
+            _only = torch.zeros_like(_show)
+            _only[:, 0] = _show[:, 0]
+            _ablate = _show.clone()
+            _ablate[:, 0] = 0.0
+            _full_img = integrate_euler_midpoint_time(
+                _peak_session.model.energy_to_image_flow,
+                _show.unsqueeze(1),
+                _e2i_steps,
+            )
+            _only_img = integrate_euler_midpoint_time(
+                _peak_session.model.energy_to_image_flow,
+                _only.unsqueeze(1),
+                _e2i_steps,
+            )
+            _ablate_img = integrate_euler_midpoint_time(
+                _peak_session.model.energy_to_image_flow,
+                _ablate.unsqueeze(1),
+                _e2i_steps,
+            )
+            _src_spatial = hilbert_unflatten_images(_seq[:_peak_n_show], side=_side)[:, 0]
+            _full_spatial = hilbert_unflatten_images(_full_img, side=_side)[:, 0]
+            _only_spatial = hilbert_unflatten_images(_only_img, side=_side)[:, 0]
+            _ablate_spatial = hilbert_unflatten_images(_ablate_img, side=_side)[:, 0]
+
+        _e0_max_abs = float(_e0.abs().max().clamp_min(1e-12))
+        _dist_bits = " ".join(
+            f"p{int(100 * float(q))}={float(v):.3f}"
+            for q, v in zip(_qs.tolist(), _qvals.tolist(), strict=True)
+        )
+        _summary = mo.md(
+            f"""
+    ### e[0] peak probe (Hilbert / spatial corner)
+
+    ckpt step=`{_payload.get("step")}` · n=`{_peak_n_dist}` encoded energies
+
+    - mean=`{float(_e0.mean()):.4f}` std=`{float(_e0.std()):.4f}`
+    - quantiles: `{_dist_bits}`
+    - frac argmin@0=`{float((_encoded.argmin(dim=1) == 0).float().mean()):.2f}`
+
+    Rows below: **only e[0]** (others zero) decoded by e2i across the e[0] distribution,
+    then per-sample source / full energy / only-peak / ablate-peak.
+    """
+        )
+
+        _sweep_panels = []
+        for _i, _v in enumerate(_sweep_vals.tolist()):
+            _energy_vis = torch.zeros(_side * _side)
+            _energy_vis[0] = float(_v)
+            _sweep_panels.append(
+                "<div style='display:flex;gap:8px;align-items:flex-start;'>"
+                + _signed_png_img(
+                    _energy_vis,
+                    size=_side,
+                    max_abs=_e0_max_abs,
+                    display_px=_peak_display,
+                    label=f"only e0={float(_v):.3f}",
+                )
+                + _grayscale_png_img(
+                    _sweep_spatial[_i].detach().cpu(),
+                    size=_side,
+                    display_px=_peak_display,
+                    label="e2i image",
+                )
+                + "</div>"
+            )
+
+        _sample_rows = []
+        for _i in range(_peak_n_show):
+            _e0_i = float(_show[_i, 0])
+            _energy_only = torch.zeros(_side * _side)
+            _energy_only[0] = _e0_i
+            _sample_rows.append(
+                f"<div style='display:grid;gap:6px;'><div style='font-weight:700;'>"
+                f"sample {_i} · e0={_e0_i:.3f}</div>"
+                "<div style='display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;'>"
+                + _grayscale_png_img(
+                    _src_spatial[_i].detach().cpu(),
+                    size=_side,
+                    display_px=_peak_display,
+                    label="source",
+                )
+                + _grayscale_png_img(
+                    _full_spatial[_i].detach().cpu(),
+                    size=_side,
+                    display_px=_peak_display,
+                    label="e2i full e",
+                )
+                + _signed_png_img(
+                    _energy_only,
+                    size=_side,
+                    max_abs=_e0_max_abs,
+                    display_px=_peak_display,
+                    label="only e0 energy",
+                )
+                + _grayscale_png_img(
+                    _only_spatial[_i].detach().cpu(),
+                    size=_side,
+                    display_px=_peak_display,
+                    label="e2i only e0",
+                )
+                + _grayscale_png_img(
+                    _ablate_spatial[_i].detach().cpu(),
+                    size=_side,
+                    display_px=_peak_display,
+                    label="e2i e0=0",
+                )
+                + "</div></div>"
+            )
+
+        peak_probe = mo.vstack(
+            [
+                _summary,
+                mo.md("#### Sweep: only-peak energy → e2i (others zero)"),
+                mo.Html(
+                    "<div style='display:grid;gap:12px;color:#d7dae0;font:13px/1.4 system-ui,sans-serif;'>"
+                    + "".join(_sweep_panels)
+                    + "</div>"
+                ),
+                mo.md("#### Per-sample: source · full · only-peak · ablate-peak"),
+                mo.Html(
+                    "<div style='display:grid;gap:16px;color:#d7dae0;font:13px/1.4 system-ui,sans-serif;'>"
+                    + "".join(_sample_rows)
+                    + "</div>"
+                ),
+            ]
+        )
+    peak_probe
+
+    return (peak_probe,)
 
 
 if __name__ == "__main__":
