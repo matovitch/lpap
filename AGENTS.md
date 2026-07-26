@@ -7,7 +7,7 @@ Use the matching skill; don’t mix host/project logic into marimo-pair.
 | Layer | Skill | Tools | Pixi? |
 | --- | --- | --- | --- |
 | **marimo** | `~/.cursor/skills/marimo-pair` | `execute-code`, `execute-watch`, `notebook-map`, `notebook-ready` | No |
-| **molab** | `.github/skills/molab-workflow` | `molab-exec.sh`, `molab-sync.sh`, …; helpers in repo `molab/` (synced to `/marimo/molab/`) | No |
+| **molab** | `.github/skills/molab-workflow` | `molab-exec`, `molab-sync`, `molab-push-package-file`, `molab-export-notebook`, `molab-train-status`, …; helpers in repo `molab/` | No |
 | **project** | `.github/skills/pixi-workflow` | `pixi run …`, `src/lpap/` (e.g. `train-status`, `artifacts-*`) | Yes locally |
 
 On molab, call the same `lpap` modules inside `molab-exec` after git install. Details: [doc/molab-workflow.md](doc/molab-workflow.md).

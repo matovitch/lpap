@@ -38,6 +38,30 @@ Read [doc/molab-workflow.md](../../doc/molab-workflow.md) for full notes.
   Override script location with `MARIMO_PAIR_SCRIPTS` if needed (default
   `~/.cursor/skills/marimo-pair/scripts`).
 
+## Script index
+
+All under `.github/skills/molab-workflow/scripts/` (require `MOLAB_URL` +
+`MOLAB_TOKEN` unless noted):
+
+| Script | Purpose |
+|--------|---------|
+| `molab-exec.sh` | Scratchpad / `cm` against the paired kernel |
+| `molab-sync.sh` | Reinstall `lpap` from git + storage/helpers/secrets |
+| `molab-inject-secrets.sh` | Secrets → kernel env only |
+| `molab-train-status.sh` | AE bg / ckpt / SQLite summary |
+| `molab-launch-ae-energy-bank.sh` | Detached long AE worker |
+| `molab-push-package-file.sh` | Hot-patch one local `src/lpap/*.py` into site-packages + reload |
+| `molab-export-notebook.sh` | Backport live cells → `notebooks/molab_lab.py` |
+
+**Hot-patch vs sync:** use `molab-push-package-file.sh` for short try-before-commit
+probes (e.g. gallery γ). It is **ephemeral** — `molab-sync` / pip reinstall
+overwrites it. Notebook `from lpap… import …` bindings stay stale until the
+owning cell is re-run. Durable path: commit + push + `molab-sync.sh`.
+
+**Backport:** while paired, live kernel is source of truth. When the lab cells
+stabilize, run `molab-export-notebook.sh` (or `--dry-run`) before committing
+`notebooks/molab_lab.py`. Prefer named cells first (see below).
+
 - **After push / kernel restart — one-shot sync:**
 
   ```bash
@@ -84,6 +108,10 @@ lab cell so agent and human share the same labels.
 - Agents may still use ids internally; `notebook-map.sh` prints both.
 - Avoid naming markdown-only cells (clutters the UI). Scratchpad probes stay
   unnamed / ephemeral — promote + name only if they become durable.
+- **Do not force-reinstall `lpap` in durable `ae_setup` on every run** — that
+  wipes hot-patches and surprises re-run-all. Install only when missing (or
+  behind `LPAP_FORCE_REINSTALL=1`); day-to-day package updates go through
+  `molab-sync.sh`.
 
 Current AE lab roles (rename/extend as the notebook evolves):
 
@@ -115,6 +143,8 @@ Current AE lab roles (rename/extend as the notebook evolves):
 7. **Images** via `ensure_image_tensor_archive` / `pixi run data-download`
    using `images.*` from that same storage.toml (cached `.pt`).
 8. **Name durable cells** (see above); talk about them by name with the human.
+9. **No unconditional force-reinstall in lab setup cells** — use `molab-sync`
+   (or `LPAP_FORCE_REINSTALL`) instead of wiping the env on every re-run-all.
 
 ## Long AE energy-bank runs (default)
 

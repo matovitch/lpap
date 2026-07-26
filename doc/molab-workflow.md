@@ -75,6 +75,13 @@ wrappers you compose):
 - `notebook-ready.sh` — gate that public names exist in `ctx.globals`
 - `execute-watch.sh` — agent-side short probes until a log pattern matches
 
+Extra molab-workflow helpers (same `MOLAB_*` env):
+
+- `molab-push-package-file.sh` — hot-patch one `src/lpap/*.py` into the kernel
+  (ephemeral; prefer commit + `molab-sync` for durable updates)
+- `molab-export-notebook.sh` — backport live cells → `notebooks/molab_lab.py`
+- `molab-train-status.sh` / `molab-launch-ae-energy-bank.sh` — long AE runs
+
 ## Capabilities
 
 **Agent can (once paired):** scratchpad Python; create/edit/run cells via
@@ -103,7 +110,8 @@ Backport stable cell structure to `molab_lab.py` on `molab-summer` when useful.
 
 **Cell naming:** durable lab cells get a marimo name + `# cell: <name>` first
 line (`ae_setup`, `status`, `gallery_cache`, …). Talk about cells by name, not
-by opaque ids. See `.github/skills/molab-workflow/SKILL.md`.
+by opaque ids. See `.github/skills/molab-workflow/SKILL.md`. Backport with
+`molab-export-notebook.sh` when the live lab should land in git.
 
 ## Package install
 
