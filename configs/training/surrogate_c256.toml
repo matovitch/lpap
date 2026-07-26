@@ -1,7 +1,8 @@
 [data]
 batch_size = 32
 bucket_count = 256
-probe_count = 8
+# Keep value_count = bucket_count * probe_count = 1024 (32x32 energy / image length).
+probe_count = 4
 
 [data.harmonics]
 harmonic_count = 32
@@ -37,5 +38,5 @@ log_every = 1
 run_id = "surrogate_c256"
 checkpoint_name = "surrogate_c256.pt"
 log_name = "surrogate_c256.sqlite"
-comment = "C=256 harmonic surrogate; perm seed distinct from C=128"
+comment = "C=256 harmonic surrogate; probe_count=4 so value_count=1024"
 pinned = false
