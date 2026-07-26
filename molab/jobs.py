@@ -38,7 +38,7 @@ def ae_energy_bank_worker_source(
         raise ValueError("target_steps must be positive")
     root = Path(project_root)
     resolved_comment = comment or (
-        f"energy-bank AE bg to {target_steps}; HF upload + notify"
+        f"energy-bank AE c128+c256 bg to {target_steps}; HF upload + notify"
     )
     upload = "True" if upload_artifacts_on_checkpoint else "False"
     notify = "True" if notify_on_finished else "False"
@@ -70,6 +70,11 @@ config = replace(
                 surrogate_checkpoint_name="surrogate_synthetic.pt",
                 decoder_checkpoint_name="decoder_synthetic.pt",
                 name="c128",
+            ),
+            ImageAutoencoderLpapPairConfig(
+                surrogate_checkpoint_name="surrogate_c256.pt",
+                decoder_checkpoint_name="decoder_c256.pt",
+                name="c256",
             ),
         ),
         image_to_energy_checkpoint_name="image_to_energy_energy_bank.pt",
@@ -116,13 +121,17 @@ for result in iter_training("image_autoencoder", session):
         vloss = result.metrics.get("validation_loss")
         img = result.metrics.get("image_reconstruction_l2", float("nan"))
         eng = result.metrics.get("energy_reconstruction_l1", float("nan"))
+        img128 = result.metrics.get("image_reconstruction_l2/c128", float("nan"))
+        img256 = result.metrics.get("image_reconstruction_l2/c256", float("nan"))
         vtxt = "n/a" if vloss is None else f"{{vloss:.5f}}"
         best = "n/a" if result.best_metric is None else f"{{result.best_metric:.5f}}"
         mark = " *" if result.improved else ""
         ck = " ckpt" if result.checkpointed else ""
         print(
             f"step={{result.step}} loss={{loss:.5f}} val={{vtxt}} "
-            f"img_l2={{img:.5f}} energy_l1={{eng:.5f}} best={{best}}{{mark}}{{ck}}",
+            f"img_l2={{img:.5f}} energy_l1={{eng:.5f}} "
+            f"img_c128={{img128:.5f}} img_c256={{img256:.5f}} "
+            f"best={{best}}{{mark}}{{ck}}",
             flush=True,
         )
 print("AE_ENERGY_BANK_DONE", flush=True)

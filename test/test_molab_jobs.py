@@ -28,6 +28,10 @@ class MolabJobsTest(unittest.TestCase):
         self.assertIn("upload_artifacts_on_checkpoint=True", source)
         self.assertIn("notify_on_finished=True", source)
         self.assertIn("comment='unit'", source)
+        self.assertIn('name="c128"', source)
+        self.assertIn('name="c256"', source)
+        self.assertIn("surrogate_c256.pt", source)
+        self.assertIn("decoder_c256.pt", source)
         compile(source, "<ae_worker>", "exec")
 
     def test_launch_writes_script_and_spawns(self) -> None:
