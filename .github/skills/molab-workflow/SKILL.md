@@ -49,7 +49,9 @@ All under `.github/skills/molab-workflow/scripts/` (require `MOLAB_URL` +
 | `molab-sync.sh` | Reinstall `lpap` from git + storage/helpers/secrets |
 | `molab-inject-secrets.sh` | Secrets → kernel env only |
 | `molab-train-status.sh` | AE bg / ckpt / SQLite summary |
-| `molab-launch-ae-energy-bank.sh` | Detached long AE worker |
+| `molab-notify.sh` | Pushover ping (end of agent-side long waits) |
+| `molab-launch-ae-energy-bank.sh` | Detached multi-pair AE (bank flows) |
+| `molab-launch-flow-energy-bank.sh` | Detached i2e/e2i energy-bank flow |
 | `molab-push-package-file.sh` | Hot-patch one local `src/lpap/*.py` into site-packages + reload |
 | `molab-export-notebook.sh` | Backport live cells → `notebooks/molab_lab.py` |
 
@@ -156,8 +158,24 @@ bash .github/skills/molab-workflow/scripts/molab-train-status.sh
 
 Implementation: repo [`molab/jobs.py`](../../../molab/jobs.py)
 (`launch_ae_energy_bank_bg`, synced to `/marimo/molab/`) writes
-`training_logs/train_image_autoencoder_energy_bank_bg.py` and spawns with
-pid/log under `image_autoencoder_energy_bank_bg.*`.
+`training_logs/train_image_autoencoder_multi_energy_bank_bg.py` and spawns with
+pid/log under `image_autoencoder_multi_energy_bank_bg.*`.
+
+Bank flow retrain (after encoding `data/encoded_energies_ae_best.pt`):
+
+```bash
+bash .github/skills/molab-workflow/scripts/molab-launch-flow-energy-bank.sh \
+  --kind image_to_energy_energy_bank --target-steps 10000
+bash .github/skills/molab-workflow/scripts/molab-launch-flow-energy-bank.sh \
+  --kind energy_to_image_energy_bank --target-steps 10000
+```
+
+**Encode bank checklist (do not skip):**
+1. Use `encode_image_dataset_to_energy_bank` / `ImageTensorDataset.float_batch`
+   — never raw `dataset.images` (uint8). `normalize=True` only applies in
+   `__getitem__` / `float_batch`.
+2. Probe asserts must pass (mean≈0, std≲0.5, not close to raw Hilbert).
+3. Glance gallery energy after first bank-flow / AE best before long runs.
 
 ## Background worker status
 
@@ -165,14 +183,14 @@ pid/log under `image_autoencoder_energy_bank_bg.*`.
 bash .github/skills/molab-workflow/scripts/molab-train-status.sh
 # or locally / in molab-exec:
 python -m lpap.training_status --project-root /marimo \
-  --checkpoint image_autoencoder_energy_bank.pt \
-  --log image_autoencoder_energy_bank.sqlite \
-  --run-id image_autoencoder_energy_bank \
-  --bg-stem image_autoencoder_energy_bank_bg
+  --checkpoint image_autoencoder_multi_energy_bank.pt \
+  --log image_autoencoder_multi_energy_bank.sqlite \
+  --run-id image_autoencoder_multi_energy_bank \
+  --bg-stem image_autoencoder_multi_energy_bank_bg
 ```
 
 Reports ckpt step, SQLite max step, and bg alive / last log step.
 
 ## Training order
 
-`surrogate` → `decoder` → image flows → `image_autoencoder`.
+`surrogate` → `decoder` → image flows (or energy-bank flows) → `image_autoencoder`.

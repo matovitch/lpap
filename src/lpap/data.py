@@ -17,6 +17,27 @@ class SyntheticHarmonicBatch(TypedDict):
     frequencies: Float[torch.Tensor, "harmonics"]
 
 
+def float_image_batch(
+    images: torch.Tensor,
+    *,
+    normalize: bool,
+) -> Float[torch.Tensor, "batch channel height width"]:
+    """Convert an image batch to float32 for model I/O.
+
+    When ``normalize`` is true and ``images`` are uint8, applies ``/255`` so the
+    batch matches ``ImageTensorDataset.__getitem__`` (never feed raw ``.images``
+    into flows / AE encode when training used ``normalize=True``).
+    """
+    if images.ndim != 4:
+        raise ValueError("images must use NCHW layout")
+    if images.dtype == torch.uint8:
+        out = images.to(torch.float32)
+        return out.div_(255.0) if normalize else out
+    if images.dtype.is_floating_point:
+        return images.to(torch.float32)
+    raise TypeError(f"unsupported image dtype for float_image_batch: {images.dtype}")
+
+
 @dataclass(frozen=True)
 class SyntheticHarmonicConfig:
     harmonic_count: int = 16
@@ -86,6 +107,8 @@ class ImageTensorDataset(Dataset[tuple[torch.Tensor, str]]):
         if names is not None and len(names) != images.shape[0]:
             raise ValueError("names length must match image count")
 
+        # Always uint8 storage. ``normalize`` applies only in ``__getitem__`` /
+        # ``float_batch`` — never read ``.images`` for model I/O when normalize.
         self.images = images
         self.names = (
             list(names)
@@ -102,6 +125,20 @@ class ImageTensorDataset(Dataset[tuple[torch.Tensor, str]]):
         if self.normalize:
             image = image.to(torch.float32).div(255.0)
         return image, self.names[index]
+
+    def float_batch(
+        self, start: int, stop: int
+    ) -> Float[torch.Tensor, "batch channel height width"]:
+        """Slice ``images[start:stop]`` as float32, applying ``/255`` when set.
+
+        Prefer this (or ``__getitem__`` / a DataLoader) over ``dataset.images``
+        for encode / training I/O — raw ``.images`` is always uint8 storage.
+        """
+        if start < 0 or stop < start or stop > len(self):
+            raise ValueError(
+                f"invalid slice [{start}:{stop}] for dataset of length {len(self)}"
+            )
+        return float_image_batch(self.images[start:stop], normalize=self.normalize)
 
 
 def load_image_tensor_dataset(

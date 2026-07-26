@@ -9,6 +9,7 @@ import torch
 from lpap.data import (
     ImageTensorDataset,
     SyntheticHarmonicConfig,
+    float_image_batch,
     image_dataloader,
     load_image_tensor_dataset,
     sample_synthetic_harmonic_batch,
@@ -48,6 +49,12 @@ class ImageDatasetTest(unittest.TestCase):
             normalized_image, _name = normalized[0]
             self.assertEqual(normalized_image.dtype, torch.float32)
             self.assertAlmostEqual(float(normalized_image[0, 0, 0]), 76 / 255)
+
+            batch = normalized.float_batch(0, 1)
+            self.assertEqual(batch.dtype, torch.float32)
+            self.assertAlmostEqual(float(batch[0, 0, 0, 0]), 76 / 255)
+            raw = float_image_batch(dataset.images[:1], normalize=False)
+            self.assertAlmostEqual(float(raw[0, 0, 0, 0]), 76.0)
 
             loader = image_dataloader(pt_path, batch_size=1, shuffle=False)
             batch_images, batch_names = next(iter(loader))

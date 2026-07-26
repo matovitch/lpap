@@ -90,11 +90,8 @@ def ae_setup():
     )
     from lpap.training import load_training_checkpoint
     from lpap.training_notebook import (
-        create_training_session,
         default_image_autoencoder_training_config,
-        iter_training,
     )
-    from lpap.training_plots import render_image_autoencoder_gallery_html
 
     _base = default_image_autoencoder_training_config()
     ae_base = replace(
@@ -112,8 +109,8 @@ def ae_setup():
                     name="c256",
                 ),
             ),
-            image_to_energy_checkpoint_name="image_to_energy.pt",
-            energy_to_image_checkpoint_name="energy_to_image.pt",
+            image_to_energy_checkpoint_name="image_to_energy_energy_bank.pt",
+            energy_to_image_checkpoint_name="energy_to_image_energy_bank.pt",
             load_best=True,
             require_checkpoints=True,
             train_image_to_energy_flow=True,
@@ -128,10 +125,10 @@ def ae_setup():
             seed=_base.run.seed,
             display_every=25,
             log_every=5,
-            run_id="image_autoencoder_multi_harmonics",
-            checkpoint_name="image_autoencoder_multi_harmonics.pt",
-            log_name="image_autoencoder_multi_harmonics.sqlite",
-            comment="multi-pair c128+c256 from harmonics flows; fresh 20k",
+            run_id="image_autoencoder_multi_energy_bank",
+            checkpoint_name="image_autoencoder_multi_energy_bank.pt",
+            log_name="image_autoencoder_multi_energy_bank.sqlite",
+            comment="multi-pair c128+c256 from bank flows@10k; fresh 20k",
             pinned=False,
         ),
     )
@@ -140,40 +137,27 @@ def ae_setup():
 
     mo.md(
         f"""
-## image_autoencoder setup (harmonics flows · multi-C)
+    ## image_autoencoder setup (energy-bank flows · multi-C)
 
-- install: `{install_note}`
-- HF: `{"HF_TOKEN set" if os.environ.get("HF_TOKEN", "").strip() else "HF_TOKEN missing"}`
-- LPAP pairs: `{", ".join(_pair_names)}`
-- flows: i2e=`{ae_base.source.image_to_energy_checkpoint_name}` · e2i=`{ae_base.source.energy_to_image_checkpoint_name}`
-- Euler: i2e=`{ae_base.integration.image_to_energy_steps}` · e2i=`{ae_base.integration.energy_to_image_steps}`
-- ckpt / log: `{ae_base.run.checkpoint_name}` / `{ae_base.run.log_name}`
-- steps: `{ae_base.run.steps}`
-- comment: `{ae_base.run.comment}`
-"""
+    - install: `{install_note}`
+    - HF: `{"HF_TOKEN set" if os.environ.get("HF_TOKEN", "").strip() else "HF_TOKEN missing"}`
+    - LPAP pairs: `{", ".join(_pair_names)}`
+    - flows: i2e=`{ae_base.source.image_to_energy_checkpoint_name}` · e2i=`{ae_base.source.energy_to_image_checkpoint_name}`
+    - Euler: i2e=`{ae_base.integration.image_to_energy_steps}` · e2i=`{ae_base.integration.energy_to_image_steps}`
+    - ckpt / log: `{ae_base.run.checkpoint_name}` / `{ae_base.run.log_name}`
+    - steps: `{ae_base.run.steps}`
+    - comment: `{ae_base.run.comment}`
+    """
     )
 
     return (
-        ImageAutoencoderLpapPairConfig,
-        ImageAutoencoderRunConfig,
-        ImageAutoencoderSourceConfig,
-        Path,
         ae_base,
         collect_image_autoencoder_gallery,
         create_image_autoencoder_training_session,
-        create_training_session,
-        default_image_autoencoder_training_config,
-        install_note,
-        install_spec,
-        iter_training,
         load_training_checkpoint,
         mo,
-        os,
         project_root,
-        render_image_autoencoder_gallery_html,
         replace,
-        subprocess,
-        sys,
         torch,
     )
 
@@ -193,8 +177,8 @@ def status(ae_base, mo, project_root, torch):
         "c128_dec": project_root / "checkpoints" / "decoder_synthetic.pt",
         "c256_surr": project_root / "checkpoints" / "surrogate_c256.pt",
         "c256_dec": project_root / "checkpoints" / "decoder_c256.pt",
-        "i2e": project_root / "checkpoints" / "image_to_energy.pt",
-        "e2i": project_root / "checkpoints" / "energy_to_image.pt",
+        "i2e_bank": project_root / "checkpoints" / "image_to_energy_energy_bank.pt",
+        "e2i_bank": project_root / "checkpoints" / "energy_to_image_energy_bank.pt",
         "ae": project_root / "checkpoints" / ae_base.run.checkpoint_name,
     }
     _lines = []
@@ -215,34 +199,41 @@ def status(ae_base, mo, project_root, torch):
         )
 
     _ae_pid = _bg_worker_status(
-        project_root / "training_logs" / "image_autoencoder_multi_harmonics_bg.pid"
+        project_root / "training_logs" / "image_autoencoder_multi_energy_bank_bg.pid"
     )
     _ae_step = _last_bg_log_step(
-        project_root / "training_logs" / "image_autoencoder_multi_harmonics_bg.log"
+        project_root / "training_logs" / "image_autoencoder_multi_energy_bank_bg.log"
     )
     _tail = _bg_log_tail(
-        project_root / "training_logs" / "image_autoencoder_multi_harmonics_bg.log",
+        project_root / "training_logs" / "image_autoencoder_multi_energy_bank_bg.log",
         lines=8,
     )
 
     mo.md(
         f"""
-### Artifact readiness (multi-pair AE · harmonics flows)
+    ### Artifact readiness (multi-pair AE · energy-bank flows)
 
-{chr(10).join(_lines)}
+    {chr(10).join(_lines)}
 
-- AE bg alive: **{_ae_pid.get("alive")}** (pid={_ae_pid.get("pid")}) · log step: `{_ae_step}`
-```
-{chr(10).join(_tail) if _tail else "(no AE bg log yet)"}
-```
-"""
+    - AE bg alive: **{_ae_pid.get("alive")}** (pid={_ae_pid.get("pid")}) · log step: `{_ae_step}`
+    ```
+    {chr(10).join(_tail) if _tail else "(no AE bg log yet)"}
+    ```
+    """
     )
 
     return
 
 
 @app.cell
-def gallery_cache(ae_base, collect_image_autoencoder_gallery, create_image_autoencoder_training_session, load_training_checkpoint, project_root, replace):
+def gallery_cache(
+    ae_base,
+    collect_image_autoencoder_gallery,
+    create_image_autoencoder_training_session,
+    load_training_checkpoint,
+    project_root,
+    replace,
+):
     # cell: gallery_cache
     import shutil as _shutil
 
@@ -280,11 +271,7 @@ def gallery_cache(ae_base, collect_image_autoencoder_gallery, create_image_autoe
             "checkpoint_name": ae_base.run.checkpoint_name,
             "side": ae_base.image.side,
         }
-
-    return (
-        ae_gallery_items,
-        ae_gallery_meta,
-    )
+    return ae_gallery_items, ae_gallery_meta
 
 
 @app.cell
@@ -299,7 +286,6 @@ def gallery_gamma(mo):
         show_value=True,
     )
     display_gamma
-
     return (display_gamma,)
 
 
@@ -329,12 +315,19 @@ def gallery_view(ae_gallery_items, ae_gallery_meta, display_gamma, mo):
             ]
         )
     ae_gallery
-
-    return (ae_gallery,)
+    return
 
 
 @app.cell
-def e0_peak_probe(ae_base, create_image_autoencoder_training_session, load_training_checkpoint, mo, project_root, replace, torch):
+def e0_peak_probe(
+    ae_base,
+    create_image_autoencoder_training_session,
+    load_training_checkpoint,
+    mo,
+    project_root,
+    replace,
+    torch,
+):
     # cell: e0_peak_probe
     from lpap.flow import integrate_euler_midpoint_time
     from lpap.flow_training import cycle_image_batches, prepare_image_sequence
@@ -425,17 +418,17 @@ def e0_peak_probe(ae_base, create_image_autoencoder_training_session, load_train
         )
         _summary = mo.md(
             f"""
-### e[0] peak probe (Hilbert / spatial corner)
+    ### e[0] peak probe (Hilbert / spatial corner)
 
-ckpt step=`{_payload.get("step")}` · n=`{_peak_n_dist}` encoded energies
+    ckpt step=`{_payload.get("step")}` · n=`{_peak_n_dist}` encoded energies
 
-- mean=`{float(_e0.mean()):.4f}` std=`{float(_e0.std()):.4f}`
-- quantiles: `{_dist_bits}`
-- frac argmin@0=`{float((_encoded.argmin(dim=1) == 0).float().mean()):.2f}`
+    - mean=`{float(_e0.mean()):.4f}` std=`{float(_e0.std()):.4f}`
+    - quantiles: `{_dist_bits}`
+    - frac argmin@0=`{float((_encoded.argmin(dim=1) == 0).float().mean()):.2f}`
 
-Rows below: **only e[0]** (others zero) decoded by e2i across the e[0] distribution,
-then per-sample source / full energy / only-peak / ablate-peak.
-"""
+    Rows below: **only e[0]** (others zero) decoded by e2i across the e[0] distribution,
+    then per-sample source / full energy / only-peak / ablate-peak.
+    """
         )
 
         _sweep_panels = []
@@ -521,8 +514,7 @@ then per-sample source / full energy / only-peak / ablate-peak.
             ]
         )
     peak_probe
-
-    return (peak_probe,)
+    return
 
 
 if __name__ == "__main__":

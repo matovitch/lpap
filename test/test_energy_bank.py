@@ -8,9 +8,13 @@ import torch
 
 from lpap.energy_bank import (
     EnergyBankConfig,
+    assert_energies_not_raw_image_like,
+    assert_energy_bank_scale,
     energy_bank_config_from_dict,
+    energy_bank_scale_stats,
     load_energy_bank,
     load_energy_bank_for_flow,
+    relative_rmse,
     resolve_energy_bank_path,
     sample_energy_bank_values,
     sample_energy_prior_values,
@@ -115,6 +119,40 @@ class EnergyBankTest(unittest.TestCase):
         )
         self.assertEqual(tuple(sample.shape), (3, 4))
         self.assertEqual(sample.device.type, "cuda")
+
+    def test_assert_energy_bank_scale_rejects_image_like(self) -> None:
+        good = 0.05 * torch.randn(32, 16)
+        stats = assert_energy_bank_scale(good)
+        self.assertEqual(stats.n, 32)
+        self.assertLess(abs(stats.mean), 0.05)
+
+        image_like = torch.full((32, 16), 118.0)
+        with self.assertRaisesRegex(ValueError, "skip /255"):
+            assert_energy_bank_scale(image_like)
+
+    def test_assert_energies_not_raw_image_like(self) -> None:
+        raw = torch.linspace(0, 255, 64).reshape(4, 16)
+        close = raw + 0.1
+        with self.assertRaisesRegex(ValueError, "too close to raw Hilbert"):
+            assert_energies_not_raw_image_like(close, raw)
+
+        energyish = 0.05 * torch.randn(4, 16)
+        rel = assert_energies_not_raw_image_like(energyish, raw)
+        self.assertGreater(rel, 0.5)
+        self.assertGreater(relative_rmse(energyish, raw), 0.5)
+
+        # /255 of raw is still far in absolute value from uint8 Hilbert.
+        scaled = raw / 255.0
+        self.assertGreater(relative_rmse(scaled, raw), 0.5)
+
+    def test_energy_bank_scale_stats_and_reference(self) -> None:
+        bank = 0.02 * torch.randn(20, 8)
+        ref = 0.025 * torch.randn(10, 8)
+        stats = energy_bank_scale_stats(bank)
+        self.assertEqual(stats.energy_dim, 8)
+        assert_energy_bank_scale(bank, reference=ref)
+        with self.assertRaises(ValueError):
+            assert_energy_bank_scale(bank * 20.0, reference=ref)
 
 
 if __name__ == "__main__":

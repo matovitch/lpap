@@ -1,5 +1,16 @@
 # Agent Notes
 
+Keywords **MUST** / **SHOULD** / **MAY** follow [RFC 2119](https://datatracker.ietf.org/doc/html/rfc2119)
+(common AGENTS.md pattern: compact priority, not a full IETF rewrite).
+
+## Collaboration
+
+- Prefer debate over silent agreement when stakes are high (wrong data, wasted
+  GPU, irreversible ops). Opposing views are welcome unless the user opts out.
+- After a clear agent mistake, **MUST** offer a short post-mortem (what / why /
+  guardrail) and wait for the user before deep-diving unless they already asked.
+- If the user drifts from these norms, briefly remind them of this section.
+
 ## Tool layers
 
 Use the matching skill; don’t mix host/project logic into marimo-pair.
@@ -7,7 +18,7 @@ Use the matching skill; don’t mix host/project logic into marimo-pair.
 | Layer | Skill | Tools | Pixi? |
 | --- | --- | --- | --- |
 | **marimo** | `~/.cursor/skills/marimo-pair` | `execute-code`, `execute-watch`, `notebook-map`, `notebook-ready` | No |
-| **molab** | `.github/skills/molab-workflow` | `molab-exec`, `molab-sync`, `molab-push-package-file`, `molab-export-notebook`, `molab-train-status`, …; helpers in repo `molab/` | No |
+| **molab** | `.github/skills/molab-workflow` | `molab-exec`, `molab-sync`, `molab-notify`, `molab-train-status`, …; helpers in repo `molab/` | No |
 | **project** | `.github/skills/pixi-workflow` | `pixi run …`, `src/lpap/` (e.g. `train-status`, `artifacts-*`) | Yes locally |
 
 On molab, call the same `lpap` modules inside `molab-exec` after git install. Details: [doc/molab-workflow.md](doc/molab-workflow.md).
@@ -30,3 +41,8 @@ Needs local `configs/secrets.toml` for sync. **Before launch:**
 `molab-launch-ae-energy-bank` → poll status (Pushover/HF). Short/shared →
 visible code-mode cells; scratchpad = probes. Full rules:
 `.github/skills/molab-workflow/SKILL.md`.
+
+**Long waits in the same turn:** bg training already notifies on finish when
+configured. Agent-side waits (encode, HF upload, poll loops) **MUST** end with
+`molab-notify.sh` (or `lpap.notify.send_pushover`) so the human gets a phone
+ping while approving turns — do not rely on chat alone.

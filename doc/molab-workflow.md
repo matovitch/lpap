@@ -80,7 +80,8 @@ Extra molab-workflow helpers (same `MOLAB_*` env):
 - `molab-push-package-file.sh` — hot-patch one `src/lpap/*.py` into the kernel
   (ephemeral; prefer commit + `molab-sync` for durable updates)
 - `molab-export-notebook.sh` — backport live cells → `notebooks/molab_lab.py`
-- `molab-train-status.sh` / `molab-launch-ae-energy-bank.sh` — long AE runs
+- `molab-train-status.sh` / `molab-launch-ae-energy-bank.sh` / `molab-launch-flow-energy-bank.sh` — long AE / bank-flow runs
+- `molab-notify.sh` — Pushover after agent-side long waits (encode / poll / upload)
 
 ## Capabilities
 
@@ -164,10 +165,10 @@ bash .github/skills/molab-workflow/scripts/molab-exec.sh <<'PY'
 from lpap.training_status import summarize_training_status
 print(summarize_training_status(
     project_root="/marimo",
-    checkpoint_name="image_autoencoder_energy_bank.pt",
-    log_name="image_autoencoder_energy_bank.sqlite",
-    run_id="image_autoencoder_energy_bank",
-    bg_stem="image_autoencoder_energy_bank_bg",
+    checkpoint_name="image_autoencoder_multi_energy_bank.pt",
+    log_name="image_autoencoder_multi_energy_bank.sqlite",
+    run_id="image_autoencoder_multi_energy_bank",
+    bg_stem="image_autoencoder_multi_energy_bank_bg",
 ))
 PY
 ```
