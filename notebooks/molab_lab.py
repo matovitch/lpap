@@ -22,9 +22,9 @@ def ae_setup():
         project_root = Path("/marimo")
     else:
         project_root = Path(__file__).resolve().parents[1]
-        src_path = project_root / "src"
-        if str(src_path) not in sys.path:
-            sys.path.insert(0, str(src_path))
+        _src_path = project_root / "src"
+        if str(_src_path) not in sys.path:
+            sys.path.insert(0, str(_src_path))
 
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
@@ -41,42 +41,45 @@ def ae_setup():
         "true",
         "yes",
     }
+    _lpap_ok = False
     try:
-        import lpap  # noqa: F401
-        if _force:
-            raise ImportError("LPAP_FORCE_REINSTALL")
+        from importlib.util import find_spec as _find_spec
+
+        _lpap_ok = _find_spec("lpap") is not None and not _force
+    except Exception:
+        _lpap_ok = False
+    if _lpap_ok:
         install_note = "lpap already importable"
-    except ImportError:
-        if project_root == Path("/marimo"):
-            subprocess.check_call(
-                [
-                    sys.executable,
-                    "-m",
-                    "pip",
-                    "install",
-                    "--upgrade",
-                    "--force-reinstall",
-                    "--no-deps",
-                    install_spec,
-                ]
-            )
-            subprocess.check_call(
-                [
-                    sys.executable,
-                    "-m",
-                    "pip",
-                    "install",
-                    "jaxtyping>=0.3.7",
-                    "zstandard>=0.25.0,<0.26",
-                    "huggingface_hub>=1.21.0,<2",
-                ]
-            )
-            for _mod in list(sys.modules):
-                if _mod == "lpap" or _mod.startswith("lpap."):
-                    del sys.modules[_mod]
-            install_note = f"force-reinstalled {install_spec}"
-        else:
-            install_note = f"using local sources at {project_root / 'src'}"
+    elif project_root == Path("/marimo"):
+        subprocess.check_call(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--upgrade",
+                "--force-reinstall",
+                "--no-deps",
+                install_spec,
+            ]
+        )
+        subprocess.check_call(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "jaxtyping>=0.3.7",
+                "zstandard>=0.25.0,<0.26",
+                "huggingface_hub>=1.21.0,<2",
+            ]
+        )
+        for _mod in list(sys.modules):
+            if _mod == "lpap" or _mod.startswith("lpap."):
+                del sys.modules[_mod]
+        install_note = f"force-reinstalled {install_spec}"
+    else:
+        install_note = f"using local sources at {project_root / 'src'}"
 
     from lpap.image_autoencoder_training import (
         ImageAutoencoderLpapPairConfig,
@@ -137,17 +140,17 @@ def ae_setup():
 
     mo.md(
         f"""
-    ## image_autoencoder setup (harmonics flows · multi-C)
+## image_autoencoder setup (harmonics flows · multi-C)
 
-    - install: `{install_note}`
-    - HF: `{"HF_TOKEN set" if os.environ.get("HF_TOKEN", "").strip() else "HF_TOKEN missing"}`
-    - LPAP pairs: `{", ".join(_pair_names)}`
-    - flows: i2e=`{ae_base.source.image_to_energy_checkpoint_name}` · e2i=`{ae_base.source.energy_to_image_checkpoint_name}`
-    - Euler: i2e=`{ae_base.integration.image_to_energy_steps}` · e2i=`{ae_base.integration.energy_to_image_steps}`
-    - ckpt / log: `{ae_base.run.checkpoint_name}` / `{ae_base.run.log_name}`
-    - steps: `{ae_base.run.steps}`
-    - comment: `{ae_base.run.comment}`
-    """
+- install: `{install_note}`
+- HF: `{"HF_TOKEN set" if os.environ.get("HF_TOKEN", "").strip() else "HF_TOKEN missing"}`
+- LPAP pairs: `{", ".join(_pair_names)}`
+- flows: i2e=`{ae_base.source.image_to_energy_checkpoint_name}` · e2i=`{ae_base.source.energy_to_image_checkpoint_name}`
+- Euler: i2e=`{ae_base.integration.image_to_energy_steps}` · e2i=`{ae_base.integration.energy_to_image_steps}`
+- ckpt / log: `{ae_base.run.checkpoint_name}` / `{ae_base.run.log_name}`
+- steps: `{ae_base.run.steps}`
+- comment: `{ae_base.run.comment}`
+"""
     )
 
     return (
@@ -224,15 +227,15 @@ def status(ae_base, mo, project_root, torch):
 
     mo.md(
         f"""
-    ### Artifact readiness (multi-pair AE · harmonics flows)
+### Artifact readiness (multi-pair AE · harmonics flows)
 
-    {chr(10).join(_lines)}
+{chr(10).join(_lines)}
 
-    - AE bg alive: **{_ae_pid.get("alive")}** (pid={_ae_pid.get("pid")}) · log step: `{_ae_step}`
-    ```
-    {chr(10).join(_tail) if _tail else "(no AE bg log yet)"}
-    ```
-    """
+- AE bg alive: **{_ae_pid.get("alive")}** (pid={_ae_pid.get("pid")}) · log step: `{_ae_step}`
+```
+{chr(10).join(_tail) if _tail else "(no AE bg log yet)"}
+```
+"""
     )
 
     return
@@ -422,17 +425,17 @@ def e0_peak_probe(ae_base, create_image_autoencoder_training_session, load_train
         )
         _summary = mo.md(
             f"""
-    ### e[0] peak probe (Hilbert / spatial corner)
+### e[0] peak probe (Hilbert / spatial corner)
 
-    ckpt step=`{_payload.get("step")}` · n=`{_peak_n_dist}` encoded energies
+ckpt step=`{_payload.get("step")}` · n=`{_peak_n_dist}` encoded energies
 
-    - mean=`{float(_e0.mean()):.4f}` std=`{float(_e0.std()):.4f}`
-    - quantiles: `{_dist_bits}`
-    - frac argmin@0=`{float((_encoded.argmin(dim=1) == 0).float().mean()):.2f}`
+- mean=`{float(_e0.mean()):.4f}` std=`{float(_e0.std()):.4f}`
+- quantiles: `{_dist_bits}`
+- frac argmin@0=`{float((_encoded.argmin(dim=1) == 0).float().mean()):.2f}`
 
-    Rows below: **only e[0]** (others zero) decoded by e2i across the e[0] distribution,
-    then per-sample source / full energy / only-peak / ablate-peak.
-    """
+Rows below: **only e[0]** (others zero) decoded by e2i across the e[0] distribution,
+then per-sample source / full energy / only-peak / ablate-peak.
+"""
         )
 
         _sweep_panels = []
