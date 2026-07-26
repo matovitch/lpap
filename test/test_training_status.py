@@ -49,7 +49,7 @@ class TrainingStatusTest(unittest.TestCase):
                 run_id="model",
                 checkpoint_path=str(ckpt),
                 config={"steps": 100},
-                metadata={"note": "unit", "tags": ["test"]},
+                metadata={"comment": "unit"},
             )
             attempt_id = start_run_attempt(
                 log_path,
@@ -137,7 +137,7 @@ class TrainingStatusTest(unittest.TestCase):
                 run_id="model",
                 checkpoint_path=str(ckpt),
                 config={"steps": 100},
-                metadata={"note": "bg", "tags": []},
+                metadata={"comment": "bg"},
             )
             attempt_id = start_run_attempt(
                 log_path,

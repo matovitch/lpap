@@ -113,8 +113,7 @@ class LPAPDecoderRunConfig:
     run_id: str = "decoder_synthetic"
     checkpoint_name: str = "decoder_synthetic.pt"
     log_name: str = "decoder.sqlite"
-    note: str = ""
-    tags: tuple[str, ...] = ()
+    comment: str = ""
     pinned: bool = False
 
     def validate(self) -> None:
@@ -135,8 +134,7 @@ class LPAPDecoderRunConfig:
             "run_id": self.run_id,
             "checkpoint_name": self.checkpoint_name,
             "log_name": self.log_name,
-            "note": self.note,
-            "tags": self.tags,
+            "comment": self.comment,
             "pinned": self.pinned,
         }
 
@@ -256,8 +254,7 @@ def lpap_decoder_training_config_from_dict(
             run_id=str(run_data["run_id"]),
             checkpoint_name=str(run_data["checkpoint_name"]),
             log_name=str(run_data["log_name"]),
-            note=str(run_data.get("note", "")),
-            tags=tuple(str(tag) for tag in run_data.get("tags", ())),
+            comment=str(run_data.get("comment", "")),
             pinned=bool(run_data.get("pinned", False)),
         ),
     )
@@ -495,8 +492,7 @@ def create_lpap_decoder_training_session(
             checkpoint_at_end=False,
             log_every=config.run.log_every,
             display_every=config.run.display_every,
-            note=config.run.note,
-            tags=config.run.tags,
+            comment=config.run.comment,
             pinned=config.run.pinned,
         ),
         model=decoder,

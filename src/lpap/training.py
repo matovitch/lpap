@@ -43,8 +43,7 @@ class TrainingRunConfig:
     log_every: int = 1
     display_every: int = 5
     keep_last_runs: int = 10
-    note: str = ""
-    tags: tuple[str, ...] = ()
+    comment: str = ""
     pinned: bool = False
 
 
@@ -142,8 +141,7 @@ class TrainingRun:
             **self.metadata,
             "base_run_id": self.base_run_id,
             "display_name": self.display_name,
-            "note": self.config.note,
-            "tags": list(self.config.tags),
+            "comment": self.config.comment,
             "pinned": self.config.pinned,
             "resumed": resumed,
             "start_step": self.start_step,
@@ -227,8 +225,7 @@ class TrainingRun:
                     "metadata": {
                         "base_run_id": self.base_run_id,
                         "display_name": self.display_name,
-                        "note": self.config.note,
-                        "tags": list(self.config.tags),
+                        "comment": self.config.comment,
                         "pinned": self.config.pinned,
                     },
                     **({} if training_state is None else dict(training_state)),

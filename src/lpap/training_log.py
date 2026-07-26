@@ -62,9 +62,27 @@ def _connect(path: str | Path) -> sqlite3.Connection:
     return connection
 
 
+def _runs_schema_current(connection: sqlite3.Connection) -> bool:
+    rows = connection.execute("PRAGMA table_info(runs)").fetchall()
+    if not rows:
+        return False
+    columns = {str(row[1]) for row in rows}
+    # Current schema: comment + config_json; no facets_json (dropped).
+    return {"comment", "config_json", "metadata_json"} <= columns and (
+        "facets_json" not in columns
+    )
+
+
 def initialize_training_log(path: str | Path) -> None:
     with closing(_connect(path)) as connection, connection:
         connection.execute("PRAGMA journal_mode=WAL")
+        # Research logs: recreate when the runs schema is stale (no migrate).
+        if connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='runs'"
+        ).fetchone() and not _runs_schema_current(connection):
+            connection.execute("DROP TABLE IF EXISTS step_metrics")
+            connection.execute("DROP TABLE IF EXISTS run_attempts")
+            connection.execute("DROP TABLE IF EXISTS runs")
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS runs (
@@ -74,6 +92,7 @@ def initialize_training_log(path: str | Path) -> None:
                 status TEXT NOT NULL,
                 checkpoint_path TEXT NOT NULL,
                 config_json TEXT NOT NULL,
+                comment TEXT NOT NULL DEFAULT '',
                 metadata_json TEXT NOT NULL
             )
             """
@@ -112,6 +131,9 @@ def initialize_training_log(path: str | Path) -> None:
             )
             """
         )
+
+
+
 
 
 def make_run_display_name() -> str:
@@ -173,16 +195,23 @@ def upsert_run(
     status: str = "running",
 ) -> None:
     initialize_training_log(path)
+    meta = {} if metadata is None else dict(metadata)
+    comment = str(meta.pop("comment", ""))
+    meta.pop("note", None)
+    meta.pop("tags", None)
     with closing(_connect(path)) as connection, connection:
         connection.execute(
             """
-            INSERT INTO runs (run_id, status, checkpoint_path, config_json, metadata_json)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO runs (
+                run_id, status, checkpoint_path, config_json, comment, metadata_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(run_id) DO UPDATE SET
                 updated_at = CURRENT_TIMESTAMP,
                 status = excluded.status,
                 checkpoint_path = excluded.checkpoint_path,
                 config_json = excluded.config_json,
+                comment = excluded.comment,
                 metadata_json = excluded.metadata_json
             """,
             (
@@ -190,7 +219,8 @@ def upsert_run(
                 status,
                 str(checkpoint_path),
                 json.dumps(dict(config), sort_keys=True),
-                json.dumps({} if metadata is None else dict(metadata), sort_keys=True),
+                comment,
+                json.dumps(meta, sort_keys=True),
             ),
         )
 
@@ -211,27 +241,9 @@ def _run_display_name(run_id: str, metadata: Mapping[str, Any]) -> str:
     return run_id
 
 
-def _run_tags(metadata: Mapping[str, Any]) -> list[str]:
-    tags = metadata.get("tags", [])
-    if not isinstance(tags, list):
-        return []
-    return [str(tag) for tag in tags]
-
-
-def load_run_record(path: str | Path, *, run_id: str) -> dict[str, Any]:
-    initialize_training_log(path)
-    with closing(_connect(path)) as connection:
-        row = connection.execute(
-            """
-            SELECT run_id, created_at, updated_at, status, checkpoint_path,
-                   config_json, metadata_json
-            FROM runs
-            WHERE run_id = ?
-            """,
-            (run_id,),
-        ).fetchone()
-    if row is None:
-        raise KeyError(f"run not found: {run_id}")
+def _record_from_row(row: tuple[Any, ...]) -> dict[str, Any]:
+    # row: run_id, created_at, updated_at, status, checkpoint_path,
+    #      config_json, metadata_json, comment
     metadata = json.loads(row[6])
     return {
         "run_id": row[0],
@@ -242,11 +254,27 @@ def load_run_record(path: str | Path, *, run_id: str) -> dict[str, Any]:
         "status": row[3],
         "checkpoint_path": row[4],
         "config": json.loads(row[5]),
+        "comment": str(row[7]),
         "metadata": metadata,
-        "note": str(metadata.get("note", "")),
-        "tags": _run_tags(metadata),
         "pinned": bool(metadata.get("pinned", False)),
     }
+
+
+def load_run_record(path: str | Path, *, run_id: str) -> dict[str, Any]:
+    initialize_training_log(path)
+    with closing(_connect(path)) as connection:
+        row = connection.execute(
+            """
+            SELECT run_id, created_at, updated_at, status, checkpoint_path,
+                   config_json, metadata_json, comment
+            FROM runs
+            WHERE run_id = ?
+            """,
+            (run_id,),
+        ).fetchone()
+    if row is None:
+        raise KeyError(f"run not found: {run_id}")
+    return _record_from_row(row)
 
 
 def list_training_runs(
@@ -263,7 +291,7 @@ def list_training_runs(
             rows = connection.execute(
                 """
                 SELECT run_id, created_at, updated_at, status, checkpoint_path,
-                       config_json, metadata_json
+                       config_json, metadata_json, comment
                 FROM runs
                 ORDER BY created_at DESC, run_id DESC
                 LIMIT ?
@@ -274,7 +302,7 @@ def list_training_runs(
             rows = connection.execute(
                 """
                 SELECT run_id, created_at, updated_at, status, checkpoint_path,
-                       config_json, metadata_json
+                       config_json, metadata_json, comment
                 FROM runs
                 WHERE run_id = ? OR run_id LIKE ?
                 ORDER BY created_at DESC, run_id DESC
@@ -286,7 +314,7 @@ def list_training_runs(
         records = []
         for row in rows:
             run_id = row[0]
-            metadata = json.loads(row[6])
+            record = _record_from_row(row)
             last_step = connection.execute(
                 "SELECT MAX(step) FROM step_metrics WHERE run_id = ?", (run_id,)
             ).fetchone()[0]
@@ -298,24 +326,9 @@ def list_training_runs(
                 """,
                 (run_id,),
             ).fetchone()[0]
-            records.append(
-                {
-                    "run_id": run_id,
-                    "base_run_id": _base_run_id(run_id, metadata),
-                    "display_name": _run_display_name(run_id, metadata),
-                    "created_at": row[1],
-                    "updated_at": row[2],
-                    "status": row[3],
-                    "checkpoint_path": row[4],
-                    "config": json.loads(row[5]),
-                    "metadata": metadata,
-                    "note": str(metadata.get("note", "")),
-                    "tags": _run_tags(metadata),
-                    "pinned": bool(metadata.get("pinned", False)),
-                    "last_step": last_step,
-                    "best_validation_loss": best_validation_loss,
-                }
-            )
+            record["last_step"] = last_step
+            record["best_validation_loss"] = best_validation_loss
+            records.append(record)
     return records
 
 

@@ -55,10 +55,10 @@ small one has a clear knee or a clear winner.
 3. **Fix seed, step budget, val cadence** across cells.
    Use `resume_from_checkpoint=False` for fresh probes.
 4. **Run** on molab (or local). Record ms/step and peak memory in the run
-   `note` or tags when easy.
+   `comment` when useful (free prose only).
 5. **Table the results** (best val metric, last step, params, time, mem).
 6. **Pick a default.** Optional 10k confirm on the winner only.
-7. **Promote:** update TOML defaults + tags `baseline`; retrain **downstream**
+7. **Promote:** update TOML defaults; retrain **downstream**
    stages that depend on the new checkpoint.
 8. **Keep v0 baselines** on the HF bucket until you deliberately replace them
    (rename or overwrite with intent).
@@ -91,7 +91,7 @@ as the current default surrogate config.
 
 **Artifacts:** checkpoints
 `surrogate_probe_h{dim}_l{layers}.pt`, shared log
-`training_logs/surrogate_size_probes.sqlite`, tags
+`training_logs/surrogate_size_probes.sqlite`, comment
 `("probe", "size-grid", "surrogate")`.
 
 **Do not overwrite** `surrogate_synthetic.pt` during the pilot.
@@ -156,7 +156,7 @@ Freeze the promoted surrogate teacher. Sweep decoder capacity only:
 | 512 | 8 | 8 |
 | 512 | 12 | 8 |
 
-**Budget:** 2000 steps; validation every 100; tags
+**Budget:** 2000 steps; validation every 100; comment
 `("probe", "size-grid", "decoder")`; shared log
 `decoder_size_probes.sqlite`; checkpoints
 `decoder_probe_h{dim}_l{layers}.pt`. Do not overwrite

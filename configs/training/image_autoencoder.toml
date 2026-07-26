@@ -71,6 +71,5 @@ log_every = 1
 run_id = "image_autoencoder"
 checkpoint_name = "image_autoencoder.pt"
 log_name = "image_autoencoder.sqlite"
-note = "16-step no-reflow e2e; dialed lambdas; batch_size=32; signed-mass gap/floor tau=0.01"
-tags = ["e2e", "16-step", "no-reflow", "signed-mass", "dialed", "bs32"]
+comment = "16-step e2e AE with dialed lambdas and signed-mass"
 pinned = false

@@ -163,8 +163,7 @@ class FlowRunParams:
     resume_from_checkpoint: bool
     display_every: int
     log_every: int
-    note: str
-    tags: tuple[str, ...]
+    comment: str
     pinned: bool
 
 
@@ -177,8 +176,7 @@ def flow_run_params_from_config(run: object) -> FlowRunParams:
         resume_from_checkpoint=bool(getattr(run, "resume_from_checkpoint")),
         display_every=int(getattr(run, "display_every")),
         log_every=int(getattr(run, "log_every")),
-        note=str(getattr(run, "note")),
-        tags=tuple(str(tag) for tag in getattr(run, "tags")),
+        comment=str(getattr(run, "comment")),
         pinned=bool(getattr(run, "pinned")),
     )
 
@@ -415,8 +413,7 @@ def create_flow_session_core(
             checkpoint_at_end=False,
             log_every=run.log_every,
             display_every=run.display_every,
-            note=run.note,
-            tags=run.tags,
+            comment=run.comment,
             pinned=run.pinned,
         ),
         model=flow_model,

@@ -31,14 +31,14 @@ def ae_energy_bank_worker_source(
     project_root: str | Path = "/marimo",
     upload_artifacts_on_checkpoint: bool = True,
     notify_on_finished: bool = True,
-    note: str | None = None,
+    comment: str | None = None,
 ) -> str:
     """Return the Python source for the AE energy-bank detached worker."""
     if target_steps <= 0:
         raise ValueError("target_steps must be positive")
     root = Path(project_root)
-    resolved_note = note or (
-        f"to {target_steps} with HF upload on checkpoint + notify"
+    resolved_comment = comment or (
+        f"energy-bank AE bg to {target_steps}; HF upload + notify"
     )
     upload = "True" if upload_artifacts_on_checkpoint else "False"
     notify = "True" if notify_on_finished else "False"
@@ -51,6 +51,7 @@ from pathlib import Path
 from lpap.image_autoencoder_training import (
     ImageAutoencoderRunConfig,
     ImageAutoencoderSourceConfig,
+    ImageAutoencoderLpapPairConfig,
 )
 from lpap.training_notebook import (
     create_training_session,
@@ -64,8 +65,13 @@ base = default_image_autoencoder_training_config()
 config = replace(
     base,
     source=ImageAutoencoderSourceConfig(
-        surrogate_checkpoint_name="surrogate_synthetic.pt",
-        decoder_checkpoint_name="decoder_synthetic.pt",
+        lpap_pairs=(
+            ImageAutoencoderLpapPairConfig(
+                surrogate_checkpoint_name="surrogate_synthetic.pt",
+                decoder_checkpoint_name="decoder_synthetic.pt",
+                name="c128",
+            ),
+        ),
         image_to_energy_checkpoint_name="image_to_energy_energy_bank.pt",
         energy_to_image_checkpoint_name="energy_to_image_energy_bank.pt",
         load_best=True,
@@ -86,17 +92,7 @@ config = replace(
         run_id="{AE_ENERGY_BANK_RUN_ID}",
         checkpoint_name="{AE_ENERGY_BANK_CHECKPOINT}",
         log_name="{AE_ENERGY_BANK_LOG}",
-        note={resolved_note!r},
-        tags=(
-            "e2e",
-            "energy-bank",
-            "16-step",
-            "signed-mass",
-            "dialed",
-            "hf-sync",
-            "notify",
-            "molab-job",
-        ),
+        comment={resolved_comment!r},
         pinned=False,
         upload_artifacts_on_checkpoint={upload},
         notify_on_finished={notify},
@@ -139,7 +135,7 @@ def launch_ae_energy_bank_bg(
     target_steps: int,
     upload_artifacts_on_checkpoint: bool = True,
     notify_on_finished: bool = True,
-    note: str | None = None,
+    comment: str | None = None,
     require_secrets: bool = True,
 ) -> dict[str, Any]:
     """Write the versioned AE worker script and spawn it detached."""
@@ -155,7 +151,7 @@ def launch_ae_energy_bank_bg(
             project_root=root,
             upload_artifacts_on_checkpoint=upload_artifacts_on_checkpoint,
             notify_on_finished=notify_on_finished,
-            note=note,
+            comment=comment,
         ),
         encoding="utf-8",
     )
@@ -204,7 +200,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="disable notify_on_finished (env flag may still apply)",
     )
-    launch.add_argument("--note", default=None)
+    launch.add_argument("--comment", default=None)
     launch.add_argument(
         "--allow-missing-secrets",
         action="store_true",
@@ -223,7 +219,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 target_steps=args.target_steps,
                 upload_artifacts_on_checkpoint=not args.no_upload,
                 notify_on_finished=not args.no_notify,
-                note=args.note,
+                comment=args.comment,
                 require_secrets=not args.allow_missing_secrets,
             )
         except BackgroundWorkerError as exc:

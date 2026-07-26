@@ -193,6 +193,7 @@ _LAZY_MODULE_EXPORTS: dict[str, tuple[str, ...]] = {
         "ImageAutoencoderImageConfig",
         "ImageAutoencoderIntegrationConfig",
         "ImageAutoencoderLossConfig",
+        "ImageAutoencoderLpapPairConfig",
         "ImageAutoencoderMetrics",
         "ImageAutoencoderModel",
         "ImageAutoencoderOptimizerConfig",

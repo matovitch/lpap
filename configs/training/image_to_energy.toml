@@ -53,6 +53,5 @@ log_every = 1
 run_id = "image_to_energy"
 checkpoint_name = "image_to_energy.pt"
 log_name = "image_to_energy.sqlite"
-note = ""
-tags = ["baseline"]
+comment = ""
 pinned = false

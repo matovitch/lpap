@@ -21,13 +21,13 @@ class MolabJobsTest(unittest.TestCase):
             project_root="/marimo",
             upload_artifacts_on_checkpoint=True,
             notify_on_finished=True,
-            note="unit",
+            comment="unit",
         )
         self.assertIn("TARGET = 58200", source)
         self.assertIn("Path('/marimo')", source)
         self.assertIn("upload_artifacts_on_checkpoint=True", source)
         self.assertIn("notify_on_finished=True", source)
-        self.assertIn("note='unit'", source)
+        self.assertIn("comment='unit'", source)
         compile(source, "<ae_worker>", "exec")
 
     def test_launch_writes_script_and_spawns(self) -> None:

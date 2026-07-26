@@ -104,6 +104,43 @@ class TrainingLogTest(unittest.TestCase):
             self.assertEqual(runs[0]["best_validation_loss"], None)
             record = load_run_record(path, run_id="run-a")
             self.assertEqual(record["config"]["bucket_count"], 64)
+            self.assertEqual(record["comment"], "")
+            self.assertNotIn("facets", record)
+
+    def test_upsert_stores_comment_and_config_json(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "training.sqlite"
+            upsert_run(
+                path,
+                run_id="surrogate_c256:demo",
+                checkpoint_path="checkpoints/surrogate_c256.pt",
+                config={
+                    "data": {"bucket_count": 256, "probe_count": 8},
+                    "run": {
+                        "run_id": "surrogate_c256",
+                        "checkpoint_name": "surrogate_c256.pt",
+                        "permutation_seed": 256,
+                        "steps": 10000,
+                    },
+                },
+                metadata={"comment": "C=256 harmonic surrogate", "pinned": False},
+            )
+            record = load_run_record(path, run_id="surrogate_c256:demo")
+            self.assertEqual(record["comment"], "C=256 harmonic surrogate")
+            self.assertEqual(record["config"]["data"]["bucket_count"], 256)
+            self.assertNotIn("facets", record)
+            with sqlite3.connect(path) as connection:
+                columns = {
+                    str(row[1])
+                    for row in connection.execute("PRAGMA table_info(runs)").fetchall()
+                }
+                self.assertNotIn("facets_json", columns)
+                comment, config_json = connection.execute(
+                    "SELECT comment, config_json FROM runs WHERE run_id = ?",
+                    ("surrogate_c256:demo",),
+                ).fetchone()
+            self.assertEqual(comment, "C=256 harmonic surrogate")
+            self.assertIn('"bucket_count": 256', config_json)
 
     def test_prunes_old_run_instances(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -1,6 +1,6 @@
 [data]
 batch_size = 32
-bucket_count = 128
+bucket_count = 256
 probe_count = 8
 
 [decoder]
@@ -20,7 +20,7 @@ seed = 20123
 validate_at_end = true
 
 [teacher]
-checkpoint_name = "surrogate_synthetic.pt"
+checkpoint_name = "surrogate_c256.pt"
 load_best = true
 require_checkpoint = true
 
@@ -34,11 +34,11 @@ run_training = true
 resume_from_checkpoint = true
 steps = 10000
 seed = 456
-permutation_seed = 123
+permutation_seed = 256
 display_every = 5
 log_every = 1
-run_id = "decoder_synthetic"
-checkpoint_name = "decoder_synthetic.pt"
-log_name = "decoder.sqlite"
-comment = ""
+run_id = "decoder_c256"
+checkpoint_name = "decoder_c256.pt"
+log_name = "decoder_c256.sqlite"
+comment = "C=256 harmonic decoder from surrogate_c256 teacher"
 pinned = false

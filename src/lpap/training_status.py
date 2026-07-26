@@ -152,8 +152,7 @@ def summarize_training_status(
             "status": record["status"],
             "updated_at": record["updated_at"],
             "checkpoint_path": record["checkpoint_path"],
-            "note": record.get("note", ""),
-            "tags": list(record.get("tags", [])),
+            "comment": record.get("comment", ""),
         }
         summary["best_metric_row"] = load_best_metric_row(
             log_path,
@@ -207,11 +206,8 @@ def format_training_status(summary: Mapping[str, Any]) -> str:
             f"status={run.get('status')} updated_at={run.get('updated_at')}"
         )
         lines.append(f"log_path: {summary.get('log_path')}")
-        if run.get("note"):
-            lines.append(f"note: {run.get('note')}")
-        tags = run.get("tags") or []
-        if tags:
-            lines.append(f"tags: {', '.join(str(tag) for tag in tags)}")
+        if run.get("comment"):
+            lines.append(f"comment: {run.get('comment')}")
     best = summary.get("best_metric_row")
     if isinstance(best, Mapping):
         metric_items = [

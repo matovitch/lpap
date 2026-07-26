@@ -48,7 +48,7 @@ class TrainingNotebookConfigTest(unittest.TestCase):
 
         self.assertIsInstance(surrogate, LPAPSurrogateTrainingConfig)
         self.assertEqual(surrogate.run.run_id, "surrogate_synthetic")
-        self.assertEqual(surrogate.run.tags, ("baseline",))
+        self.assertEqual(surrogate.run.comment, "")
         self.assertIsInstance(decoder, LPAPDecoderTrainingConfig)
         self.assertEqual(decoder.run.run_id, "decoder_synthetic")
         self.assertTrue(decoder.teacher.require_checkpoint)
@@ -91,8 +91,8 @@ class TrainingNotebookConfigTest(unittest.TestCase):
             "energy_to_image.pt",
         )
         self.assertEqual(
-            image_autoencoder.run.tags,
-            ("e2e", "16-step", "no-reflow", "signed-mass", "dialed", "bs32"),
+            image_autoencoder.run.comment,
+            "16-step e2e AE with dialed lambdas and signed-mass",
         )
         self.assertEqual(image_autoencoder.loss.signed_mass_balance_weight, 0.02)
         self.assertEqual(image_autoencoder.loss.energy_l1_weight, 0.5)
@@ -176,8 +176,7 @@ class TrainingNotebookConfigTest(unittest.TestCase):
                 run_id = "surrogate_custom"
                 checkpoint_name = "surrogate_custom.pt"
                 log_name = "surrogate_custom.sqlite"
-                note = "custom config"
-                tags = ["tiny", "test"]
+                comment = "custom config"
                 pinned = true
                 """,
                 encoding="utf-8",
@@ -188,7 +187,7 @@ class TrainingNotebookConfigTest(unittest.TestCase):
             self.assertEqual(config.data.batch_size, 4)
             self.assertEqual(config.model.hidden_dim, 16)
             self.assertEqual(config.run.run_id, "surrogate_custom")
-            self.assertEqual(config.run.tags, ("tiny", "test"))
+            self.assertEqual(config.run.comment, "custom config")
             self.assertTrue(config.run.pinned)
 
     def test_training_config_path_uses_model_kind_filename(self) -> None:
@@ -206,7 +205,7 @@ class TrainingNotebookConfigTest(unittest.TestCase):
 
         self.assertIn("[data.harmonics]", text)
         self.assertIn('dtype = "torch.float32"', text)
-        self.assertIn('tags = ["baseline"]', text)
+        self.assertIn('comment = ""', text)
 
     def test_decoder_toml_does_not_serialize_harmonics(self) -> None:
         project_root = Path(__file__).resolve().parents[1]
@@ -235,12 +234,13 @@ class TrainingNotebookConfigTest(unittest.TestCase):
             run_config["run"]["run_training"] = False
             run_config["run"]["resume_from_checkpoint"] = True
             run_config["run"]["steps"] = 17
-            run_config["run"]["note"] = "restored from sqlite"
+            run_config["run"]["comment"] = "restored from sqlite"
             upsert_run(
                 log_path,
                 run_id="surrogate_synthetic:restored-run",
                 checkpoint_path="checkpoints/surrogate.pt",
                 config=run_config,
+                metadata={"comment": "restored from sqlite"},
             )
 
             restored_path = restore_training_config_from_log(
@@ -255,7 +255,7 @@ class TrainingNotebookConfigTest(unittest.TestCase):
             )
             self.assertFalse(restored_config.run.resume_from_checkpoint)
             self.assertEqual(restored_config.run.steps, 17)
-            self.assertEqual(restored_config.run.note, "restored from sqlite")
+            self.assertEqual(restored_config.run.comment, "restored from sqlite")
 
     def test_decoder_run_gallery_requires_checkpoint(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

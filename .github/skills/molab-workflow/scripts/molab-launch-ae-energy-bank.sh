@@ -16,7 +16,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 molab_exec="$script_dir/molab-exec.sh"
 target_steps=""
 as_json=0
-note=""
+comment=""
 upload=1
 notify=1
 
@@ -26,8 +26,8 @@ while [[ $# -gt 0 ]]; do
       target_steps="$2"
       shift 2
       ;;
-    --note)
-      note="$2"
+    --comment)
+      comment="$2"
       shift 2
       ;;
     --no-upload)
@@ -62,9 +62,9 @@ if [[ ! "$target_steps" =~ ^[0-9]+$ ]]; then
   exit 1
 fi
 
-note_b64=""
-if [[ -n "$note" ]]; then
-  note_b64="$(printf '%s' "$note" | python3 -c 'import sys, base64; print(base64.b64encode(sys.stdin.buffer.read()).decode())')"
+comment_b64=""
+if [[ -n "$comment" ]]; then
+  comment_b64="$(printf '%s' "$comment" | python3 -c 'import sys, base64; print(base64.b64encode(sys.stdin.buffer.read()).decode())')"
 fi
 
 # Values are embedded: molab-exec runs on the remote kernel (no local env forward).
@@ -76,16 +76,16 @@ import sys
 sys.path.insert(0, "/marimo")
 from molab.jobs import launch_ae_energy_bank_bg
 
-note = None
-note_b64 = "${note_b64}"
-if note_b64:
-    note = base64.b64decode(note_b64).decode("utf-8")
+comment = None
+comment_b64 = "${comment_b64}"
+if comment_b64:
+    comment = base64.b64decode(comment_b64).decode("utf-8")
 result = launch_ae_energy_bank_bg(
     project_root="/marimo",
     target_steps=${target_steps},
     upload_artifacts_on_checkpoint=${upload} == 1,
     notify_on_finished=${notify} == 1,
-    note=note,
+    comment=comment,
 )
 if ${as_json} == 1:
     print(json.dumps(result, indent=2, sort_keys=True))

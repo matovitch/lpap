@@ -98,7 +98,7 @@ The decoder does not duplicate harmonic source settings in its TOML. It reads th
 
 Both image flows can also target/source an empirical energy bank (see `configs/training/*_energy_bank.toml` and `lpap.energy_bank`). Bank rows are sampled independently of image batches so training learns the energy *marginal*, not a paired joint map.
 
-`image_autoencoder` is the total autoencoder. It Hilbert-flattens a grayscale image, rolls an image-to-energy flow forward for a small fixed number of differentiable steps, passes the encoded energy through the LPAP surrogate and decoder, then rolls an energy-to-image flow forward to reconstruct the image.
+`image_autoencoder` is the total autoencoder. It Hilbert-flattens a grayscale image, rolls an image-to-energy flow forward for a small fixed number of differentiable steps, passes the encoded energy through one or more LPAP surrogate/decoder pairs in parallel (shared flows), then rolls an energy-to-image flow forward to reconstruct the image. Pair-dependent losses (image L2, energy L1, surrogate CE) are averaged over pairs; signed-mass is applied once on the shared encoded energy. Configure pairs with `[[source.lpap_pairs]]` or the legacy flat `surrogate_checkpoint_name` / `decoder_checkpoint_name` (normalized to one pair).
 
 ```mermaid
 flowchart LR

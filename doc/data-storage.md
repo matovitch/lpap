@@ -55,7 +55,7 @@ flowchart LR
 Training creates local artifacts outside Git:
 
 - `checkpoints/*.pt`: model state, best model state, optimizer state, metrics, run config, model config, and lightweight metadata.
-- `training_logs/*.sqlite`: run records, run attempts, scalar KPIs, checkpoint paths, notes, tags, and display names.
+- `training_logs/*.sqlite`: run records, run attempts, scalar KPIs, checkpoint paths, full `config_json`, free-text `comment`, and display metadata.
 
 ```mermaid
 flowchart TD

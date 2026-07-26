@@ -53,6 +53,5 @@ log_every = 5
 run_id = "image_to_energy_energy_bank"
 checkpoint_name = "image_to_energy_energy_bank.pt"
 log_name = "image_to_energy_energy_bank.sqlite"
-note = "probe: empirical AE energy marginal prior; random image pairing"
-tags = ["energy-bank", "emp-prior", "probe"]
+comment = "energy-bank prior probe; unpaired images"
 pinned = false

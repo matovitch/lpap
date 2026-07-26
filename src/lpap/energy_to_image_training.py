@@ -137,8 +137,7 @@ class EnergyToImageRunConfig:
     run_id: str = "energy_to_image"
     checkpoint_name: str = "energy_to_image.pt"
     log_name: str = "energy_to_image.sqlite"
-    note: str = ""
-    tags: tuple[str, ...] = ()
+    comment: str = ""
     pinned: bool = False
 
     def validate(self) -> None:
@@ -158,8 +157,7 @@ class EnergyToImageRunConfig:
             "run_id": self.run_id,
             "checkpoint_name": self.checkpoint_name,
             "log_name": self.log_name,
-            "note": self.note,
-            "tags": self.tags,
+            "comment": self.comment,
             "pinned": self.pinned,
         }
 
@@ -247,8 +245,7 @@ def energy_to_image_training_config_from_dict(
             run_id=str(run_data["run_id"]),
             checkpoint_name=str(run_data["checkpoint_name"]),
             log_name=str(run_data["log_name"]),
-            note=str(run_data.get("note", "")),
-            tags=tuple(str(tag) for tag in run_data.get("tags", ())),
+            comment=str(run_data.get("comment", "")),
             pinned=bool(run_data.get("pinned", False)),
         ),
     )

@@ -1,6 +1,6 @@
 [data]
 batch_size = 32
-bucket_count = 128
+bucket_count = 256
 probe_count = 8
 
 [data.harmonics]
@@ -31,11 +31,11 @@ run_training = true
 resume_from_checkpoint = true
 steps = 10000
 seed = 123
-permutation_seed = 123
+permutation_seed = 256
 display_every = 5
 log_every = 1
-run_id = "surrogate_synthetic"
-checkpoint_name = "surrogate_synthetic.pt"
-log_name = "surrogate.sqlite"
-comment = ""
+run_id = "surrogate_c256"
+checkpoint_name = "surrogate_c256.pt"
+log_name = "surrogate_c256.sqlite"
+comment = "C=256 harmonic surrogate; perm seed distinct from C=128"
 pinned = false

@@ -180,10 +180,7 @@ def _(
             display_every=int(display_every.value),
             log_every=int(log_every.value),
             resume_from_checkpoint=True,
-            note="molab lab",
-            tags=tuple(
-                dict.fromkeys((*base_config.run.tags, "molab", "lab"))
-            ),
+            comment="molab lab chunk",
         ),
     )
     recent_runs = recent_training_runs(project_root, config, limit=10)

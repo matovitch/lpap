@@ -38,6 +38,7 @@ from lpap.image_to_energy_training import (
 from lpap.image_autoencoder_training import (
     ImageAutoencoderIntegrationConfig,
     ImageAutoencoderLossConfig,
+    ImageAutoencoderLpapPairConfig,
     ImageAutoencoderRunConfig,
     ImageAutoencoderSourceConfig,
     ImageAutoencoderTrainingConfig,
@@ -148,8 +149,7 @@ def default_surrogate_training_config() -> LPAPSurrogateTrainingConfig:
             run_id="surrogate_synthetic",
             checkpoint_name="surrogate_synthetic.pt",
             log_name="surrogate.sqlite",
-            note="",
-            tags=("baseline",),
+            comment="",
             pinned=False,
         ),
     )
@@ -197,8 +197,7 @@ def default_decoder_training_config() -> LPAPDecoderTrainingConfig:
             run_id="decoder_synthetic",
             checkpoint_name="decoder_synthetic.pt",
             log_name="decoder.sqlite",
-            note="",
-            tags=("baseline",),
+            comment="",
             pinned=False,
         ),
     )
@@ -259,8 +258,7 @@ def default_image_to_energy_training_config() -> ImageToEnergyTrainingConfig:
             run_id="image_to_energy",
             checkpoint_name="image_to_energy.pt",
             log_name="image_to_energy.sqlite",
-            note="",
-            tags=("baseline",),
+            comment="",
             pinned=False,
         ),
     )
@@ -321,8 +319,7 @@ def default_energy_to_image_training_config() -> EnergyToImageTrainingConfig:
             run_id="energy_to_image",
             checkpoint_name="energy_to_image.pt",
             log_name="energy_to_image.sqlite",
-            note="",
-            tags=("baseline",),
+            comment="",
             pinned=False,
         ),
     )
@@ -359,8 +356,7 @@ def default_image_to_energy_energy_bank_training_config() -> ImageToEnergyTraini
             run_id="image_to_energy_energy_bank",
             checkpoint_name="image_to_energy_energy_bank.pt",
             log_name="image_to_energy_energy_bank.sqlite",
-            note="probe: empirical AE energy marginal prior; random image pairing",
-            tags=("energy-bank", "emp-prior", "probe"),
+            comment="energy-bank prior probe; unpaired images",
             pinned=False,
         ),
     )
@@ -397,8 +393,7 @@ def default_energy_to_image_energy_bank_training_config() -> EnergyToImageTraini
             run_id="energy_to_image_energy_bank",
             checkpoint_name="energy_to_image_energy_bank.pt",
             log_name="energy_to_image_energy_bank.sqlite",
-            note="probe: empirical AE energy marginal as e2i source; random image pairing",
-            tags=("energy-bank", "emp-prior", "probe"),
+            comment="energy-bank e2i source probe; unpaired images",
             pinned=False,
         ),
     )
@@ -424,8 +419,13 @@ def default_image_autoencoder_training_config() -> ImageAutoencoderTrainingConfi
             num_workers=0,
         ),
         source=ImageAutoencoderSourceConfig(
-            surrogate_checkpoint_name="surrogate_synthetic.pt",
-            decoder_checkpoint_name="decoder_synthetic.pt",
+            lpap_pairs=(
+                ImageAutoencoderLpapPairConfig(
+                    surrogate_checkpoint_name="surrogate_synthetic.pt",
+                    decoder_checkpoint_name="decoder_synthetic.pt",
+                    name="c128",
+                ),
+            ),
             image_to_energy_checkpoint_name="image_to_energy.pt",
             energy_to_image_checkpoint_name="energy_to_image.pt",
             load_best=True,
@@ -472,11 +472,9 @@ def default_image_autoencoder_training_config() -> ImageAutoencoderTrainingConfi
             run_id="image_autoencoder",
             checkpoint_name="image_autoencoder.pt",
             log_name="image_autoencoder.sqlite",
-            note=(
-                "16-step no-reflow e2e; dialed lambdas; batch_size=32; "
-                "signed-mass gap/floor tau=0.01"
+            comment=(
+                "16-step e2e AE with dialed lambdas and signed-mass"
             ),
-            tags=("e2e", "16-step", "no-reflow", "signed-mass", "dialed", "bs32"),
             pinned=False,
         ),
     )
@@ -722,6 +720,7 @@ def iter_training(model_kind: TrainingModelKind, session: TrainingSession):
     return iter_image_autoencoder_training(session)
 
 
+
 def render_recent_runs_table(runs: list[dict[str, object]]) -> str:
     def metric_cell(value: object) -> str:
         return "" if value is None else f"{float(value):.4f}"
@@ -733,14 +732,13 @@ def render_recent_runs_table(runs: list[dict[str, object]]) -> str:
         f"<td>{row['status']}</td>"
         f"<td>{row['last_step'] or ''}</td>"
         f"<td>{metric_cell(row['best_validation_loss'])}</td>"
-        f"<td>{', '.join(row['tags'])}</td>"
-        f"<td>{row['note']}</td>"
+        f"<td>{row.get('comment', '')}</td>"
         "</tr>"
         for row in runs
     )
     return (
         "<table>"
         "<thead><tr><th>name</th><th>run instance</th><th>status</th>"
-        "<th>last step</th><th>best validation loss</th><th>tags</th>"
-        "<th>note</th></tr></thead><tbody>" + rows + "</tbody></table>"
+        "<th>last step</th><th>best validation loss</th>"
+        "<th>comment</th></tr></thead><tbody>" + rows + "</tbody></table>"
     )
