@@ -100,6 +100,8 @@ Both image flows can also target/source an empirical energy bank (see `configs/t
 
 `image_autoencoder` is the total autoencoder. It Hilbert-flattens a grayscale image, rolls an image-to-energy flow forward for a small fixed number of differentiable steps, passes the encoded energy through one or more LPAP surrogate/decoder pairs in parallel (shared flows), then rolls an energy-to-image flow forward to reconstruct the image. Pair-dependent losses (image L2, energy L1, surrogate CE) are averaged over pairs; signed-mass is applied once on the shared encoded energy. Configure pairs with `[[source.lpap_pairs]]` or the legacy flat `surrogate_checkpoint_name` / `decoder_checkpoint_name` (normalized to one pair).
 
+Every LPAP pair must use `value_count = bucket_count * probe_count = 1024` for 32×32 images (e.g. C=128 → `probe_count=8`, C=256 → `probe_count=4`). Different pairs may use different `C`, but the energy length must match the shared flows.
+
 ```mermaid
 flowchart LR
     img[Grayscale image] --> i2e[Image-to-energy flow<br/>Euler rollout]
