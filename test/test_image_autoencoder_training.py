@@ -299,6 +299,8 @@ class ImageAutoencoderTrainingTest(unittest.TestCase):
             self.assertEqual(gallery[0].image.shape, (4, 4))
             self.assertEqual(gallery[0].encoded_energy.shape, (16,))
             self.assertEqual(gallery[0].reconstructed_image.shape, (4, 4))
+            self.assertEqual(len(gallery[0].pairs), 1)
+            self.assertEqual(gallery[0].pairs[0].name, "c4")
 
     def test_two_pair_session_means_pair_losses_and_backprops_both_branches(
         self,
@@ -341,6 +343,8 @@ class ImageAutoencoderTrainingTest(unittest.TestCase):
                 ),
                 places=5,
             )
+            gallery = collect_image_autoencoder_gallery(session, sample_count=1)
+            self.assertEqual([pair.name for pair in gallery[0].pairs], ["c4", "c8"])
 
             images = torch.arange(2 * 1 * 4 * 4, dtype=torch.uint8).reshape(2, 1, 4, 4)
             train_image_autoencoder_step(session=session, images=images)

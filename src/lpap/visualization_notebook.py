@@ -160,7 +160,7 @@ def render_image_autoencoder_run_gallery(
     project_root: str | Path,
     log_path: str | Path,
     run_id: str,
-    sample_count: int = 3,
+    sample_count: int = 1,
 ) -> str:
     root = Path(project_root)
     record = load_run_record(log_path, run_id=run_id)

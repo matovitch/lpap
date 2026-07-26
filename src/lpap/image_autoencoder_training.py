@@ -574,13 +574,35 @@ class ImageAutoencoderTrainingSession:
 
 
 @dataclass(frozen=True)
+class ImageAutoencoderGalleryPairItem:
+    name: str
+    decoded_energy: torch.Tensor
+    reconstructed_image: torch.Tensor
+    energy_error: torch.Tensor
+    image_error: torch.Tensor
+
+
+@dataclass(frozen=True)
 class ImageAutoencoderGalleryItem:
     image: torch.Tensor
-    reconstructed_image: torch.Tensor
-    image_error: torch.Tensor
     encoded_energy: torch.Tensor
-    decoded_energy: torch.Tensor
-    energy_error: torch.Tensor
+    pairs: tuple[ImageAutoencoderGalleryPairItem, ...]
+
+    @property
+    def reconstructed_image(self) -> torch.Tensor:
+        return self.pairs[0].reconstructed_image
+
+    @property
+    def image_error(self) -> torch.Tensor:
+        return self.pairs[0].image_error
+
+    @property
+    def decoded_energy(self) -> torch.Tensor:
+        return self.pairs[0].decoded_energy
+
+    @property
+    def energy_error(self) -> torch.Tensor:
+        return self.pairs[0].energy_error
 
 
 def image_autoencoder_training_config_from_dict(
@@ -1085,7 +1107,7 @@ def iter_image_autoencoder_training(
 def collect_image_autoencoder_gallery(
     session: ImageAutoencoderTrainingSession,
     *,
-    sample_count: int = 3,
+    sample_count: int = 1,
 ) -> list[ImageAutoencoderGalleryItem]:
     if sample_count <= 0:
         return []
@@ -1102,30 +1124,46 @@ def collect_image_autoencoder_gallery(
         # Image-domain tensors are Hilbert sequences in the model; unflatten for
         # spatial gallery panels. Energy stays in sequence order (row-major viz).
         spatial_image = hilbert_unflatten_images(image, side=side)
-        spatial_reconstructed = hilbert_unflatten_images(
-            output.reconstructed_image, side=side
-        )
-        image_error = spatial_reconstructed - spatial_image
-        energy_error = output.decoded_energy - output.encoded_energy
+        items: list[ImageAutoencoderGalleryItem] = []
+        for index in range(images.shape[0]):
+            pair_items: list[ImageAutoencoderGalleryPairItem] = []
+            for runtime, pair_output in zip(
+                session.lpap_pairs, output.pairs, strict=True
+            ):
+                spatial_reconstructed = hilbert_unflatten_images(
+                    pair_output.reconstructed_image[index : index + 1], side=side
+                )[0, 0]
+                source_spatial = spatial_image[index, 0]
+                decoded = pair_output.decoded_energy[index, 0]
+                encoded = output.encoded_energy[index, 0]
+                pair_items.append(
+                    ImageAutoencoderGalleryPairItem(
+                        name=runtime.name,
+                        decoded_energy=decoded.detach().cpu(),
+                        reconstructed_image=spatial_reconstructed.detach().cpu(),
+                        energy_error=(decoded - encoded).detach().cpu(),
+                        image_error=(spatial_reconstructed - source_spatial)
+                        .detach()
+                        .cpu(),
+                    )
+                )
+            items.append(
+                ImageAutoencoderGalleryItem(
+                    image=spatial_image[index, 0].detach().cpu(),
+                    encoded_energy=output.encoded_energy[index, 0].detach().cpu(),
+                    pairs=tuple(pair_items),
+                )
+            )
     if was_training:
         session.model.train()
-    return [
-        ImageAutoencoderGalleryItem(
-            image=spatial_image[index, 0].detach().cpu(),
-            reconstructed_image=spatial_reconstructed[index, 0].detach().cpu(),
-            image_error=image_error[index, 0].detach().cpu(),
-            encoded_energy=output.encoded_energy[index, 0].detach().cpu(),
-            decoded_energy=output.decoded_energy[index, 0].detach().cpu(),
-            energy_error=energy_error[index, 0].detach().cpu(),
-        )
-        for index in range(images.shape[0])
-    ]
+    return items
 
 
 __all__ = [
     "ImageAutoencoderFlowConfig",
     "ImageAutoencoderForward",
     "ImageAutoencoderGalleryItem",
+    "ImageAutoencoderGalleryPairItem",
     "ImageAutoencoderImageConfig",
     "ImageAutoencoderIntegrationConfig",
     "ImageAutoencoderLossConfig",

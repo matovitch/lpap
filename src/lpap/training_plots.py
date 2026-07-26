@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+import struct
+import zlib
 from collections.abc import Mapping, Sequence
 from html import escape
 from typing import Any
@@ -212,6 +215,98 @@ def _grayscale_pixels(values: torch.Tensor, *, size: int) -> str:
     return "".join(pixels)
 
 
+def _png_chunk(tag: bytes, data: bytes) -> bytes:
+    return (
+        struct.pack(">I", len(data))
+        + tag
+        + data
+        + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+    )
+
+
+def _rgb_png_data_uri(rgb: bytes, *, width: int, height: int) -> str:
+    if len(rgb) != width * height * 3:
+        raise ValueError("rgb buffer length must equal width*height*3")
+    rows = b"".join(
+        b"\x00" + rgb[row * width * 3 : (row + 1) * width * 3]
+        for row in range(height)
+    )
+    png = (
+        b"\x89PNG\r\n\x1a\n"
+        + _png_chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        + _png_chunk(b"IDAT", zlib.compress(rows, level=9))
+        + _png_chunk(b"IEND", b"")
+    )
+    return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+
+
+def _grayscale_png_img(
+    values: torch.Tensor,
+    *,
+    size: int,
+    display_px: int,
+    label: str,
+) -> str:
+    flat = values.detach().cpu().reshape(size * size)
+    rgb = bytearray()
+    for amplitude in flat.tolist():
+        level = round(255 * max(0.0, min(1.0, float(amplitude))))
+        rgb.extend((level, level, level))
+    uri = _rgb_png_data_uri(bytes(rgb), width=size, height=size)
+    return f"""
+        <div style="display: grid; gap: 4px;">
+            <div style="font-weight: 600;">{escape(label)}</div>
+            <img src="{uri}" width="{display_px}" height="{display_px}"
+                 style="image-rendering: pixelated; border: 1px solid #30333a; background: #000;"
+                 alt="{escape(label)}" />
+        </div>
+        """
+
+
+def _signed_png_img(
+    values: torch.Tensor,
+    *,
+    size: int,
+    max_abs: float,
+    display_px: int,
+    label: str,
+) -> str:
+    flat = values.detach().cpu().reshape(size * size)
+    scale = max(float(max_abs), 1.0e-12)
+    rgb = bytearray()
+    for amplitude in flat.tolist():
+        scaled = max(-1.0, min(1.0, float(amplitude) / scale))
+        red = round(255 * max(scaled, 0.0))
+        blue = round(255 * max(-scaled, 0.0))
+        rgb.extend((red, 0, blue))
+    uri = _rgb_png_data_uri(bytes(rgb), width=size, height=size)
+    return f"""
+        <div style="display: grid; gap: 4px;">
+            <div style="font-weight: 600;">{escape(label)}</div>
+            <img src="{uri}" width="{display_px}" height="{display_px}"
+                 style="image-rendering: pixelated; border: 1px solid #30333a; background: #000;"
+                 alt="{escape(label)}" />
+        </div>
+        """
+
+
+_AE_GALLERY_PAIR_ORDER = ("c256", "c128")
+
+
+def _ordered_ae_gallery_pairs(pairs: Sequence[Any]) -> list[Any]:
+    by_name = {str(getattr(pair, "name", "")): pair for pair in pairs}
+    ordered: list[Any] = []
+    for name in _AE_GALLERY_PAIR_ORDER:
+        pair = by_name.pop(name, None)
+        if pair is not None:
+            ordered.append(pair)
+    for pair in pairs:
+        name = str(getattr(pair, "name", ""))
+        if name not in _AE_GALLERY_PAIR_ORDER:
+            ordered.append(pair)
+    return ordered
+
+
 def render_signed_triplet_gallery_html(items: Sequence[Any], *, size: int = 32) -> str:
     if not items:
         return "<p>No gallery samples are available.</p>"
@@ -389,6 +484,7 @@ def render_image_autoencoder_gallery_html(
     items: Sequence[Any],
     *,
     size: int = 32,
+    display_px: int = 96,
 ) -> str:
     if not items:
         return "<p>No image autoencoder gallery samples are available.</p>"
@@ -396,83 +492,136 @@ def render_image_autoencoder_gallery_html(
     expected_count = size * size
     panels = []
     for item_index, item in enumerate(items, start=1):
+        pairs = _ordered_ae_gallery_pairs(getattr(item, "pairs", ()))
+        if not pairs:
+            # Legacy single-pair gallery items (flat fields).
+            pairs = [
+                type(
+                    "LegacyPair",
+                    (),
+                    {
+                        "name": "pair0",
+                        "decoded_energy": item.decoded_energy,
+                        "reconstructed_image": item.reconstructed_image,
+                        "energy_error": item.energy_error,
+                        "image_error": item.image_error,
+                    },
+                )()
+            ]
         image = item.image.detach().cpu().reshape(-1)
-        reconstructed = item.reconstructed_image.detach().cpu().reshape(-1)
-        image_error = item.image_error.detach().cpu().reshape(-1)
         encoded_energy = item.encoded_energy.detach().cpu().reshape(-1)
-        decoded_energy = item.decoded_energy.detach().cpu().reshape(-1)
-        energy_error = item.energy_error.detach().cpu().reshape(-1)
-        tensors = (
-            image,
-            reconstructed,
-            image_error,
-            encoded_energy,
-            decoded_energy,
-            energy_error,
-        )
-        if any(tensor.numel() != expected_count for tensor in tensors):
+        if image.numel() != expected_count or encoded_energy.numel() != expected_count:
             raise ValueError(f"gallery tensors must contain {expected_count} values")
-        image_error_max_abs = float(image_error.abs().max().clamp_min(1.0e-12))
+        for pair in pairs:
+            for tensor in (
+                pair.decoded_energy,
+                pair.reconstructed_image,
+                pair.energy_error,
+                pair.image_error,
+            ):
+                if tensor.detach().cpu().reshape(-1).numel() != expected_count:
+                    raise ValueError(
+                        f"gallery tensors must contain {expected_count} values"
+                    )
+
         energy_max_abs = max(
             float(encoded_energy.abs().max().clamp_min(1.0e-12)),
-            float(decoded_energy.abs().max().clamp_min(1.0e-12)),
+            *(
+                float(pair.decoded_energy.detach().cpu().abs().max().clamp_min(1.0e-12))
+                for pair in pairs
+            ),
         )
-        energy_error_max_abs = float(energy_error.abs().max().clamp_min(1.0e-12))
-        image_panel = f"""
-                <div style="display: grid; gap: 6px;">
-                    <div style="font-weight: 600;">1. image</div>
-                    <div style="display: grid; grid-template-columns: repeat({size}, 6px); grid-template-rows: repeat({size}, 6px); width: {size * 6}px; height: {size * 6}px; border: 1px solid #30333a; background: #000;">
-                        {_grayscale_pixels(image, size=size)}
-                    </div>
-                </div>
-                """
-        encoded_panel = f"""
-                <div style="display: grid; gap: 6px;">
-                    <div style="font-weight: 600;">2. encoded energy (i2e)</div>
-                    <div style="display: grid; grid-template-columns: repeat({size}, 6px); grid-template-rows: repeat({size}, 6px); width: {size * 6}px; height: {size * 6}px; border: 1px solid #30333a; background: #000;">
-                        {_signed_pixels(encoded_energy, size=size, max_abs=energy_max_abs)}
-                    </div>
-                </div>
-                """
-        decoded_panel = f"""
-                <div style="display: grid; gap: 6px;">
-                    <div style="font-weight: 600;">3. decoded energy (LPAP)</div>
-                    <div style="display: grid; grid-template-columns: repeat({size}, 6px); grid-template-rows: repeat({size}, 6px); width: {size * 6}px; height: {size * 6}px; border: 1px solid #30333a; background: #000;">
-                        {_signed_pixels(decoded_energy, size=size, max_abs=energy_max_abs)}
-                    </div>
-                </div>
-                """
-        reconstructed_panel = f"""
-                <div style="display: grid; gap: 6px;">
-                    <div style="font-weight: 600;">4. reconstruction (e2i)</div>
-                    <div style="display: grid; grid-template-columns: repeat({size}, 6px); grid-template-rows: repeat({size}, 6px); width: {size * 6}px; height: {size * 6}px; border: 1px solid #30333a; background: #000;">
-                        {_grayscale_pixels(reconstructed, size=size)}
-                    </div>
-                </div>
-                """
-        image_error_panel = f"""
-                <div style="display: grid; gap: 6px;">
-                    <div style="font-weight: 600;">5. image error</div>
-                    <div style="display: grid; grid-template-columns: repeat({size}, 6px); grid-template-rows: repeat({size}, 6px); width: {size * 6}px; height: {size * 6}px; border: 1px solid #30333a; background: #000;">
-                        {_signed_pixels(image_error, size=size, max_abs=image_error_max_abs)}
-                    </div>
-                </div>
-                """
-        energy_error_panel = f"""
-                <div style="display: grid; gap: 6px;">
-                    <div style="font-weight: 600;">6. energy error</div>
-                    <div style="display: grid; grid-template-columns: repeat({size}, 6px); grid-template-rows: repeat({size}, 6px); width: {size * 6}px; height: {size * 6}px; border: 1px solid #30333a; background: #000;">
-                        {_signed_pixels(energy_error, size=size, max_abs=energy_error_max_abs)}
-                    </div>
-                </div>
-                """
+        energy_error_max_abs = max(
+            (
+                float(pair.energy_error.detach().cpu().abs().max().clamp_min(1.0e-12))
+                for pair in pairs
+            ),
+            default=1.0e-12,
+        )
+        image_error_max_abs = max(
+            (
+                float(pair.image_error.detach().cpu().abs().max().clamp_min(1.0e-12))
+                for pair in pairs
+            ),
+            default=1.0e-12,
+        )
+
+        energy_row = [
+            _signed_png_img(
+                encoded_energy,
+                size=size,
+                max_abs=energy_max_abs,
+                display_px=display_px,
+                label="source energy",
+            )
+        ]
+        energy_row.extend(
+            _signed_png_img(
+                pair.decoded_energy,
+                size=size,
+                max_abs=energy_max_abs,
+                display_px=display_px,
+                label=f"{pair.name} energy",
+            )
+            for pair in pairs
+        )
+        energy_row.extend(
+            _signed_png_img(
+                pair.energy_error,
+                size=size,
+                max_abs=energy_error_max_abs,
+                display_px=display_px,
+                label=f"Δ energy {pair.name}",
+            )
+            for pair in pairs
+        )
+
+        image_row = [
+            _grayscale_png_img(
+                image,
+                size=size,
+                display_px=display_px,
+                label="source image",
+            )
+        ]
+        image_row.extend(
+            _grayscale_png_img(
+                pair.reconstructed_image,
+                size=size,
+                display_px=display_px,
+                label=f"{pair.name} image",
+            )
+            for pair in pairs
+        )
+        image_row.extend(
+            _signed_png_img(
+                pair.image_error,
+                size=size,
+                max_abs=image_error_max_abs,
+                display_px=display_px,
+                label=f"Δ image {pair.name}",
+            )
+            for pair in pairs
+        )
+
         panels.append(
             f"""
-                        <div style="display: grid; gap: 10px;">
-                            <div style="font-weight: 700;">sample {item_index}</div>
-                            <div style="display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-start;">{image_panel}{encoded_panel}{decoded_panel}{reconstructed_panel}{image_error_panel}{energy_error_panel}</div>
-                        </div>
-                        """
+            <div style="display: grid; gap: 10px;">
+                <div style="font-weight: 700;">sample {item_index}</div>
+                <div style="display: grid; gap: 6px;">
+                    <div style="font-weight: 600;">energy</div>
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-start;">
+                        {"".join(energy_row)}
+                    </div>
+                </div>
+                <div style="display: grid; gap: 6px;">
+                    <div style="font-weight: 600;">image</div>
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-start;">
+                        {"".join(image_row)}
+                    </div>
+                </div>
+            </div>
+            """
         )
 
     return f"""
@@ -480,7 +629,7 @@ def render_image_autoencoder_gallery_html(
             {"".join(panels)}
             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                 <span style="width: 44px; height: 12px; background: linear-gradient(90deg, #004cff, #000, #ff2600); border: 1px solid #30333a;"></span>
-                <span>pipeline L→R: image → i2e energy → LPAP decode → e2i image → errors (signed panels: − / 0 / +)</span>
+                <span>energy then image: source → c256 → c128 → diffs (signed: − / 0 / +)</span>
             </div>
         </div>
         """

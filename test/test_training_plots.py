@@ -60,33 +60,43 @@ class TrainingPlotsTest(unittest.TestCase):
         self.assertIn("rgb(0, 0, 255)", html)
 
     def test_renders_image_autoencoder_gallery(self) -> None:
+        from lpap.image_autoencoder_training import ImageAutoencoderGalleryPairItem
+
         html = render_image_autoencoder_gallery_html(
             [
                 ImageAutoencoderGalleryItem(
                     image=torch.linspace(0.0, 1.0, 16),
-                    reconstructed_image=torch.ones(16),
-                    image_error=torch.linspace(-1.0, 1.0, 16),
                     encoded_energy=torch.linspace(-1.0, 1.0, 16),
-                    decoded_energy=torch.linspace(1.0, -1.0, 16),
-                    energy_error=-torch.ones(16),
+                    pairs=(
+                        ImageAutoencoderGalleryPairItem(
+                            name="c256",
+                            decoded_energy=torch.linspace(1.0, -1.0, 16),
+                            reconstructed_image=torch.ones(16),
+                            energy_error=-torch.ones(16),
+                            image_error=torch.linspace(-1.0, 1.0, 16),
+                        ),
+                        ImageAutoencoderGalleryPairItem(
+                            name="c128",
+                            decoded_energy=torch.linspace(-0.5, 0.5, 16),
+                            reconstructed_image=torch.zeros(16),
+                            energy_error=torch.ones(16) * 0.25,
+                            image_error=torch.linspace(1.0, -1.0, 16),
+                        ),
+                    ),
                 )
             ],
             size=4,
         )
 
-        self.assertLess(html.index("1. image"), html.index("2. encoded energy (i2e)"))
-        self.assertLess(
-            html.index("2. encoded energy (i2e)"), html.index("3. decoded energy (LPAP)")
-        )
-        self.assertLess(
-            html.index("3. decoded energy (LPAP)"),
-            html.index("4. reconstruction (e2i)"),
-        )
-        self.assertLess(html.index("4. reconstruction (e2i)"), html.index("5. image error"))
-        self.assertLess(html.index("5. image error"), html.index("6. energy error"))
-        self.assertIn("energy error", html)
-        self.assertIn("rgb(255, 255, 255)", html)
-        self.assertIn("rgb(0, 0, 255)", html)
+        self.assertLess(html.index("source energy"), html.index("c256 energy"))
+        self.assertLess(html.index("c256 energy"), html.index("c128 energy"))
+        self.assertLess(html.index("c128 energy"), html.index("Δ energy c256"))
+        self.assertLess(html.index("Δ energy c256"), html.index("Δ energy c128"))
+        self.assertLess(html.index("source image"), html.index("c256 image"))
+        self.assertLess(html.index("c256 image"), html.index("c128 image"))
+        self.assertLess(html.index("c128 image"), html.index("Δ image c256"))
+        self.assertIn("data:image/png;base64,", html)
+        self.assertIn("energy then image", html)
 
 
 if __name__ == "__main__":

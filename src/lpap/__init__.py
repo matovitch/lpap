@@ -190,6 +190,7 @@ _LAZY_MODULE_EXPORTS: dict[str, tuple[str, ...]] = {
         "ImageAutoencoderFlowConfig",
         "ImageAutoencoderForward",
         "ImageAutoencoderGalleryItem",
+        "ImageAutoencoderGalleryPairItem",
         "ImageAutoencoderImageConfig",
         "ImageAutoencoderIntegrationConfig",
         "ImageAutoencoderLossConfig",
