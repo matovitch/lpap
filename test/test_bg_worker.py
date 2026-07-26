@@ -39,6 +39,24 @@ class BgWorkerTest(unittest.TestCase):
             self.assertTrue(status["alive"])
             self.assertEqual(status["pid"], os.getpid())
 
+    def test_process_alive_rejects_zombie_state(self) -> None:
+        from molab.bg_worker import process_alive
+
+        with patch("molab.bg_worker.os.kill", return_value=None):
+            with patch("molab.bg_worker.Path") as path_cls:
+                stat_path = MagicMock()
+                stat_path.is_file.return_value = True
+                stat_path.read_text.return_value = "1 (python) Z 0 0 0 0 0 0\n"
+                path_cls.return_value = stat_path
+                self.assertFalse(process_alive(1))
+
+            with patch("molab.bg_worker.Path") as path_cls:
+                stat_path = MagicMock()
+                stat_path.is_file.return_value = True
+                stat_path.read_text.return_value = "1 (python) R 0 0 0 0 0 0\n"
+                path_cls.return_value = stat_path
+                self.assertTrue(process_alive(1))
+
     def test_require_env_keys(self) -> None:
         with patch.dict(os.environ, {"HF_TOKEN": "tok"}, clear=False):
             env = require_env_keys(("HF_TOKEN",))

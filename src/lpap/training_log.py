@@ -160,7 +160,7 @@ def prune_run_history(
     with closing(_connect(path)) as connection, connection:
         rows = connection.execute(
             """
-            SELECT run_id, metadata_json
+            SELECT run_id, status, metadata_json
             FROM runs
             WHERE run_id = ? OR run_id LIKE ?
             ORDER BY created_at DESC, run_id DESC
@@ -168,9 +168,15 @@ def prune_run_history(
             """,
             (base_run_id, prefix, keep_last),
         ).fetchall()
-        stale_run_ids = [
-            row[0] for row in rows if not bool(json.loads(row[1]).get("pinned", False))
-        ]
+        stale_run_ids = []
+        for run_id, status, metadata_json in rows:
+            # Never delete an in-flight run: gallery/status probes also upsert
+            # run rows and would otherwise FK-break a live bg worker's metrics.
+            if str(status) == "running":
+                continue
+            if bool(json.loads(metadata_json).get("pinned", False)):
+                continue
+            stale_run_ids.append(run_id)
         if not stale_run_ids:
             return
         placeholders = ",".join("?" for _run_id in stale_run_ids)

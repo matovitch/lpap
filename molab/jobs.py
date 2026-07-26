@@ -103,7 +103,7 @@ config = replace(
         checkpoint_name="{AE_ENERGY_BANK_CHECKPOINT}",
         log_name="{AE_ENERGY_BANK_LOG}",
         comment={resolved_comment!r},
-        pinned=False,
+        pinned=True,
         upload_artifacts_on_checkpoint={upload},
         notify_on_finished={notify},
     ),

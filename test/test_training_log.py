@@ -170,6 +170,8 @@ class TrainingLogTest(unittest.TestCase):
                     metrics={"loss": float(index)},
                     improved=True,
                 )
+                mark_run_status(path, run_id=run_id, status="finished")
+                finish_run_attempt(path, attempt_id=attempt_id, status="finished")
 
             prune_run_history(path, base_run_id="run-a", keep_last=10)
 
@@ -184,6 +186,73 @@ class TrainingLogTest(unittest.TestCase):
             self.assertEqual(len(run_ids), 10)
             self.assertNotIn("run-a:instance-00", run_ids)
             self.assertNotIn("run-a:instance-01", run_ids)
+
+    def test_prune_keeps_running_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "training.sqlite"
+            for index in range(12):
+                run_id = f"run-a:instance-{index:02d}"
+                upsert_run(
+                    path,
+                    run_id=run_id,
+                    checkpoint_path="checkpoints/model.pt",
+                    config={},
+                    status="finished" if index < 11 else "running",
+                )
+                attempt_id = start_run_attempt(
+                    path,
+                    run_id=run_id,
+                    resumed=False,
+                    start_step=1,
+                    checkpoint_step=None,
+                    message="starting fresh",
+                )
+                log_step_metrics(
+                    path,
+                    run_id=run_id,
+                    attempt_id=attempt_id,
+                    step=1,
+                    epoch=1,
+                    metrics={"loss": float(index)},
+                    improved=False,
+                )
+                if index < 11:
+                    finish_run_attempt(
+                        path, attempt_id=attempt_id, status="finished"
+                    )
+
+            # keep_last=1 would otherwise drop the oldest finished runs AND the
+            # live one if status were ignored.
+            prune_run_history(path, base_run_id="run-a", keep_last=1)
+
+            with sqlite3.connect(path) as connection:
+                rows = list(
+                    connection.execute("SELECT run_id, status FROM runs ORDER BY run_id")
+                )
+            run_ids = [row[0] for row in rows]
+            self.assertIn("run-a:instance-11", run_ids)
+            self.assertEqual(
+                dict(rows)["run-a:instance-11"],
+                "running",
+            )
+            # Still able to log metrics against the preserved running attempt.
+            live_attempt = start_run_attempt(
+                path,
+                run_id="run-a:instance-11",
+                resumed=True,
+                start_step=2,
+                checkpoint_step=1,
+                message="continue",
+            )
+            log_step_metrics(
+                path,
+                run_id="run-a:instance-11",
+                attempt_id=live_attempt,
+                step=2,
+                epoch=2,
+                metrics={"loss": 0.5},
+                improved=True,
+            )
 
 
 if __name__ == "__main__":

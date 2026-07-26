@@ -35,6 +35,17 @@ def process_alive(pid: int) -> bool:
         os.kill(pid, 0)
     except OSError:
         return False
+    # Linux zombies still satisfy kill(pid, 0); treat them as dead so relaunch
+    # is not blocked after a crashed worker.
+    stat_path = Path(f"/proc/{pid}/stat")
+    if stat_path.is_file():
+        try:
+            # Format: pid (comm) state ... — comm may contain spaces/parens.
+            state = stat_path.read_text(encoding="utf-8").rsplit(")", 1)[-1].strip()
+            if state[:1] == "Z":
+                return False
+        except OSError:
+            pass
     return True
 
 
