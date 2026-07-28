@@ -21,7 +21,7 @@ seed = 20123
 validate_at_end = true
 
 [teacher]
-checkpoint_name = "surrogate_c256.pt"
+checkpoint_name = "surrogate_c256_k4.pt"
 load_best = true
 require_checkpoint = true
 
@@ -39,7 +39,7 @@ permutation_seed = 256
 display_every = 5
 log_every = 1
 run_id = "decoder_c256"
-checkpoint_name = "decoder_c256.pt"
-log_name = "decoder_c256.sqlite"
-comment = "C=256 decoder; probe_count=4 so value_count=1024"
+checkpoint_name = "decoder_c256_k4.pt"
+log_name = "decoder_c256_k4.sqlite"
+comment = "legacy C=256 k_max=4; renamed artifact decoder_c256_k4.pt"
 pinned = false

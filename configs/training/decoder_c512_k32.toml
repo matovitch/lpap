@@ -1,7 +1,10 @@
+# C=512 LPAP decoder; teacher = surrogate_c512_k32.
+
 [data]
 batch_size = 32
-bucket_count = 128
-probe_count = 8
+bucket_count = 512
+probe_count = 2
+kind = "harmonics"
 
 [decoder]
 frontend_initial_temperature = 0.25
@@ -20,7 +23,7 @@ seed = 20123
 validate_at_end = true
 
 [teacher]
-checkpoint_name = "surrogate_c128_k4.pt"
+checkpoint_name = "surrogate_c512_k32.pt"
 load_best = true
 require_checkpoint = true
 
@@ -32,13 +35,13 @@ source_ce_power = 2.0
 [run]
 run_training = true
 resume_from_checkpoint = true
-steps = 10000
+steps = 15000
 seed = 456
-permutation_seed = 123
+permutation_seed = 512
 display_every = 5
 log_every = 1
-run_id = "decoder_synthetic"
-checkpoint_name = "decoder_c128_k4.pt"
-log_name = "decoder_c128_k4.sqlite"
-comment = "legacy c128 k_max=4; renamed artifact decoder_c128_k4.pt"
+run_id = "decoder_c512_k32"
+checkpoint_name = "decoder_c512_k32.pt"
+log_name = "decoder_c512_k32.sqlite"
+comment = "C=512 harmonics decoder; teacher k_max=32; N=1024"
 pinned = false

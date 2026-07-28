@@ -35,7 +35,7 @@ permutation_seed = 123
 display_every = 5
 log_every = 1
 run_id = "surrogate_synthetic"
-checkpoint_name = "surrogate_synthetic.pt"
-log_name = "surrogate.sqlite"
-comment = ""
+checkpoint_name = "surrogate_c128_k4.pt"
+log_name = "surrogate_c128_k4.sqlite"
+comment = "legacy c128 k_max=4; renamed artifact surrogate_c128_k4.pt"
 pinned = false

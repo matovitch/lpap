@@ -7,8 +7,8 @@ shuffle = true
 num_workers = 0
 
 [source]
-surrogate_checkpoint_name = "surrogate_synthetic.pt"
-decoder_checkpoint_name = "decoder_synthetic.pt"
+surrogate_checkpoint_name = "surrogate_c128_k4.pt"
+decoder_checkpoint_name = "decoder_c128_k4.pt"
 image_to_energy_checkpoint_name = "image_to_energy.pt"
 energy_to_image_checkpoint_name = "energy_to_image.pt"
 load_best = true

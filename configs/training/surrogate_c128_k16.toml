@@ -1,8 +1,11 @@
+# C=128 LPAP surrogate on harmonics; k_max=16.
+# value_count = 128 * 8 = 1024.
+
 [data]
 batch_size = 32
-bucket_count = 256
-# Keep value_count = bucket_count * probe_count = 1024 (32x32 energy / image length).
-probe_count = 4
+bucket_count = 128
+probe_count = 8
+kind = "harmonics"
 
 [data.harmonics]
 harmonic_count = 32
@@ -12,7 +15,7 @@ spikiness_range = [4.0, 6.0]
 dtype = "torch.float32"
 
 [model]
-k_max = 4
+k_max = 16
 hidden_dim = 256
 layer_count = 12
 head_count = 8
@@ -30,13 +33,13 @@ validate_at_end = true
 [run]
 run_training = true
 resume_from_checkpoint = true
-steps = 10000
+steps = 15000
 seed = 123
-permutation_seed = 256
+permutation_seed = 123
 display_every = 5
 log_every = 1
-run_id = "surrogate_c256"
-checkpoint_name = "surrogate_c256_k4.pt"
-log_name = "surrogate_c256_k4.sqlite"
-comment = "legacy C=256 k_max=4; renamed artifact surrogate_c256_k4.pt"
+run_id = "surrogate_c128_k16"
+checkpoint_name = "surrogate_c128_k16.pt"
+log_name = "surrogate_c128_k16.sqlite"
+comment = "C=128 harmonics surrogate; k_max=16; N=1024"
 pinned = false

@@ -94,13 +94,13 @@ config = replace(
     source=ImageAutoencoderSourceConfig(
         lpap_pairs=(
             ImageAutoencoderLpapPairConfig(
-                surrogate_checkpoint_name="surrogate_synthetic.pt",
-                decoder_checkpoint_name="decoder_synthetic.pt",
+                surrogate_checkpoint_name="surrogate_c128_k4.pt",
+                decoder_checkpoint_name="decoder_c128_k4.pt",
                 name="c128",
             ),
             ImageAutoencoderLpapPairConfig(
-                surrogate_checkpoint_name="surrogate_c256.pt",
-                decoder_checkpoint_name="decoder_c256.pt",
+                surrogate_checkpoint_name="surrogate_c256_k4.pt",
+                decoder_checkpoint_name="decoder_c256_k4.pt",
                 name="c256",
             ),
         ),

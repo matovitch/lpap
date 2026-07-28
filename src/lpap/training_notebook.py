@@ -276,8 +276,8 @@ def default_energy_to_image_training_config() -> EnergyToImageTrainingConfig:
         ),
         source=EnergyToImageSourceConfig(
             teacher=EnergyToImageHarmonicsTeacherConfig(
-                surrogate_checkpoint_name="surrogate_synthetic.pt",
-                decoder_checkpoint_name="decoder_synthetic.pt",
+                surrogate_checkpoint_name="surrogate_c128_k4.pt",
+                decoder_checkpoint_name="decoder_c128_k4.pt",
                 load_best=True,
                 require_checkpoints=True,
             ),
@@ -421,8 +421,8 @@ def default_image_autoencoder_training_config() -> ImageAutoencoderTrainingConfi
         source=ImageAutoencoderSourceConfig(
             lpap_pairs=(
                 ImageAutoencoderLpapPairConfig(
-                    surrogate_checkpoint_name="surrogate_synthetic.pt",
-                    decoder_checkpoint_name="decoder_synthetic.pt",
+                    surrogate_checkpoint_name="surrogate_c128_k4.pt",
+                    decoder_checkpoint_name="decoder_c128_k4.pt",
                     name="c128",
                 ),
             ),

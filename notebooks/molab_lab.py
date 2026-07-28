@@ -99,13 +99,13 @@ def ae_setup():
         source=ImageAutoencoderSourceConfig(
             lpap_pairs=(
                 ImageAutoencoderLpapPairConfig(
-                    surrogate_checkpoint_name="surrogate_synthetic.pt",
-                    decoder_checkpoint_name="decoder_synthetic.pt",
+                    surrogate_checkpoint_name="surrogate_c128_k4.pt",
+                    decoder_checkpoint_name="decoder_c128_k4.pt",
                     name="c128",
                 ),
                 ImageAutoencoderLpapPairConfig(
-                    surrogate_checkpoint_name="surrogate_c256.pt",
-                    decoder_checkpoint_name="decoder_c256.pt",
+                    surrogate_checkpoint_name="surrogate_c256_k4.pt",
+                    decoder_checkpoint_name="decoder_c256_k4.pt",
                     name="c256",
                 ),
             ),
@@ -173,10 +173,10 @@ def status(ae_base, mo, project_root, torch):
     import json as _json
 
     _needed = {
-        "c128_surr": project_root / "checkpoints" / "surrogate_synthetic.pt",
-        "c128_dec": project_root / "checkpoints" / "decoder_synthetic.pt",
-        "c256_surr": project_root / "checkpoints" / "surrogate_c256.pt",
-        "c256_dec": project_root / "checkpoints" / "decoder_c256.pt",
+        "c128_surr": project_root / "checkpoints" / "surrogate_c128_k4.pt",
+        "c128_dec": project_root / "checkpoints" / "decoder_c128_k4.pt",
+        "c256_surr": project_root / "checkpoints" / "surrogate_c256_k4.pt",
+        "c256_dec": project_root / "checkpoints" / "decoder_c256_k4.pt",
         "i2e_bank": project_root / "checkpoints" / "image_to_energy_energy_bank.pt",
         "e2i_bank": project_root / "checkpoints" / "energy_to_image_energy_bank.pt",
         "ae": project_root / "checkpoints" / ae_base.run.checkpoint_name,

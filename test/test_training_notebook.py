@@ -48,9 +48,12 @@ class TrainingNotebookConfigTest(unittest.TestCase):
 
         self.assertIsInstance(surrogate, LPAPSurrogateTrainingConfig)
         self.assertEqual(surrogate.run.run_id, "surrogate_synthetic")
-        self.assertEqual(surrogate.run.comment, "")
+        self.assertEqual(surrogate.run.checkpoint_name, "surrogate_c128_k4.pt")
+        self.assertIn("legacy c128 k_max=4", surrogate.run.comment)
         self.assertIsInstance(decoder, LPAPDecoderTrainingConfig)
         self.assertEqual(decoder.run.run_id, "decoder_synthetic")
+        self.assertEqual(decoder.run.checkpoint_name, "decoder_c128_k4.pt")
+        self.assertEqual(decoder.teacher.checkpoint_name, "surrogate_c128_k4.pt")
         self.assertTrue(decoder.teacher.require_checkpoint)
         self.assertEqual(decoder.regularization.source_ce_weight, 0.1)
         self.assertIsInstance(image_to_energy, ImageToEnergyTrainingConfig)
@@ -66,7 +69,7 @@ class TrainingNotebookConfigTest(unittest.TestCase):
         self.assertEqual(energy_to_image.source.kind, "harmonics")
         self.assertEqual(
             energy_to_image.source.teacher.decoder_checkpoint_name,
-            "decoder_synthetic.pt",
+            "decoder_c128_k4.pt",
         )
         self.assertIsNone(energy_to_image.source.energy_bank)
         self.assertEqual(image_to_energy_bank.target.kind, "energy_bank")
@@ -205,7 +208,7 @@ class TrainingNotebookConfigTest(unittest.TestCase):
 
         self.assertIn("[data.harmonics]", text)
         self.assertIn('dtype = "torch.float32"', text)
-        self.assertIn('comment = ""', text)
+        self.assertIn("surrogate_c128_k4.pt", text)
 
     def test_decoder_toml_does_not_serialize_harmonics(self) -> None:
         project_root = Path(__file__).resolve().parents[1]
