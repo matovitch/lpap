@@ -13,6 +13,7 @@ from molab.jobs import (
     flow_energy_bank_worker_source,
     launch_ae_energy_bank_bg,
     launch_flow_energy_bank_bg,
+    lpap_teacher_worker_source,
 )
 
 
@@ -36,8 +37,30 @@ class MolabJobsTest(unittest.TestCase):
         self.assertIn("decoder_c256.pt", source)
         self.assertIn("image_to_energy_energy_bank.pt", source)
         self.assertIn("energy_to_image_energy_bank.pt", source)
+        self.assertIn("resume_from_checkpoint=False", source)
         self.assertNotIn('image_to_energy_checkpoint_name="image_to_energy.pt"', source)
         compile(source, "<ae_worker>", "exec")
+
+    def test_ae_worker_source_resume(self) -> None:
+        source = ae_energy_bank_worker_source(
+            target_steps=36550,
+            resume_from_checkpoint=True,
+        )
+        self.assertIn("resume_from_checkpoint=True", source)
+        self.assertIn("TARGET = 36550", source)
+        compile(source, "<ae_resume>", "exec")
+
+    def test_lpap_teacher_worker_source(self) -> None:
+        source = lpap_teacher_worker_source(
+            backend_kind="surrogate",
+            config_relpath="configs/training/surrogate_c512.toml",
+            target_steps=10000,
+        )
+        self.assertIn("TARGET = 10000", source)
+        self.assertIn("surrogate_c512.toml", source)
+        self.assertIn("SURROGATE_DONE", source)
+        self.assertIn("KIND = 'surrogate'", source)
+        compile(source, "<surr_worker>", "exec")
 
     def test_flow_worker_source_i2e(self) -> None:
         source = flow_energy_bank_worker_source(

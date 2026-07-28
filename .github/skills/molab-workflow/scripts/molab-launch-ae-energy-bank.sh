@@ -9,6 +9,7 @@
 #
 # Usage:
 #   bash .github/skills/molab-workflow/scripts/molab-launch-ae-energy-bank.sh --target-steps 58200
+#   bash .github/skills/molab-workflow/scripts/molab-launch-ae-energy-bank.sh --target-steps 40000 --resume
 #   bash .github/skills/molab-workflow/scripts/molab-launch-ae-energy-bank.sh --target-steps 58200 --json
 set -euo pipefail
 
@@ -19,6 +20,7 @@ as_json=0
 comment=""
 upload=1
 notify=1
+resume=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -36,6 +38,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-notify)
       notify=0
+      shift
+      ;;
+    --resume)
+      resume=1
       shift
       ;;
     --json)
@@ -86,6 +92,7 @@ result = launch_ae_energy_bank_bg(
     upload_artifacts_on_checkpoint=${upload} == 1,
     notify_on_finished=${notify} == 1,
     comment=comment,
+    resume_from_checkpoint=${resume} == 1,
 )
 if ${as_json} == 1:
     print(json.dumps(result, indent=2, sort_keys=True))

@@ -57,6 +57,7 @@ def ae_energy_bank_worker_source(
     notify_on_finished: bool = True,
     comment: str | None = None,
     energy_bank_path: str = "data/encoded_energies_ae_best.pt",
+    resume_from_checkpoint: bool = False,
 ) -> str:
     """Return Python source for the multi-pair AE worker (bank-pretrained flows)."""
     if target_steps <= 0:
@@ -68,6 +69,7 @@ def ae_energy_bank_worker_source(
     )
     upload = "True" if upload_artifacts_on_checkpoint else "False"
     notify = "True" if notify_on_finished else "False"
+    resume = "True" if resume_from_checkpoint else "False"
     return f'''from __future__ import annotations
 
 from dataclasses import replace
@@ -114,7 +116,7 @@ config = replace(
     validation=replace(base.validation, every=50, batch_size=32),
     run=ImageAutoencoderRunConfig(
         run_training=True,
-        resume_from_checkpoint=False,
+        resume_from_checkpoint={resume},
         steps=TARGET,
         seed=base.run.seed,
         display_every=25,
@@ -135,7 +137,7 @@ session = create_training_session(
 print(
     f"device={{session.device}} start={{session.resume_info.start_step}} "
     f"target={{config.run.steps}} upload={{config.run.upload_artifacts_on_checkpoint}} "
-    f"notify={{config.run.notify_on_finished}}",
+    f"notify={{config.run.notify_on_finished}} resume={{config.run.resume_from_checkpoint}}",
     flush=True,
 )
 print(session.resume_info.message, flush=True)
@@ -319,6 +321,7 @@ def launch_ae_energy_bank_bg(
     comment: str | None = None,
     require_secrets: bool = True,
     energy_bank_path: str = "data/encoded_energies_ae_best.pt",
+    resume_from_checkpoint: bool = False,
 ) -> dict[str, Any]:
     """Write + spawn the multi-pair AE worker (bank-pretrained flows)."""
     root = Path(project_root)
@@ -333,6 +336,7 @@ def launch_ae_energy_bank_bg(
             notify_on_finished=notify_on_finished,
             comment=comment,
             energy_bank_path=energy_bank_path,
+            resume_from_checkpoint=resume_from_checkpoint,
         ),
         target_steps=target_steps,
         run_id=AE_ENERGY_BANK_RUN_ID,
@@ -381,6 +385,143 @@ def launch_flow_energy_bank_bg(
     )
 
 
+def lpap_teacher_worker_source(
+    *,
+    backend_kind: Literal["surrogate", "decoder"],
+    config_relpath: str,
+    target_steps: int,
+    project_root: str | Path = "/marimo",
+    upload_artifacts_on_checkpoint: bool = True,
+    notify_on_finished: bool = True,
+    comment: str | None = None,
+    resume_from_checkpoint: bool = False,
+) -> str:
+    """Return Python source for a surrogate/decoder worker from a TOML config."""
+    if target_steps <= 0:
+        raise ValueError("target_steps must be positive")
+    if backend_kind not in ("surrogate", "decoder"):
+        raise ValueError(f"unsupported backend_kind: {backend_kind}")
+    root = Path(project_root)
+    resolved_comment = comment or (
+        f"{backend_kind} from {config_relpath}; bg to {target_steps}"
+    )
+    upload = "True" if upload_artifacts_on_checkpoint else "False"
+    notify = "True" if notify_on_finished else "False"
+    resume = "True" if resume_from_checkpoint else "False"
+    done = {
+        "surrogate": "SURROGATE_DONE",
+        "decoder": "DECODER_DONE",
+    }[backend_kind]
+    return f'''from __future__ import annotations
+
+from dataclasses import replace
+from pathlib import Path
+
+from lpap.training_notebook import (
+    create_training_session,
+    iter_training,
+    training_config_from_file,
+)
+
+project_root = Path({str(root)!r})
+TARGET = {int(target_steps)}
+KIND = {backend_kind!r}
+config_path = project_root / {config_relpath!r}
+base = training_config_from_file(config_path, KIND)
+config = replace(
+    base,
+    run=replace(
+        base.run,
+        run_training=True,
+        resume_from_checkpoint={resume},
+        steps=TARGET,
+        display_every=25,
+        log_every=5,
+        comment={resolved_comment!r},
+        pinned=True,
+    ),
+)
+session = create_training_session(KIND, project_root=project_root, config=config)
+session.training_run.config = replace(
+    session.training_run.config,
+    upload_artifacts_on_checkpoint={upload},
+    notify_on_finished={notify},
+)
+print(
+    f"device={{session.device}} kind={{KIND}} config={{config_path.name}} "
+    f"start={{session.resume_info.start_step}} target={{config.run.steps}} "
+    f"C={{config.data.bucket_count}} probes={{config.data.probe_count}} "
+    f"N={{config.value_count}} upload={{session.training_run.config.upload_artifacts_on_checkpoint}} "
+    f"notify={{session.training_run.config.notify_on_finished}}",
+    flush=True,
+)
+print(session.resume_info.message, flush=True)
+print(f"best_so_far={{session.training_run.best_metric}}", flush=True)
+for result in iter_training(KIND, session):
+    if result.should_display or result.improved or result.step % 50 == 0:
+        loss = result.metrics.get("loss", float("nan"))
+        vloss = result.metrics.get("validation_loss")
+        acc = result.metrics.get("weighted_accuracy")
+        vtxt = "n/a" if vloss is None else f"{{vloss:.5f}}"
+        best = "n/a" if result.best_metric is None else f"{{result.best_metric:.5f}}"
+        atxt = "n/a" if acc is None else f"{{acc:.5f}}"
+        mark = " *" if result.improved else ""
+        ck = " ckpt" if result.checkpointed else ""
+        print(
+            f"step={{result.step}} loss={{loss:.5f}} val={{vtxt}} "
+            f"wacc={{atxt}} best={{best}}{{mark}}{{ck}}",
+            flush=True,
+        )
+print({done!r}, flush=True)
+'''
+
+
+def launch_lpap_teacher_bg(
+    *,
+    backend_kind: Literal["surrogate", "decoder"],
+    config_relpath: str,
+    project_root: str | Path = "/marimo",
+    target_steps: int,
+    upload_artifacts_on_checkpoint: bool = True,
+    notify_on_finished: bool = True,
+    comment: str | None = None,
+    require_secrets: bool = True,
+    resume_from_checkpoint: bool = False,
+) -> dict[str, Any]:
+    """Write + spawn a surrogate or decoder worker from a training TOML."""
+    root = Path(project_root)
+    config_path = root / config_relpath
+    if not config_path.is_file():
+        raise BackgroundWorkerError(f"missing training config: {config_path}")
+    # Derive artifact names from the TOML so pid/log stems stay stable.
+    from lpap.training_notebook import training_config_from_file
+
+    cfg = training_config_from_file(config_path, backend_kind)
+    bg_stem = f"{cfg.run.run_id}_bg"
+    return _spawn_job(
+        project_root=root,
+        script_name=f"train_{cfg.run.run_id}_bg.py",
+        bg_stem=bg_stem,
+        source=lpap_teacher_worker_source(
+            backend_kind=backend_kind,
+            config_relpath=config_relpath,
+            target_steps=target_steps,
+            project_root=root,
+            upload_artifacts_on_checkpoint=upload_artifacts_on_checkpoint,
+            notify_on_finished=notify_on_finished,
+            comment=comment,
+            resume_from_checkpoint=resume_from_checkpoint,
+        ),
+        target_steps=target_steps,
+        run_id=cfg.run.run_id,
+        checkpoint_name=cfg.run.checkpoint_name,
+        log_name=cfg.run.log_name,
+        upload_artifacts_on_checkpoint=upload_artifacts_on_checkpoint,
+        notify_on_finished=notify_on_finished,
+        require_secrets=require_secrets,
+    )
+
+
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -403,6 +544,11 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="spawn multi-pair AE from bank-pretrained flows",
     )
     add_common(launch)
+    launch.add_argument(
+        "--resume",
+        action="store_true",
+        help="resume from existing AE checkpoint instead of fresh init",
+    )
 
     flow = sub.add_parser(
         "launch-flow-energy-bank",
@@ -414,6 +560,23 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         choices=sorted(_FLOW_SPECS),
     )
     add_common(flow)
+
+    teacher = sub.add_parser(
+        "launch-lpap-teacher",
+        help="spawn surrogate or decoder from a configs/training/*.toml",
+    )
+    teacher.add_argument(
+        "--backend",
+        required=True,
+        choices=("surrogate", "decoder"),
+    )
+    teacher.add_argument(
+        "--config",
+        required=True,
+        help="repo-relative TOML path, e.g. configs/training/surrogate_c512.toml",
+    )
+    teacher.add_argument("--resume", action="store_true")
+    add_common(teacher)
     return parser.parse_args(argv)
 
 
@@ -429,6 +592,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 comment=args.comment,
                 require_secrets=not args.allow_missing_secrets,
                 energy_bank_path=args.energy_bank_path,
+                resume_from_checkpoint=bool(args.resume),
             )
         elif args.command == "launch-flow-energy-bank":
             result = launch_flow_energy_bank_bg(
@@ -440,6 +604,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                 comment=args.comment,
                 require_secrets=not args.allow_missing_secrets,
                 energy_bank_path=args.energy_bank_path,
+            )
+        elif args.command == "launch-lpap-teacher":
+            result = launch_lpap_teacher_bg(
+                backend_kind=args.backend,
+                config_relpath=args.config,
+                project_root=args.project_root,
+                target_steps=args.target_steps,
+                upload_artifacts_on_checkpoint=not args.no_upload,
+                notify_on_finished=not args.no_notify,
+                comment=args.comment,
+                require_secrets=not args.allow_missing_secrets,
+                resume_from_checkpoint=bool(args.resume),
             )
         else:
             raise ValueError(f"unknown command: {args.command}")
