@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
+from jaxtyping import Float
 
 from lpap.checkpoints import load_training_checkpoint
 from lpap.data import SyntheticHarmonicConfig
@@ -18,6 +19,7 @@ from lpap.decoder import (
     reconstruct_lpap_decoder_values,
     train_lpap_decoder_step,
 )
+from lpap.energy_bank import load_energy_bank_for_training, resolve_energy_bank_path
 from lpap.surrogate import prepare_lpap_surrogate_batch
 from lpap.permutation import make_grouped_permutation_indices
 from lpap.surrogate import LPAPSurrogateTransformer
@@ -26,7 +28,8 @@ from lpap.surrogate_training import (
     LPAPSurrogateModelConfig,
     LPAPSurrogateOptimizerConfig,
     LPAPSurrogateValidationConfig,
-    _synthetic_harmonic_config_from_dict,
+    lpap_surrogate_data_config_from_dict,
+    sample_lpap_surrogate_values,
 )
 from lpap.training import (
     TrainingResumeInfo,
@@ -168,10 +171,8 @@ class LPAPDecoderTrainingConfig:
         self.run.validate()
 
     def as_run_config(self) -> dict[str, object]:
-        data_config = self.data.as_dict()
-        data_config.pop("harmonics")
         return {
-            "data": data_config,
+            "data": self.data.as_dict(),
             "decoder": self.decoder.as_dict(),
             "optimizer": self.optimizer.as_dict(),
             "validation": self.validation.as_dict(),
@@ -199,20 +200,10 @@ def lpap_decoder_training_config_from_dict(
     data: dict[str, Any], *, resume_from_checkpoint: bool | None = None
 ) -> LPAPDecoderTrainingConfig:
     run_data = dict(data["run"])
-    harmonics_data = data["data"].get("harmonics")
     if resume_from_checkpoint is not None:
         run_data["resume_from_checkpoint"] = resume_from_checkpoint
     return LPAPDecoderTrainingConfig(
-        data=LPAPSurrogateDataConfig(
-            batch_size=int(data["data"]["batch_size"]),
-            bucket_count=int(data["data"]["bucket_count"]),
-            probe_count=int(data["data"]["probe_count"]),
-            harmonics=(
-                SyntheticHarmonicConfig()
-                if harmonics_data is None
-                else _synthetic_harmonic_config_from_dict(harmonics_data)
-            ),
-        ),
+        data=lpap_surrogate_data_config_from_dict(data["data"]),
         decoder=LPAPDecoderModelConfig(
             frontend_initial_temperature=float(
                 data["decoder"]["frontend_initial_temperature"]
@@ -281,7 +272,7 @@ class LPAPDecoderTrainingSession:
     surrogate_checkpoint_path: Path
     surrogate_checkpoint_loaded: bool
     surrogate_model_config: dict[str, int]
-    harmonics: SyntheticHarmonicConfig
+    prior_data: LPAPSurrogateDataConfig
     surrogate_k_max: int
     permutation: torch.Tensor
     surrogate: LPAPSurrogateTransformer
@@ -291,6 +282,7 @@ class LPAPDecoderTrainingSession:
     generator: torch.Generator
     validation_generator: torch.Generator
     resume_info: TrainingResumeInfo
+    energy_bank: Float[torch.Tensor, "n energy"] | None = None
 
 
 @dataclass(frozen=True)
@@ -348,9 +340,9 @@ def _surrogate_model_config_from_checkpoint(
     return {name: int(model_config[name]) for name in required}, payload
 
 
-def _surrogate_harmonics_from_checkpoint(
+def _surrogate_data_prior_from_checkpoint(
     payload: dict[str, object],
-) -> SyntheticHarmonicConfig:
+) -> LPAPSurrogateDataConfig:
     training_state = payload.get("training_state", {})
     if not isinstance(training_state, dict):
         raise ValueError("surrogate checkpoint training_state must be a dictionary")
@@ -359,19 +351,50 @@ def _surrogate_harmonics_from_checkpoint(
         raise ValueError(
             "surrogate checkpoint is missing training_state.run_config; "
             "regenerate the surrogate checkpoint so decoder training can inherit "
-            "the teacher harmonic configuration"
+            "the teacher prior configuration"
         )
     data_config = run_config.get("data")
     if not isinstance(data_config, dict):
         raise ValueError(
             "surrogate checkpoint is missing training_state.run_config.data"
         )
-    harmonics_config = data_config.get("harmonics")
-    if not isinstance(harmonics_config, dict):
+    return lpap_surrogate_data_config_from_dict(data_config)
+
+
+def _surrogate_harmonics_from_checkpoint(
+    payload: dict[str, object],
+) -> SyntheticHarmonicConfig:
+    """Compat helper for flow teachers that still expect a harmonics config."""
+    prior = _surrogate_data_prior_from_checkpoint(payload)
+    if prior.kind != "harmonics":
         raise ValueError(
-            "surrogate checkpoint is missing training_state.run_config.data.harmonics"
+            "surrogate checkpoint prior kind is "
+            f"{prior.kind!r}; expected harmonics for this loader"
         )
-    return _synthetic_harmonic_config_from_dict(harmonics_config)
+    return prior.harmonics
+
+
+def _resolve_decoder_prior_data(
+    *,
+    config: LPAPDecoderTrainingConfig,
+    teacher_data: LPAPSurrogateDataConfig | None,
+) -> LPAPSurrogateDataConfig:
+    """Prefer teacher prior kind/path; keep decoder batch/geometry sizes."""
+    if teacher_data is None:
+        return config.data
+    if teacher_data.kind != config.data.kind:
+        raise ValueError(
+            "surrogate teacher prior kind does not match decoder data.kind: "
+            f"teacher={teacher_data.kind!r} decoder={config.data.kind!r}"
+        )
+    return LPAPSurrogateDataConfig(
+        batch_size=config.data.batch_size,
+        bucket_count=config.data.bucket_count,
+        probe_count=config.data.probe_count,
+        kind=teacher_data.kind,
+        harmonics=teacher_data.harmonics,
+        energy_bank=teacher_data.energy_bank or config.data.energy_bank,
+    )
 
 
 def _validate_teacher_matches_decoder(
@@ -404,19 +427,27 @@ def _create_surrogate_teacher(
     require_checkpoint: bool,
     config: LPAPDecoderTrainingConfig,
     device: torch.device,
-) -> tuple[LPAPSurrogateTransformer, bool, dict[str, int], SyntheticHarmonicConfig]:
+) -> tuple[
+    LPAPSurrogateTransformer,
+    bool,
+    dict[str, int],
+    LPAPSurrogateDataConfig,
+]:
     model_config, payload = _surrogate_model_config_from_checkpoint(
         path=path, require_checkpoint=require_checkpoint
     )
     loaded = payload is not None
     if model_config is None:
         model_config = _fallback_surrogate_model_config(config)
-        harmonics = config.data.harmonics
+        prior_data = config.data
     else:
         _validate_teacher_matches_decoder(
             teacher_model_config=model_config, config=config
         )
-        harmonics = _surrogate_harmonics_from_checkpoint(payload)
+        teacher_data = _surrogate_data_prior_from_checkpoint(payload)
+        prior_data = _resolve_decoder_prior_data(
+            config=config, teacher_data=teacher_data
+        )
 
     surrogate = LPAPSurrogateTransformer(
         value_count=model_config["value_count"],
@@ -429,7 +460,7 @@ def _create_surrogate_teacher(
     if payload is not None:
         state_key = "best_model_state" if load_best else "model_state"
         surrogate.load_state_dict(payload[state_key])
-    return surrogate, loaded, model_config, harmonics
+    return surrogate, loaded, model_config, prior_data
 
 
 def create_lpap_decoder_training_session(
@@ -455,7 +486,7 @@ def create_lpap_decoder_training_session(
         seed=config.run.permutation_seed,
         device=target_device,
     )
-    surrogate, surrogate_loaded, surrogate_model_config, harmonics = (
+    surrogate, surrogate_loaded, surrogate_model_config, prior_data = (
         _create_surrogate_teacher(
             path=surrogate_checkpoint_path,
             load_best=config.teacher.load_best,
@@ -464,6 +495,15 @@ def create_lpap_decoder_training_session(
             device=target_device,
         )
     )
+    prior_data.validate()
+    energy_bank: Float[torch.Tensor, "n energy"] | None = None
+    if prior_data.kind == "energy_bank":
+        assert prior_data.energy_bank is not None
+        energy_bank = load_energy_bank_for_training(
+            root,
+            prior_data.energy_bank,
+            sequence_length=config.value_count,
+        )
     surrogate.eval()
     for parameter in surrogate.parameters():
         parameter.requires_grad_(False)
@@ -478,6 +518,19 @@ def create_lpap_decoder_training_session(
     optimizer = torch.optim.AdamW(
         decoder.parameters(), lr=config.optimizer.learning_rate
     )
+    metadata: dict[str, object] = {
+        "device": str(target_device),
+        "surrogate_checkpoint_loaded": surrogate_loaded,
+        "surrogate_model_config": surrogate_model_config,
+        "data_kind": prior_data.kind,
+        "prior_data": prior_data.as_dict(),
+    }
+    if prior_data.kind == "harmonics":
+        metadata["harmonics"] = prior_data.harmonics.as_dict()
+    if prior_data.energy_bank is not None:
+        metadata["energy_bank_path"] = str(
+            resolve_energy_bank_path(root, prior_data.energy_bank)
+        )
     training_run = TrainingRun(
         config=TrainingRunConfig(
             run_id=config.run.run_id,
@@ -499,12 +552,7 @@ def create_lpap_decoder_training_session(
         optimizer=optimizer,
         run_config=config.as_run_config(),
         model_config=config.model_config(surrogate_model_config=surrogate_model_config),
-        metadata={
-            "device": str(target_device),
-            "surrogate_checkpoint_loaded": surrogate_loaded,
-            "surrogate_model_config": surrogate_model_config,
-            "harmonics": harmonics.as_dict(),
-        },
+        metadata=metadata,
     )
     resume_info = training_run.resume_or_initialize()
     generator = torch.Generator(device=target_device).manual_seed(
@@ -521,7 +569,7 @@ def create_lpap_decoder_training_session(
         surrogate_checkpoint_path=surrogate_checkpoint_path,
         surrogate_checkpoint_loaded=surrogate_loaded,
         surrogate_model_config=surrogate_model_config,
-        harmonics=harmonics,
+        prior_data=prior_data,
         surrogate_k_max=surrogate_model_config["k_max"],
         permutation=permutation,
         surrogate=surrogate,
@@ -531,16 +579,18 @@ def create_lpap_decoder_training_session(
         generator=generator,
         validation_generator=validation_generator,
         resume_info=resume_info,
+        energy_bank=energy_bank,
     )
 
 
 def validate_lpap_decoder(session: LPAPDecoderTrainingSession) -> LPAPDecoderMetrics:
     config = session.config
-    batch = session.harmonics.sample_batch(
+    batch = sample_lpap_surrogate_values(
+        session.prior_data,
         batch_size=config.validation.batch_size,
-        n=config.value_count,
         generator=session.validation_generator,
         device=session.device,
+        energy_bank=session.energy_bank,
     )
     return evaluate_lpap_decoder_batch(
         decoder=session.decoder,
@@ -573,11 +623,12 @@ def iter_lpap_decoder_training(
         return
 
     for step in range(session.resume_info.start_step, config.run.steps + 1):
-        batch = session.harmonics.sample_batch(
+        batch = sample_lpap_surrogate_values(
+            session.prior_data,
             batch_size=config.data.batch_size,
-            n=config.value_count,
             generator=session.generator,
             device=session.device,
+            energy_bank=session.energy_bank,
         )
         metrics = train_lpap_decoder_step(
             decoder=session.decoder,
@@ -644,11 +695,12 @@ def collect_lpap_decoder_gallery(
     session.decoder.eval()
     session.surrogate.eval()
     with torch.no_grad():
-        values = session.harmonics.sample_batch(
+        values = sample_lpap_surrogate_values(
+            session.prior_data,
             batch_size=sample_count,
-            n=config.value_count,
             generator=session.validation_generator,
             device=session.device,
+            energy_bank=session.energy_bank,
         )
         surrogate_tokens = prepare_lpap_surrogate_batch(
             values,
