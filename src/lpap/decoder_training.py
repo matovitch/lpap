@@ -171,8 +171,12 @@ class LPAPDecoderTrainingConfig:
         self.run.validate()
 
     def as_run_config(self) -> dict[str, object]:
+        # Harmonics live on the surrogate teacher checkpoint; keep decoder
+        # run_config free of [data.harmonics] while still recording kind/bank.
+        data_config = self.data.as_dict()
+        data_config.pop("harmonics", None)
         return {
-            "data": self.data.as_dict(),
+            "data": data_config,
             "decoder": self.decoder.as_dict(),
             "optimizer": self.optimizer.as_dict(),
             "validation": self.validation.as_dict(),
