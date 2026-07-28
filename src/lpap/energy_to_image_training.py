@@ -23,7 +23,7 @@ from lpap.energy_bank import (
     EnergyBankConfig,
     EnergyPriorKind,
     energy_bank_config_from_dict,
-    load_energy_bank_for_flow,
+    load_energy_bank_for_training,
     resolve_energy_bank_path,
     sample_energy_prior_values,
 )
@@ -478,7 +478,7 @@ def create_energy_to_image_training_session(
 
     if config.source.kind == "energy_bank":
         assert config.source.energy_bank is not None
-        energy_bank = load_energy_bank_for_flow(
+        energy_bank = load_energy_bank_for_training(
             root,
             config.source.energy_bank,
             sequence_length=config.value_count,

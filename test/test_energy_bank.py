@@ -13,7 +13,7 @@ from lpap.energy_bank import (
     energy_bank_config_from_dict,
     energy_bank_scale_stats,
     load_energy_bank,
-    load_energy_bank_for_flow,
+    load_energy_bank_for_training,
     relative_rmse,
     resolve_energy_bank_path,
     sample_energy_bank_values,
@@ -72,17 +72,17 @@ class EnergyBankTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 load_energy_bank(path)
 
-    def test_load_for_flow_checks_sequence_length(self) -> None:
+    def test_load_for_training_checks_sequence_length(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             data_dir = root / "data"
             data_dir.mkdir()
             torch.save({"energies": torch.randn(5, 8)}, data_dir / "bank.pt")
             config = EnergyBankConfig(path="data/bank.pt")
-            loaded = load_energy_bank_for_flow(root, config, sequence_length=8)
+            loaded = load_energy_bank_for_training(root, config, sequence_length=8)
             self.assertEqual(tuple(loaded.shape), (5, 8))
             with self.assertRaises(ValueError):
-                load_energy_bank_for_flow(root, config, sequence_length=4)
+                load_energy_bank_for_training(root, config, sequence_length=4)
 
     def test_sample_energy_prior_harmonics_and_bank(self) -> None:
         generator = torch.Generator().manual_seed(0)

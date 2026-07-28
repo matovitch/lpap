@@ -14,7 +14,7 @@ from lpap.energy_bank import (
     EnergyBankConfig,
     EnergyPriorKind,
     energy_bank_config_from_dict,
-    load_energy_bank_for_flow,
+    load_energy_bank_for_training,
     sample_energy_prior_values,
 )
 from lpap.flow import (
@@ -275,7 +275,7 @@ def create_image_to_energy_training_session(
     energy_bank: torch.Tensor | None = None
     if config.target.kind == "energy_bank":
         assert config.target.energy_bank is not None
-        energy_bank = load_energy_bank_for_flow(
+        energy_bank = load_energy_bank_for_training(
             root,
             config.target.energy_bank,
             sequence_length=config.value_count,

@@ -132,19 +132,19 @@ def load_energy_bank(
     return energies
 
 
-def load_energy_bank_for_flow(
+def load_energy_bank_for_training(
     root: Path,
     config: EnergyBankConfig,
     *,
     sequence_length: int,
 ) -> Float[torch.Tensor, "n energy"]:
-    """Load a bank and check it matches the flow sequence length."""
+    """Load a bank and check ``energy_dim`` matches the expected sequence length."""
     path = resolve_energy_bank_path(root, config)
     energies = load_energy_bank(path, energies_key=config.energies_key)
     if int(energies.shape[-1]) != sequence_length:
         raise ValueError(
             "energy bank energy_dim "
-            f"{int(energies.shape[-1])} does not match flow sequence_length "
+            f"{int(energies.shape[-1])} does not match expected sequence_length "
             f"{sequence_length}"
         )
     return energies
@@ -354,7 +354,7 @@ __all__ = [
     "energy_bank_config_from_dict",
     "energy_bank_scale_stats",
     "load_energy_bank",
-    "load_energy_bank_for_flow",
+    "load_energy_bank_for_training",
     "mean_row_correlation",
     "relative_rmse",
     "resolve_energy_bank_path",
