@@ -5,7 +5,6 @@
 batch_size = 32
 bucket_count = 128
 probe_count = 8
-kind = "harmonics"
 
 [data.harmonics]
 harmonic_count = 32

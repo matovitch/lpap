@@ -22,7 +22,6 @@ class LargerKHarmonicsTeacherConfigTest(unittest.TestCase):
             self.assertEqual(cfg.data.bucket_count, buckets, name)
             self.assertEqual(cfg.data.probe_count, probes, name)
             self.assertEqual(cfg.value_count, 1024, name)
-            self.assertEqual(cfg.data.kind, "harmonics", name)
             self.assertEqual(cfg.run.permutation_seed, perm, name)
             self.assertEqual(cfg.run.steps, 15000, name)
             if kind == "surrogate":

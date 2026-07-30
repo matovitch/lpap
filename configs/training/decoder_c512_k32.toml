@@ -4,7 +4,6 @@
 batch_size = 32
 bucket_count = 512
 probe_count = 2
-kind = "harmonics"
 
 [decoder]
 frontend_initial_temperature = 0.25

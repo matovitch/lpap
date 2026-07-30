@@ -6,17 +6,8 @@ from pathlib import Path
 from typing import Any
 
 import torch
-from jaxtyping import Float
 
 from lpap.data import SyntheticHarmonicConfig
-from lpap.energy_bank import (
-    EnergyBankConfig,
-    EnergyPriorKind,
-    energy_bank_config_from_dict,
-    load_energy_bank_for_training,
-    resolve_energy_bank_path,
-    sample_energy_prior_values,
-)
 from lpap.permutation import make_grouped_permutation_indices
 from lpap.surrogate import (
     LPAPSurrogateMetrics,
@@ -58,9 +49,7 @@ class LPAPSurrogateDataConfig:
     batch_size: int = 32
     bucket_count: int = 64
     probe_count: int = 16
-    kind: EnergyPriorKind = "harmonics"
     harmonics: SyntheticHarmonicConfig = field(default_factory=SyntheticHarmonicConfig)
-    energy_bank: EnergyBankConfig | None = None
 
     @property
     def value_count(self) -> int:
@@ -73,72 +62,16 @@ class LPAPSurrogateDataConfig:
             raise ValueError("bucket_count must be positive")
         if self.probe_count <= 0:
             raise ValueError("probe_count must be positive")
-        if self.kind == "energy_bank":
-            if self.energy_bank is None:
-                raise ValueError("data.energy_bank is required when kind=energy_bank")
-            self.energy_bank.validate()
-        elif self.kind == "harmonics":
-            self.harmonics.validate()
-        else:
-            raise ValueError(f"unsupported data kind: {self.kind!r}")
+        self.harmonics.validate()
 
     def as_dict(self) -> dict[str, object]:
-        data: dict[str, object] = {
+        return {
             "batch_size": self.batch_size,
             "bucket_count": self.bucket_count,
             "probe_count": self.probe_count,
             "value_count": self.value_count,
-            "kind": self.kind,
+            "harmonics": self.harmonics.as_dict(),
         }
-        if self.kind == "harmonics":
-            data["harmonics"] = self.harmonics.as_dict()
-        if self.energy_bank is not None:
-            data["energy_bank"] = self.energy_bank.as_dict()
-        return data
-
-
-def lpap_surrogate_data_config_from_dict(data: dict[str, Any]) -> LPAPSurrogateDataConfig:
-    kind = str(data.get("kind", "harmonics"))
-    if kind not in ("harmonics", "energy_bank"):
-        raise ValueError(f"unsupported data kind: {kind!r}")
-    harmonics_data = data.get("harmonics")
-    energy_bank_data = data.get("energy_bank")
-    return LPAPSurrogateDataConfig(
-        batch_size=int(data["batch_size"]),
-        bucket_count=int(data["bucket_count"]),
-        probe_count=int(data["probe_count"]),
-        kind=kind,  # type: ignore[arg-type]
-        harmonics=(
-            SyntheticHarmonicConfig()
-            if harmonics_data is None
-            else _synthetic_harmonic_config_from_dict(harmonics_data)
-        ),
-        energy_bank=(
-            None
-            if energy_bank_data is None
-            else energy_bank_config_from_dict(energy_bank_data)
-        ),
-    )
-
-
-def sample_lpap_surrogate_values(
-    data: LPAPSurrogateDataConfig,
-    *,
-    batch_size: int,
-    generator: torch.Generator,
-    device: torch.device,
-    energy_bank: Float[torch.Tensor, "n energy"] | None = None,
-) -> Float[torch.Tensor, "batch energy"]:
-    """Sample a teacher prior batch (harmonics or energy bank)."""
-    return sample_energy_prior_values(
-        kind=data.kind,
-        batch_size=batch_size,
-        generator=generator,
-        device=device,
-        sequence_length=data.value_count,
-        harmonics=data.harmonics if data.kind == "harmonics" else None,
-        energy_bank=energy_bank,
-    )
 
 
 @dataclass(frozen=True)
@@ -295,7 +228,12 @@ def lpap_surrogate_training_config_from_dict(
     if resume_from_checkpoint is not None:
         run_data["resume_from_checkpoint"] = resume_from_checkpoint
     return LPAPSurrogateTrainingConfig(
-        data=lpap_surrogate_data_config_from_dict(data["data"]),
+        data=LPAPSurrogateDataConfig(
+            batch_size=int(data["data"]["batch_size"]),
+            bucket_count=int(data["data"]["bucket_count"]),
+            probe_count=int(data["data"]["probe_count"]),
+            harmonics=_synthetic_harmonic_config_from_dict(data["data"]["harmonics"]),
+        ),
         model=LPAPSurrogateModelConfig(
             k_max=int(data["model"]["k_max"]),
             hidden_dim=int(data["model"]["hidden_dim"]),
@@ -354,7 +292,6 @@ class LPAPSurrogateTrainingSession:
     generator: torch.Generator
     validation_generator: torch.Generator
     resume_info: TrainingResumeInfo
-    energy_bank: Float[torch.Tensor, "n energy"] | None = None
 
 
 def create_lpap_surrogate_training_session(
@@ -373,18 +310,6 @@ def create_lpap_surrogate_training_session(
     root = Path(project_root)
     checkpoint_path = root / "checkpoints" / config.run.checkpoint_name
     log_path = root / "training_logs" / config.run.log_name
-    energy_bank: Float[torch.Tensor, "n energy"] | None = None
-    metadata: dict[str, object] = {"device": str(target_device), "data_kind": config.data.kind}
-    if config.data.kind == "energy_bank":
-        assert config.data.energy_bank is not None
-        energy_bank = load_energy_bank_for_training(
-            root,
-            config.data.energy_bank,
-            sequence_length=config.value_count,
-        )
-        metadata["energy_bank_path"] = str(
-            resolve_energy_bank_path(root, config.data.energy_bank)
-        )
     permutation = make_grouped_permutation_indices(
         value_count=config.value_count,
         bucket_count=config.data.bucket_count,
@@ -421,7 +346,7 @@ def create_lpap_surrogate_training_session(
         optimizer=optimizer,
         run_config=config.as_run_config(),
         model_config=config.model_config(),
-        metadata=metadata,
+        metadata={"device": str(target_device)},
     )
     resume_info = training_run.resume_or_initialize()
     generator = torch.Generator(device=target_device).manual_seed(
@@ -442,7 +367,6 @@ def create_lpap_surrogate_training_session(
         generator=generator,
         validation_generator=validation_generator,
         resume_info=resume_info,
-        energy_bank=energy_bank,
     )
 
 
@@ -450,12 +374,11 @@ def validate_lpap_surrogate(
     session: LPAPSurrogateTrainingSession,
 ) -> LPAPSurrogateMetrics:
     config = session.config
-    batch = sample_lpap_surrogate_values(
-        config.data,
+    batch = config.data.harmonics.sample_batch(
         batch_size=config.validation.batch_size,
+        n=config.value_count,
         generator=session.validation_generator,
         device=session.device,
-        energy_bank=session.energy_bank,
     )
     return evaluate_lpap_surrogate_batch(
         model=session.model,
@@ -484,12 +407,11 @@ def iter_lpap_surrogate_training(
         return
 
     for step in range(session.resume_info.start_step, config.run.steps + 1):
-        batch = sample_lpap_surrogate_values(
-            config.data,
+        batch = config.data.harmonics.sample_batch(
             batch_size=config.data.batch_size,
+            n=config.value_count,
             generator=session.generator,
             device=session.device,
-            energy_bank=session.energy_bank,
         )
         metrics = train_lpap_surrogate_step(
             model=session.model,
