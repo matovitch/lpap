@@ -18,7 +18,7 @@ from molab.jobs import (
 
 
 class MolabJobsTest(unittest.TestCase):
-    def test_ae_worker_source_uses_bank_flows(self) -> None:
+    def test_ae_worker_source_uses_bank_flow(self) -> None:
         source = ae_energy_bank_worker_source(
             target_steps=20000,
             project_root="/marimo",
@@ -35,10 +35,9 @@ class MolabJobsTest(unittest.TestCase):
         self.assertIn('name="c256"', source)
         self.assertIn("surrogate_c256_k4.pt", source)
         self.assertIn("decoder_c256_k4.pt", source)
-        self.assertIn("image_to_energy_energy_bank.pt", source)
-        self.assertIn("energy_to_image_energy_bank.pt", source)
+        self.assertIn('flow_checkpoint_name="image_energy_flow_energy_bank.pt"', source)
         self.assertIn("resume_from_checkpoint=False", source)
-        self.assertNotIn('image_to_energy_checkpoint_name="image_to_energy.pt"', source)
+        self.assertNotIn("image_to_energy_checkpoint_name", source)
         compile(source, "<ae_worker>", "exec")
 
     def test_ae_worker_source_resume(self) -> None:
@@ -62,29 +61,18 @@ class MolabJobsTest(unittest.TestCase):
         self.assertIn("KIND = 'surrogate'", source)
         compile(source, "<surr_worker>", "exec")
 
-    def test_flow_worker_source_i2e(self) -> None:
+    def test_flow_worker_source_uses_bidirectional_kind(self) -> None:
         source = flow_energy_bank_worker_source(
-            "image_to_energy_energy_bank",
             target_steps=10000,
             project_root="/marimo",
             energy_bank_path="data/encoded_energies_ae_best.pt",
         )
         self.assertIn("TARGET = 10000", source)
-        self.assertIn("image_to_energy_energy_bank", source)
+        self.assertIn("image_energy_flow_energy_bank", source)
         self.assertIn("encoded_energies_ae_best.pt", source)
-        self.assertIn("I2E_ENERGY_BANK_DONE", source)
+        self.assertIn("IMAGE_ENERGY_FLOW_ENERGY_BANK_DONE", source)
         self.assertIn("upload_artifacts_on_checkpoint=True", source)
-        compile(source, "<i2e_worker>", "exec")
-
-    def test_flow_worker_source_e2i(self) -> None:
-        source = flow_energy_bank_worker_source(
-            "energy_to_image_energy_bank",
-            target_steps=10000,
-            project_root="/marimo",
-        )
-        self.assertIn("E2I_ENERGY_BANK_DONE", source)
-        self.assertIn("energy_to_image_energy_bank", source)
-        compile(source, "<e2i_worker>", "exec")
+        compile(source, "<flow_worker>", "exec")
 
     def test_launch_ae_writes_script_and_spawns(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -142,7 +130,6 @@ class MolabJobsTest(unittest.TestCase):
                 ),
             ):
                 result = launch_flow_energy_bank_bg(
-                    "image_to_energy_energy_bank",
                     root,
                     target_steps=10000,
                     require_secrets=True,
@@ -151,11 +138,11 @@ class MolabJobsTest(unittest.TestCase):
             script = (
                 root
                 / "training_logs"
-                / "train_image_to_energy_energy_bank_bg.py"
+                / "train_image_energy_flow_energy_bank_bg.py"
             )
             self.assertTrue(script.is_file())
             self.assertEqual(result["pid"], 7)
-            self.assertEqual(result["bg_stem"], "image_to_energy_energy_bank_bg")
+            self.assertEqual(result["bg_stem"], "image_energy_flow_energy_bank_bg")
 
 
 if __name__ == "__main__":

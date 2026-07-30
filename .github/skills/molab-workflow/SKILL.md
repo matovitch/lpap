@@ -51,7 +51,7 @@ All under `.github/skills/molab-workflow/scripts/` (require `MOLAB_URL` +
 | `molab-train-status.sh` | AE bg / ckpt / SQLite summary |
 | `molab-notify.sh` | Pushover ping (end of agent-side long waits) |
 | `molab-launch-ae-energy-bank.sh` | Detached multi-pair AE (bank flows) |
-| `molab-launch-flow-energy-bank.sh` | Detached i2e/e2i energy-bank flow |
+| `molab-launch-flow-energy-bank.sh` | Detached bidirectional energy-bank flow |
 | `molab-push-package-file.sh` | Hot-patch one local `src/lpap/*.py` into site-packages + reload |
 | `molab-export-notebook.sh` | Backport live cells → `notebooks/molab_lab.py` |
 
@@ -165,9 +165,7 @@ Bank flow retrain (after encoding `data/encoded_energies_ae_best.pt`):
 
 ```bash
 bash .github/skills/molab-workflow/scripts/molab-launch-flow-energy-bank.sh \
-  --kind image_to_energy_energy_bank --target-steps 10000
-bash .github/skills/molab-workflow/scripts/molab-launch-flow-energy-bank.sh \
-  --kind energy_to_image_energy_bank --target-steps 10000
+  --target-steps 10000
 ```
 
 **Encode bank checklist (do not skip):**

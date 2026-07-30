@@ -22,6 +22,7 @@ from lpap.energy_bank import (
 )
 from lpap.flow import integrate_euler_midpoint_time
 from lpap.flow_training import prepare_image_sequence
+from lpap.image_energy_flow_training import IMAGE_TO_ENERGY_T0, IMAGE_TO_ENERGY_T1
 
 
 @dataclass(frozen=True)
@@ -89,7 +90,13 @@ def encode_image_dataset_to_energy_bank(
         batch = dataset.float_batch(start, stop)
         seq = prepare_image_sequence(batch, side=side, device=device)
         with torch.no_grad():
-            encoded = integrate_euler_midpoint_time(flow, seq, image_to_energy_steps)
+            encoded = integrate_euler_midpoint_time(
+                flow,
+                seq,
+                image_to_energy_steps,
+                t0=IMAGE_TO_ENERGY_T0,
+                t1=IMAGE_TO_ENERGY_T1,
+            )
         return encoded[:, 0].detach().cpu()
 
     probe_stop = min(n, batch_size * probe_batches)

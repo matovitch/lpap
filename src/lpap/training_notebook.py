@@ -20,20 +20,12 @@ from lpap.decoder_training import (
     lpap_decoder_training_config_from_dict,
     rerun_lpap_decoder_training_config_from_log,
 )
-from lpap.image_to_energy_training import (
-    ImageToEnergyFlowConfig,
-    ImageToEnergyImageConfig,
-    ImageToEnergyOptimizerConfig,
-    ImageToEnergyRunConfig,
-    ImageToEnergyTargetConfig,
-    ImageToEnergyTimeConfig,
-    ImageToEnergyTrainingConfig,
-    ImageToEnergyTrainingSession,
-    ImageToEnergyValidationConfig,
-    create_image_to_energy_training_session,
-    image_to_energy_training_config_from_dict,
-    iter_image_to_energy_training,
-    rerun_image_to_energy_training_config_from_log,
+from lpap.flow_training import (
+    FlowImageConfig,
+    FlowModelConfig,
+    FlowOptimizerConfig,
+    FlowTimeConfig,
+    FlowValidationConfig,
 )
 from lpap.image_autoencoder_training import (
     ImageAutoencoderIntegrationConfig,
@@ -49,16 +41,15 @@ from lpap.image_autoencoder_training import (
     rerun_image_autoencoder_training_config_from_log,
 )
 from lpap.energy_bank import EnergyBankConfig
-from lpap.energy_to_image_training import (
-    EnergyToImageHarmonicsTeacherConfig,
-    EnergyToImageRunConfig,
-    EnergyToImageSourceConfig,
-    EnergyToImageTrainingConfig,
-    EnergyToImageTrainingSession,
-    create_energy_to_image_training_session,
-    energy_to_image_training_config_from_dict,
-    iter_energy_to_image_training,
-    rerun_energy_to_image_training_config_from_log,
+from lpap.image_energy_flow_training import (
+    ImageEnergyFlowPriorConfig,
+    ImageEnergyFlowRunConfig,
+    ImageEnergyFlowTrainingConfig,
+    ImageEnergyFlowTrainingSession,
+    create_image_energy_flow_training_session,
+    image_energy_flow_training_config_from_dict,
+    iter_image_energy_flow_training,
+    rerun_image_energy_flow_training_config_from_log,
 )
 from lpap.surrogate_training import (
     LPAPSurrogateDataConfig,
@@ -78,34 +69,28 @@ from lpap.training_log import list_training_runs
 TrainingModelKind = Literal[
     "surrogate",
     "decoder",
-    "image_to_energy",
-    "image_to_energy_energy_bank",
-    "energy_to_image",
-    "energy_to_image_energy_bank",
+    "image_energy_flow",
+    "image_energy_flow_energy_bank",
     "image_autoencoder",
 ]
 TrainingConfig = (
     LPAPSurrogateTrainingConfig
     | LPAPDecoderTrainingConfig
-    | ImageToEnergyTrainingConfig
-    | EnergyToImageTrainingConfig
+    | ImageEnergyFlowTrainingConfig
     | ImageAutoencoderTrainingConfig
 )
 TrainingSession = (
     LPAPSurrogateTrainingSession
     | LPAPDecoderTrainingSession
-    | ImageToEnergyTrainingSession
-    | EnergyToImageTrainingSession
+    | ImageEnergyFlowTrainingSession
     | ImageAutoencoderTrainingSession
 )
 
 
 def training_backend_kind(model_kind: TrainingModelKind) -> str:
     """Map UI/config kind to the training stack that owns the session."""
-    if model_kind in ("image_to_energy", "image_to_energy_energy_bank"):
-        return "image_to_energy"
-    if model_kind in ("energy_to_image", "energy_to_image_energy_bank"):
-        return "energy_to_image"
+    if model_kind in ("image_energy_flow", "image_energy_flow_energy_bank"):
+        return "image_energy_flow"
     return model_kind
 
 
@@ -203,7 +188,7 @@ def default_decoder_training_config() -> LPAPDecoderTrainingConfig:
     )
 
 
-def default_image_to_energy_training_config() -> ImageToEnergyTrainingConfig:
+def default_image_energy_flow_training_config() -> ImageEnergyFlowTrainingConfig:
     harmonics = SyntheticHarmonicConfig(
         harmonic_count=16,
         gain_variance=1.0,
@@ -211,8 +196,8 @@ def default_image_to_energy_training_config() -> ImageToEnergyTrainingConfig:
         spikiness_range=(4.0, 8.0),
         dtype=torch.float32,
     )
-    return ImageToEnergyTrainingConfig(
-        image=ImageToEnergyImageConfig(
+    return ImageEnergyFlowTrainingConfig(
+        image=FlowImageConfig(
             dataset_path="data/images_32x32_gray.pt",
             batch_size=32,
             side=32,
@@ -220,8 +205,8 @@ def default_image_to_energy_training_config() -> ImageToEnergyTrainingConfig:
             shuffle=True,
             num_workers=0,
         ),
-        target=ImageToEnergyTargetConfig(harmonics=harmonics),
-        flow=ImageToEnergyFlowConfig(
+        prior=ImageEnergyFlowPriorConfig(harmonics=harmonics),
+        flow=FlowModelConfig(
             sequence_length=1024,
             width=128,
             time_dim=128,
@@ -230,17 +215,17 @@ def default_image_to_energy_training_config() -> ImageToEnergyTrainingConfig:
             kernel_size=3,
             zero_init_output=True,
         ),
-        time=ImageToEnergyTimeConfig(
+        time=FlowTimeConfig(
             distribution="beta",
             beta_alpha=0.1,
             beta_beta=0.1,
             eps=1.0e-4,
         ),
-        optimizer=ImageToEnergyOptimizerConfig(
+        optimizer=FlowOptimizerConfig(
             learning_rate=1.0e-4,
             max_grad_norm=1.0,
         ),
-        validation=ImageToEnergyValidationConfig(
+        validation=FlowValidationConfig(
             enabled=True,
             every=100,
             batch_size=128,
@@ -248,97 +233,36 @@ def default_image_to_energy_training_config() -> ImageToEnergyTrainingConfig:
             validate_at_end=True,
             euler_steps=(1, 4, 16),
         ),
-        run=ImageToEnergyRunConfig(
+        run=ImageEnergyFlowRunConfig(
             run_training=True,
             resume_from_checkpoint=True,
             steps=10_000,
             seed=789,
             display_every=5,
             log_every=1,
-            run_id="image_to_energy",
-            checkpoint_name="image_to_energy.pt",
-            log_name="image_to_energy.sqlite",
+            run_id="image_energy_flow",
+            checkpoint_name="image_energy_flow.pt",
+            log_name="image_energy_flow.sqlite",
             comment="",
             pinned=False,
         ),
     )
 
 
-def default_energy_to_image_training_config() -> EnergyToImageTrainingConfig:
-    return EnergyToImageTrainingConfig(
-        image=ImageToEnergyImageConfig(
-            dataset_path="data/images_32x32_gray.pt",
-            batch_size=32,
-            side=32,
-            normalize=True,
-            shuffle=True,
-            num_workers=0,
-        ),
-        source=EnergyToImageSourceConfig(
-            teacher=EnergyToImageHarmonicsTeacherConfig(
-                surrogate_checkpoint_name="surrogate_c128_k4.pt",
-                decoder_checkpoint_name="decoder_c128_k4.pt",
-                load_best=True,
-                require_checkpoints=True,
-            ),
-        ),
-        flow=ImageToEnergyFlowConfig(
-            sequence_length=1024,
-            width=128,
-            time_dim=128,
-            dilation_cycles=2,
-            dilations=(1, 2, 4, 8, 16, 32, 64, 128),
-            kernel_size=3,
-            zero_init_output=True,
-        ),
-        time=ImageToEnergyTimeConfig(
-            distribution="beta",
-            beta_alpha=0.1,
-            beta_beta=0.1,
-            eps=1.0e-4,
-        ),
-        optimizer=ImageToEnergyOptimizerConfig(
-            learning_rate=1.0e-4,
-            max_grad_norm=1.0,
-        ),
-        validation=ImageToEnergyValidationConfig(
-            enabled=True,
-            every=100,
-            batch_size=128,
-            seed=40_123,
-            validate_at_end=True,
-            euler_steps=(1, 4, 16),
-        ),
-        run=EnergyToImageRunConfig(
-            run_training=True,
-            resume_from_checkpoint=True,
-            steps=10_000,
-            seed=987,
-            display_every=5,
-            log_every=1,
-            run_id="energy_to_image",
-            checkpoint_name="energy_to_image.pt",
-            log_name="energy_to_image.sqlite",
-            comment="",
-            pinned=False,
-        ),
-    )
-
-
-def default_image_to_energy_energy_bank_training_config() -> ImageToEnergyTrainingConfig:
-    config = default_image_to_energy_training_config()
-    return ImageToEnergyTrainingConfig(
+def default_image_energy_flow_energy_bank_training_config() -> ImageEnergyFlowTrainingConfig:
+    config = default_image_energy_flow_training_config()
+    return ImageEnergyFlowTrainingConfig(
         image=config.image,
-        target=ImageToEnergyTargetConfig(
+        prior=ImageEnergyFlowPriorConfig(
             kind="energy_bank",
             energy_bank=EnergyBankConfig(
-                path="data/encoded_energies_ae_best_131k.pt",
+                path="data/encoded_energies_ae_best.pt",
             ),
         ),
         flow=config.flow,
         time=config.time,
         optimizer=config.optimizer,
-        validation=ImageToEnergyValidationConfig(
+        validation=FlowValidationConfig(
             enabled=True,
             every=50,
             batch_size=64,
@@ -346,61 +270,24 @@ def default_image_to_energy_energy_bank_training_config() -> ImageToEnergyTraini
             validate_at_end=True,
             euler_steps=(1, 4, 16),
         ),
-        run=ImageToEnergyRunConfig(
+        run=ImageEnergyFlowRunConfig(
             run_training=config.run.run_training,
             resume_from_checkpoint=config.run.resume_from_checkpoint,
             steps=2_000,
             seed=config.run.seed,
             display_every=25,
             log_every=5,
-            run_id="image_to_energy_energy_bank",
-            checkpoint_name="image_to_energy_energy_bank.pt",
-            log_name="image_to_energy_energy_bank.sqlite",
-            comment="energy-bank prior probe; unpaired images",
-            pinned=False,
-        ),
-    )
-
-
-def default_energy_to_image_energy_bank_training_config() -> EnergyToImageTrainingConfig:
-    config = default_energy_to_image_training_config()
-    return EnergyToImageTrainingConfig(
-        image=config.image,
-        source=EnergyToImageSourceConfig(
-            kind="energy_bank",
-            energy_bank=EnergyBankConfig(
-                path="data/encoded_energies_ae_best_131k.pt",
-            ),
-        ),
-        flow=config.flow,
-        time=config.time,
-        optimizer=config.optimizer,
-        validation=ImageToEnergyValidationConfig(
-            enabled=True,
-            every=50,
-            batch_size=64,
-            seed=40_123,
-            validate_at_end=True,
-            euler_steps=(1, 4, 16),
-        ),
-        run=EnergyToImageRunConfig(
-            run_training=config.run.run_training,
-            resume_from_checkpoint=config.run.resume_from_checkpoint,
-            steps=2_000,
-            seed=config.run.seed,
-            display_every=25,
-            log_every=5,
-            run_id="energy_to_image_energy_bank",
-            checkpoint_name="energy_to_image_energy_bank.pt",
-            log_name="energy_to_image_energy_bank.sqlite",
-            comment="energy-bank e2i source probe; unpaired images",
+            run_id="image_energy_flow_energy_bank",
+            checkpoint_name="image_energy_flow_energy_bank.pt",
+            log_name="image_energy_flow_energy_bank.sqlite",
+            comment="energy-bank prior; unpaired images",
             pinned=False,
         ),
     )
 
 
 def default_image_autoencoder_training_config() -> ImageAutoencoderTrainingConfig:
-    flow = ImageToEnergyFlowConfig(
+    flow = FlowModelConfig(
         sequence_length=1024,
         width=128,
         time_dim=128,
@@ -410,7 +297,7 @@ def default_image_autoencoder_training_config() -> ImageAutoencoderTrainingConfi
         zero_init_output=True,
     )
     return ImageAutoencoderTrainingConfig(
-        image=ImageToEnergyImageConfig(
+        image=FlowImageConfig(
             dataset_path="data/images_32x32_gray.pt",
             batch_size=32,
             side=32,
@@ -426,8 +313,7 @@ def default_image_autoencoder_training_config() -> ImageAutoencoderTrainingConfi
                     name="c128",
                 ),
             ),
-            image_to_energy_checkpoint_name="image_to_energy.pt",
-            energy_to_image_checkpoint_name="energy_to_image.pt",
+            flow_checkpoint_name="image_energy_flow.pt",
             load_best=True,
             require_checkpoints=True,
             train_image_to_energy_flow=True,
@@ -450,11 +336,11 @@ def default_image_autoencoder_training_config() -> ImageAutoencoderTrainingConfi
             signed_mass_floor_coef=1.0,
             detach_energy_target=False,
         ),
-        optimizer=ImageToEnergyOptimizerConfig(
+        optimizer=FlowOptimizerConfig(
             learning_rate=2.0e-5,
             max_grad_norm=1.0,
         ),
-        validation=ImageToEnergyValidationConfig(
+        validation=FlowValidationConfig(
             enabled=True,
             every=50,
             batch_size=32,
@@ -473,7 +359,7 @@ def default_image_autoencoder_training_config() -> ImageAutoencoderTrainingConfi
             checkpoint_name="image_autoencoder.pt",
             log_name="image_autoencoder.sqlite",
             comment=(
-                "16-step e2e AE with dialed lambdas and signed-mass"
+                "16-step e2e AE; bidirectional flow clone at init"
             ),
             pinned=False,
         ),
@@ -485,14 +371,10 @@ def default_training_config(model_kind: TrainingModelKind) -> TrainingConfig:
         return default_surrogate_training_config()
     if model_kind == "decoder":
         return default_decoder_training_config()
-    if model_kind == "image_to_energy":
-        return default_image_to_energy_training_config()
-    if model_kind == "image_to_energy_energy_bank":
-        return default_image_to_energy_energy_bank_training_config()
-    if model_kind == "energy_to_image":
-        return default_energy_to_image_training_config()
-    if model_kind == "energy_to_image_energy_bank":
-        return default_energy_to_image_energy_bank_training_config()
+    if model_kind == "image_energy_flow":
+        return default_image_energy_flow_training_config()
+    if model_kind == "image_energy_flow_energy_bank":
+        return default_image_energy_flow_energy_bank_training_config()
     if model_kind == "image_autoencoder":
         return default_image_autoencoder_training_config()
     raise ValueError("unsupported model_kind")
@@ -514,10 +396,8 @@ def training_config_from_file(
         return lpap_surrogate_training_config_from_dict(data)
     if backend == "decoder":
         return lpap_decoder_training_config_from_dict(data)
-    if backend == "image_to_energy":
-        return image_to_energy_training_config_from_dict(data)
-    if backend == "energy_to_image":
-        return energy_to_image_training_config_from_dict(data)
+    if backend == "image_energy_flow":
+        return image_energy_flow_training_config_from_dict(data)
     if backend == "image_autoencoder":
         return image_autoencoder_training_config_from_dict(data)
     raise ValueError("unsupported model_kind")
@@ -624,12 +504,8 @@ def training_config_from_log(
         return rerun_lpap_decoder_training_config_from_log(
             log_path, run_id=run_id, resume_from_checkpoint=resume_from_checkpoint
         )
-    if backend == "image_to_energy":
-        return rerun_image_to_energy_training_config_from_log(
-            log_path, run_id=run_id, resume_from_checkpoint=resume_from_checkpoint
-        )
-    if backend == "energy_to_image":
-        return rerun_energy_to_image_training_config_from_log(
+    if backend == "image_energy_flow":
+        return rerun_image_energy_flow_training_config_from_log(
             log_path, run_id=run_id, resume_from_checkpoint=resume_from_checkpoint
         )
     return rerun_image_autoencoder_training_config_from_log(
@@ -666,20 +542,12 @@ def create_training_session(
         return create_lpap_decoder_training_session(
             project_root=project_root, config=config
         )
-    if backend == "image_to_energy":
-        if not isinstance(config, ImageToEnergyTrainingConfig):
+    if backend == "image_energy_flow":
+        if not isinstance(config, ImageEnergyFlowTrainingConfig):
             raise TypeError(
-                "image_to_energy training requires ImageToEnergyTrainingConfig"
+                "image_energy_flow training requires ImageEnergyFlowTrainingConfig"
             )
-        return create_image_to_energy_training_session(
-            project_root=project_root, config=config
-        )
-    if backend == "energy_to_image":
-        if not isinstance(config, EnergyToImageTrainingConfig):
-            raise TypeError(
-                "energy_to_image training requires EnergyToImageTrainingConfig"
-            )
-        return create_energy_to_image_training_session(
+        return create_image_energy_flow_training_session(
             project_root=project_root, config=config
         )
     if not isinstance(config, ImageAutoencoderTrainingConfig):
@@ -701,18 +569,12 @@ def iter_training(model_kind: TrainingModelKind, session: TrainingSession):
         if not isinstance(session, LPAPDecoderTrainingSession):
             raise TypeError("decoder training requires LPAPDecoderTrainingSession")
         return iter_lpap_decoder_training(session)
-    if backend == "image_to_energy":
-        if not isinstance(session, ImageToEnergyTrainingSession):
+    if backend == "image_energy_flow":
+        if not isinstance(session, ImageEnergyFlowTrainingSession):
             raise TypeError(
-                "image_to_energy training requires ImageToEnergyTrainingSession"
+                "image_energy_flow training requires ImageEnergyFlowTrainingSession"
             )
-        return iter_image_to_energy_training(session)
-    if backend == "energy_to_image":
-        if not isinstance(session, EnergyToImageTrainingSession):
-            raise TypeError(
-                "energy_to_image training requires EnergyToImageTrainingSession"
-            )
-        return iter_energy_to_image_training(session)
+        return iter_image_energy_flow_training(session)
     if not isinstance(session, ImageAutoencoderTrainingSession):
         raise TypeError(
             "image_autoencoder training requires ImageAutoencoderTrainingSession"

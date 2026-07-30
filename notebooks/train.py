@@ -60,10 +60,8 @@ def _(mo):
         options=[
             "surrogate",
             "decoder",
-            "image_to_energy",
-            "image_to_energy_energy_bank",
-            "energy_to_image",
-            "energy_to_image_energy_bank",
+            "image_energy_flow",
+            "image_energy_flow_energy_bank",
             "image_autoencoder",
         ],
         value="surrogate",

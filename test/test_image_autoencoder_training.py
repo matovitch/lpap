@@ -25,11 +25,11 @@ from lpap.image_autoencoder_training import (
     iter_image_autoencoder_training,
     train_image_autoencoder_step,
 )
-from lpap.image_to_energy_training import (
-    ImageToEnergyFlowConfig,
-    ImageToEnergyImageConfig,
-    ImageToEnergyOptimizerConfig,
-    ImageToEnergyValidationConfig,
+from lpap.flow_training import (
+    FlowImageConfig,
+    FlowModelConfig,
+    FlowOptimizerConfig,
+    FlowValidationConfig,
 )
 from lpap.surrogate import LPAPSurrogateTransformer
 from lpap.surrogate_training import LPAPSurrogateDataConfig
@@ -156,23 +156,16 @@ def _build_tiny_autoencoder_session(
         "dilation_cycles": 1,
         "dilations": (1, 2),
     }
-    image_to_energy = DilatedConvFlow1d(**flow_kwargs)
-    energy_to_image = DilatedConvFlow1d(**flow_kwargs)
+    flow = DilatedConvFlow1d(**flow_kwargs)
     save_training_checkpoint(
-        checkpoint_dir / "image_to_energy.pt",
-        model=image_to_energy,
+        checkpoint_dir / "image_energy_flow.pt",
+        model=flow,
         step=1,
         training_state={"model_config": {"sequence_length": 16}},
     )
-    save_training_checkpoint(
-        checkpoint_dir / "energy_to_image.pt",
-        model=energy_to_image,
-        step=1,
-        training_state={"model_config": {"sequence_length": 16}},
-    )
-    flow_config = ImageToEnergyFlowConfig(**flow_kwargs)
+    flow_config = FlowModelConfig(**flow_kwargs)
     config = ImageAutoencoderTrainingConfig(
-        image=ImageToEnergyImageConfig(
+        image=FlowImageConfig(
             dataset_path="data/images.pt",
             batch_size=2,
             side=4,
@@ -181,8 +174,7 @@ def _build_tiny_autoencoder_session(
         ),
         source=ImageAutoencoderSourceConfig(
             lpap_pairs=pairs,
-            image_to_energy_checkpoint_name="image_to_energy.pt",
-            energy_to_image_checkpoint_name="energy_to_image.pt",
+            flow_checkpoint_name="image_energy_flow.pt",
             train_image_to_energy_flow=True,
             train_surrogate=True,
             train_decoder=True,
@@ -199,11 +191,11 @@ def _build_tiny_autoencoder_session(
             energy_l1_weight=0.25,
             surrogate_teacher_weight=0.1,
         ),
-        optimizer=ImageToEnergyOptimizerConfig(
+        optimizer=FlowOptimizerConfig(
             learning_rate=1.0e-4,
             max_grad_norm=1.0,
         ),
-        validation=ImageToEnergyValidationConfig(
+        validation=FlowValidationConfig(
             every=1,
             batch_size=2,
             euler_steps=(1,),
@@ -222,13 +214,12 @@ def _build_tiny_autoencoder_session(
 
 
 class ImageAutoencoderTrainingTest(unittest.TestCase):
-    def test_legacy_source_dict_normalizes_to_one_pair(self) -> None:
+    def test_source_dict_normalizes_to_one_pair(self) -> None:
         source = image_autoencoder_source_config_from_dict(
             {
                 "surrogate_checkpoint_name": "surrogate_synthetic.pt",
                 "decoder_checkpoint_name": "decoder_synthetic.pt",
-                "image_to_energy_checkpoint_name": "image_to_energy.pt",
-                "energy_to_image_checkpoint_name": "energy_to_image.pt",
+                "flow_checkpoint_name": "image_energy_flow.pt",
                 "load_best": True,
                 "require_checkpoints": True,
                 "train_image_to_energy_flow": True,
@@ -257,8 +248,7 @@ class ImageAutoencoderTrainingTest(unittest.TestCase):
                         "name": "c8",
                     },
                 ],
-                "image_to_energy_checkpoint_name": "image_to_energy.pt",
-                "energy_to_image_checkpoint_name": "energy_to_image.pt",
+                "flow_checkpoint_name": "image_energy_flow.pt",
                 "load_best": True,
                 "require_checkpoints": True,
                 "train_image_to_energy_flow": True,
@@ -396,7 +386,7 @@ class ImageAutoencoderTrainingTest(unittest.TestCase):
                     f"{name} received only zero gradients",
                 )
 
-    def test_from_dict_accepts_legacy_flat_source(self) -> None:
+    def test_from_dict_accepts_flat_source(self) -> None:
         config = image_autoencoder_training_config_from_dict(
             {
                 "image": {
@@ -410,8 +400,7 @@ class ImageAutoencoderTrainingTest(unittest.TestCase):
                 "source": {
                     "surrogate_checkpoint_name": "surrogate.pt",
                     "decoder_checkpoint_name": "decoder.pt",
-                    "image_to_energy_checkpoint_name": "image_to_energy.pt",
-                    "energy_to_image_checkpoint_name": "energy_to_image.pt",
+                    "flow_checkpoint_name": "image_energy_flow.pt",
                     "load_best": True,
                     "require_checkpoints": True,
                     "train_image_to_energy_flow": True,

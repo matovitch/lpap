@@ -13,6 +13,7 @@ from lpap.data import SyntheticHarmonicConfig, load_image_tensor_dataset
 from lpap.flow import (
     DilatedConvFlow1d,
     FlowMatchingMetrics,
+    bidirectional_flow_matching_loss,
     flow_matching_loss,
     integrate_euler_midpoint_time,
 )
@@ -299,6 +300,7 @@ def sample_flow_time(
     device: str | torch.device | None = None,
     dtype: torch.dtype = torch.float32,
 ) -> torch.Tensor:
+    """Sample local progress in ``(eps, 1 - eps)`` (unsigned half-interval)."""
     config.validate()
     target_device = torch.device("cpu") if device is None else torch.device(device)
     if config.distribution == "uniform":
@@ -323,6 +325,121 @@ def sample_flow_time(
             torch.finfo(dtype).tiny
         )
     return config.eps + (1.0 - 2.0 * config.eps) * base
+
+
+def sample_bidirectional_flow_time(
+    *,
+    batch_size: int,
+    config: FlowTimeConfig,
+    generator: torch.Generator | None = None,
+    device: str | torch.device | None = None,
+    dtype: torch.dtype = torch.float32,
+) -> torch.Tensor:
+    """Sample global flow time on ``[-1, 1]`` with energy at ``0``.
+
+    Draws a half (left ``[-1, 0]`` vs right ``[0, 1]``) uniformly, then local
+    progress via :func:`sample_flow_time`. Left: ``t = -1 + u``; right: ``t = u``.
+    """
+    local = sample_flow_time(
+        batch_size=batch_size,
+        config=config,
+        generator=generator,
+        device=device,
+        dtype=dtype,
+    )
+    target_device = local.device
+    left = (
+        torch.rand(batch_size, generator=generator, device=target_device, dtype=dtype)
+        < 0.5
+    )
+    return torch.where(left, -1.0 + local, local)
+
+
+def train_bidirectional_flow_matching_step(
+    *,
+    model: DilatedConvFlow1d,
+    optimizer: torch.optim.Optimizer,
+    image: torch.Tensor,
+    energy: torch.Tensor,
+    time_config: FlowTimeConfig,
+    max_grad_norm: float | None,
+    generator: torch.Generator,
+) -> FlowMatchingMetrics:
+    model.train()
+    time = sample_bidirectional_flow_time(
+        batch_size=image.shape[0],
+        config=time_config,
+        generator=generator,
+        device=image.device,
+        dtype=image.dtype,
+    )
+    optimizer.zero_grad(set_to_none=True)
+    loss, metrics = bidirectional_flow_matching_loss(model, image, energy, time)
+    loss.backward()
+    if max_grad_norm is not None:
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
+    optimizer.step()
+    return metrics
+
+
+def evaluate_bidirectional_flow_matching_batch(
+    *,
+    model: DilatedConvFlow1d,
+    image: torch.Tensor,
+    energy: torch.Tensor,
+    time_config: FlowTimeConfig,
+    generator: torch.Generator,
+) -> FlowMatchingMetrics:
+    time = sample_bidirectional_flow_time(
+        batch_size=image.shape[0],
+        config=time_config,
+        generator=generator,
+        device=image.device,
+        dtype=image.dtype,
+    )
+    _loss, metrics = bidirectional_flow_matching_loss(model, image, energy, time)
+    return metrics
+
+
+def integration_diagnostics_range(
+    *,
+    model: DilatedConvFlow1d,
+    start: torch.Tensor,
+    steps: tuple[int, ...],
+    prefix: str,
+    t0: float,
+    t1: float,
+) -> dict[str, float]:
+    diagnostics = {}
+    for step_count in steps:
+        generated = integrate_euler_midpoint_time(
+            model, start, step_count, t0=t0, t1=t1
+        )
+        diagnostics[f"{prefix}_rms_steps_{step_count}"] = float(
+            generated.square().mean().sqrt().detach().cpu()
+        )
+        diagnostics[f"{prefix}_mean_steps_{step_count}"] = float(
+            generated.mean().detach().cpu()
+        )
+    return diagnostics
+
+
+def integrate_flow_images_range(
+    *,
+    model: DilatedConvFlow1d,
+    start: torch.Tensor,
+    steps: tuple[int, ...],
+    side: int,
+    t0: float,
+    t1: float,
+) -> dict[int, torch.Tensor]:
+    return {
+        step_count: hilbert_unflatten_images(
+            integrate_euler_midpoint_time(model, start, step_count, t0=t0, t1=t1),
+            side=side,
+        )
+        for step_count in steps
+    }
 
 
 def load_flow_image_loader(

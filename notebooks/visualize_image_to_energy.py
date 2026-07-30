@@ -22,21 +22,21 @@ def _():
         load_metric_history,
     )
     from lpap.training_notebook import (
-        default_image_to_energy_training_config,
+        default_image_energy_flow_training_config,
         render_recent_runs_table,
         training_log_path,
     )
     from lpap.training_plots import render_loss_history_svg
-    from lpap.visualization_notebook import render_image_to_energy_run_gallery
+    from lpap.visualization_notebook import render_image_energy_flow_run_gallery
 
     return (
-        default_image_to_energy_training_config,
+        default_image_energy_flow_training_config,
         list_training_runs,
         load_best_metric_row,
         load_metric_history,
         mo,
         project_root,
-        render_image_to_energy_run_gallery,
+        render_image_energy_flow_run_gallery,
         render_loss_history_svg,
         render_recent_runs_table,
         training_log_path,
@@ -53,14 +53,14 @@ def _(mo):
 
 @app.cell
 def _(
-    default_image_to_energy_training_config,
+    default_image_energy_flow_training_config,
     list_training_runs,
     mo,
     project_root,
     render_recent_runs_table,
     training_log_path,
 ):
-    config = default_image_to_energy_training_config()
+    config = default_image_energy_flow_training_config()
     log_path = training_log_path(project_root, config)
     recent_runs = list_training_runs(log_path, base_run_id=config.run.run_id, limit=10)
     run_options = {
@@ -94,7 +94,7 @@ def _(
     log_path,
     mo,
     project_root,
-    render_image_to_energy_run_gallery,
+    render_image_energy_flow_run_gallery,
     render_loss_history_svg,
     run_picker,
 ):
@@ -112,7 +112,7 @@ def _(
         best_loss = "n/a" if best is None else f"{best['validation_loss']:.4f}"
         try:
             gallery = mo.Html(
-                render_image_to_energy_run_gallery(
+                render_image_energy_flow_run_gallery(
                     project_root=project_root,
                     log_path=log_path,
                     run_id=active_run_id,

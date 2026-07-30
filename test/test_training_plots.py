@@ -4,11 +4,11 @@ import unittest
 
 import torch
 
-from lpap.image_to_energy_training import ImageToEnergyGalleryItem
+from lpap.image_energy_flow_training import ImageEnergyFlowGalleryItem
 from lpap.image_autoencoder_training import ImageAutoencoderGalleryItem
 from lpap.training_plots import (
     render_image_autoencoder_gallery_html,
-    render_image_to_energy_gallery_html,
+    render_image_energy_flow_gallery_html,
     render_loss_history_svg,
 )
 
@@ -36,14 +36,19 @@ class TrainingPlotsTest(unittest.TestCase):
         self.assertIn("source ce regularizer", svg)
         self.assertIn("stroke-dasharray", svg)
 
-    def test_renders_image_to_energy_gallery_with_image_then_steps(self) -> None:
-        html = render_image_to_energy_gallery_html(
+    def test_renders_image_energy_flow_gallery_with_both_directions(self) -> None:
+        html = render_image_energy_flow_gallery_html(
             [
-                ImageToEnergyGalleryItem(
+                ImageEnergyFlowGalleryItem(
                     image=torch.linspace(0.0, 1.0, 16).reshape(1, 4, 4),
-                    generated={
+                    encoded={
                         64: torch.linspace(-1.0, 1.0, 16).reshape(1, 4, 4),
                         32: torch.linspace(1.0, -1.0, 16).reshape(1, 4, 4),
+                        4: torch.zeros(1, 4, 4),
+                    },
+                    reconstructed={
+                        64: torch.linspace(0.0, 1.0, 16).reshape(1, 4, 4),
+                        32: torch.linspace(1.0, 0.0, 16).reshape(1, 4, 4),
                         4: torch.zeros(1, 4, 4),
                     },
                 )
@@ -55,6 +60,7 @@ class TrainingPlotsTest(unittest.TestCase):
         self.assertLess(html.index("image"), html.index(">64 steps<"))
         self.assertLess(html.index(">64 steps<"), html.index(">32 steps<"))
         self.assertLess(html.index(">32 steps<"), html.index(">4 steps<"))
+        self.assertIn("energy → image", html)
         self.assertIn("rgb(255, 255, 255)", html)
         self.assertIn("rgb(255, 0, 0)", html)
         self.assertIn("rgb(0, 0, 255)", html)

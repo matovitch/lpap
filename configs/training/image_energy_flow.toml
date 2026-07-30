@@ -1,3 +1,6 @@
+# Bidirectional image↔energy flow on t∈[-1,1] (energy at t=0).
+# Harmonics prior at the latent.
+
 [image]
 dataset_path = "data/images_32x32_gray.pt"
 batch_size = 32
@@ -6,14 +9,15 @@ normalize = true
 shuffle = true
 num_workers = 0
 
-[source]
+[prior]
 kind = "harmonics"
 
-[source.teacher]
-surrogate_checkpoint_name = "surrogate_c128_k4.pt"
-decoder_checkpoint_name = "decoder_c128_k4.pt"
-load_best = true
-require_checkpoints = true
+[prior.harmonics]
+harmonic_count = 32
+gain_variance = 1.0
+gain_half_life = 4.0
+spikiness_range = [4.0, 6.0]
+dtype = "torch.float32"
 
 [flow]
 sequence_length = 1024
@@ -38,7 +42,7 @@ max_grad_norm = 1.0
 enabled = true
 every = 100
 batch_size = 128
-seed = 40123
+seed = 30123
 validate_at_end = true
 euler_steps = [1, 4, 16]
 
@@ -46,11 +50,11 @@ euler_steps = [1, 4, 16]
 run_training = true
 resume_from_checkpoint = true
 steps = 10000
-seed = 987
+seed = 789
 display_every = 5
 log_every = 1
-run_id = "energy_to_image"
-checkpoint_name = "energy_to_image.pt"
-log_name = "energy_to_image.sqlite"
-comment = ""
+run_id = "image_energy_flow"
+checkpoint_name = "image_energy_flow.pt"
+log_name = "image_energy_flow.sqlite"
+comment = "bidirectional image↔energy; t=-1 image, t=0 energy, t=+1 image"
 pinned = false

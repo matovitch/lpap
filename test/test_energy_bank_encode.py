@@ -36,8 +36,8 @@ class EnergyBankEncodeTest(unittest.TestCase):
         dataset = ImageTensorDataset(images, normalize=True)
         messages: list[str] = []
 
-        def fake_integrate(flow, seq, steps):
-            del flow, steps
+        def fake_integrate(flow, seq, steps, *, t0, t1):
+            del flow, steps, t0, t1
             # Energy-scale output independent of image intensity.
             return 0.03 * torch.randn_like(seq)
 
@@ -67,8 +67,8 @@ class EnergyBankEncodeTest(unittest.TestCase):
         images = torch.randint(0, 256, (8, 1, 4, 4), dtype=torch.uint8)
         dataset = ImageTensorDataset(images, normalize=True)
 
-        def fake_integrate(flow, seq, steps):
-            del flow, steps
+        def fake_integrate(flow, seq, steps, *, t0, t1):
+            del flow, steps, t0, t1
             # Simulate forgot-/255 identity: stay near 0..255 Hilbert values.
             return seq * 255.0
 

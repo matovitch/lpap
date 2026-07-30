@@ -494,6 +494,47 @@ def render_energy_to_image_gallery_html(
         """
 
 
+def render_image_energy_flow_gallery_html(
+    items: Sequence[Any],
+    *,
+    steps: Sequence[int] = (64, 32, 16, 8, 4),
+    size: int = 32,
+) -> str:
+    """Render both legs of a bidirectional image/energy flow gallery."""
+    if not items:
+        return "<p>No image-energy flow gallery samples are available.</p>"
+
+    image_to_energy_items = [
+        type(
+            "ImageEnergyFlowEncodedGalleryItem",
+            (),
+            {"image": item.image, "generated": item.encoded},
+        )()
+        for item in items
+    ]
+    energy_to_image_items = [
+        type(
+            "ImageEnergyFlowReconstructedGalleryItem",
+            (),
+            {
+                "source": item.encoded[max(item.encoded)],
+                "generated": item.reconstructed,
+            },
+        )()
+        for item in items
+    ]
+    return (
+        "<h3>image → energy</h3>"
+        + render_image_to_energy_gallery_html(
+            image_to_energy_items, steps=steps, size=size
+        )
+        + "<h3>energy → image</h3>"
+        + render_energy_to_image_gallery_html(
+            energy_to_image_items, steps=steps, size=size
+        )
+    )
+
+
 def render_image_autoencoder_gallery_html(
     items: Sequence[Any],
     *,

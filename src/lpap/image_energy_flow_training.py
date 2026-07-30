@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 import torch
-
 from torch.utils.data import DataLoader
 
 from lpap.data import SyntheticHarmonicConfig
@@ -15,12 +14,10 @@ from lpap.energy_bank import (
     EnergyPriorKind,
     energy_bank_config_from_dict,
     load_energy_bank_for_flow,
+    resolve_energy_bank_path,
     sample_energy_prior_values,
 )
-from lpap.flow import (
-    DilatedConvFlow1d,
-    FlowMatchingMetrics,
-)
+from lpap.flow import DilatedConvFlow1d, FlowMatchingMetrics
 from lpap.flow_training import (
     FlowImageConfig,
     FlowModelConfig,
@@ -29,20 +26,19 @@ from lpap.flow_training import (
     FlowValidationConfig,
     create_flow_session_core,
     cycle_image_batches,
-    evaluate_flow_matching_batch,
+    evaluate_bidirectional_flow_matching_batch,
     flow_metrics_dict,
     flow_model_config_from_dict,
     flow_model_metadata,
     flow_run_params_from_config,
     image_config_from_dict,
-    integrate_flow_images,
-    integration_diagnostics,
+    integrate_flow_images_range,
+    integration_diagnostics_range,
     optimizer_config_from_dict,
     prepare_image_sequence,
-    sample_flow_time,
     should_validate_flow,
     time_config_from_dict,
-    train_flow_matching_step,
+    train_bidirectional_flow_matching_step,
     validate_image_flow_shape,
     validation_config_from_dict,
 )
@@ -54,23 +50,16 @@ from lpap.training import (
 )
 from lpap.training_log import load_run_record
 
-
-ImageToEnergyImageConfig = FlowImageConfig
-ImageToEnergyFlowConfig = FlowModelConfig
-ImageToEnergyTimeConfig = FlowTimeConfig
-ImageToEnergyOptimizerConfig = FlowOptimizerConfig
-ImageToEnergyValidationConfig = FlowValidationConfig
-sample_image_to_energy_time = sample_flow_time
+# Global time: t=-1 image, t=0 energy, t=+1 image.
+IMAGE_TO_ENERGY_T0 = -1.0
+IMAGE_TO_ENERGY_T1 = 0.0
+ENERGY_TO_IMAGE_T0 = 0.0
+ENERGY_TO_IMAGE_T1 = 1.0
 
 
 @dataclass(frozen=True)
-class ImageToEnergyTargetConfig:
-    """Flow matching end distribution for image→energy.
-
-    ``harmonics`` (default): sample synthetic harmonic energies.
-    ``energy_bank``: sample rows from an empirical energy ``.pt`` bank,
-    independently of the image batch (marginal prior, not paired map).
-    """
+class ImageEnergyFlowPriorConfig:
+    """Energy marginal at ``t=0`` (harmonics or empirical bank)."""
 
     kind: EnergyPriorKind = "harmonics"
     harmonics: SyntheticHarmonicConfig = field(default_factory=SyntheticHarmonicConfig)
@@ -79,12 +68,12 @@ class ImageToEnergyTargetConfig:
     def validate(self) -> None:
         if self.kind == "energy_bank":
             if self.energy_bank is None:
-                raise ValueError("target.energy_bank is required when kind=energy_bank")
+                raise ValueError("prior.energy_bank is required when kind=energy_bank")
             self.energy_bank.validate()
         elif self.kind == "harmonics":
             self.harmonics.validate()
         else:
-            raise ValueError(f"unsupported target kind: {self.kind!r}")
+            raise ValueError(f"unsupported prior kind: {self.kind!r}")
 
     def as_dict(self) -> dict[str, object]:
         data: dict[str, object] = {"kind": self.kind}
@@ -96,16 +85,16 @@ class ImageToEnergyTargetConfig:
 
 
 @dataclass(frozen=True)
-class ImageToEnergyRunConfig:
+class ImageEnergyFlowRunConfig:
     run_training: bool = True
     resume_from_checkpoint: bool = True
     steps: int = 1000
     seed: int = 789
     display_every: int = 5
     log_every: int = 1
-    run_id: str = "image_to_energy"
-    checkpoint_name: str = "image_to_energy.pt"
-    log_name: str = "image_to_energy.sqlite"
+    run_id: str = "image_energy_flow"
+    checkpoint_name: str = "image_energy_flow.pt"
+    log_name: str = "image_energy_flow.sqlite"
     comment: str = ""
     pinned: bool = False
 
@@ -115,7 +104,7 @@ class ImageToEnergyRunConfig:
         if self.display_every <= 0 or self.log_every <= 0:
             raise ValueError("display/log cadence values must be positive")
 
-    def as_dict(self) -> dict[str, int | str | bool | tuple[str, ...]]:
+    def as_dict(self) -> dict[str, int | str | bool]:
         return {
             "run_training": self.run_training,
             "resume_from_checkpoint": self.resume_from_checkpoint,
@@ -132,18 +121,16 @@ class ImageToEnergyRunConfig:
 
 
 @dataclass(frozen=True)
-class ImageToEnergyTrainingConfig:
-    image: ImageToEnergyImageConfig = field(default_factory=ImageToEnergyImageConfig)
-    target: ImageToEnergyTargetConfig = field(default_factory=ImageToEnergyTargetConfig)
-    flow: ImageToEnergyFlowConfig = field(default_factory=ImageToEnergyFlowConfig)
-    time: ImageToEnergyTimeConfig = field(default_factory=ImageToEnergyTimeConfig)
-    optimizer: ImageToEnergyOptimizerConfig = field(
-        default_factory=ImageToEnergyOptimizerConfig
+class ImageEnergyFlowTrainingConfig:
+    image: FlowImageConfig = field(default_factory=FlowImageConfig)
+    prior: ImageEnergyFlowPriorConfig = field(
+        default_factory=ImageEnergyFlowPriorConfig
     )
-    validation: ImageToEnergyValidationConfig = field(
-        default_factory=ImageToEnergyValidationConfig
-    )
-    run: ImageToEnergyRunConfig = field(default_factory=ImageToEnergyRunConfig)
+    flow: FlowModelConfig = field(default_factory=FlowModelConfig)
+    time: FlowTimeConfig = field(default_factory=FlowTimeConfig)
+    optimizer: FlowOptimizerConfig = field(default_factory=FlowOptimizerConfig)
+    validation: FlowValidationConfig = field(default_factory=FlowValidationConfig)
+    run: ImageEnergyFlowRunConfig = field(default_factory=ImageEnergyFlowRunConfig)
 
     @property
     def value_count(self) -> int:
@@ -151,7 +138,7 @@ class ImageToEnergyTrainingConfig:
 
     def validate(self) -> None:
         self.image.validate()
-        self.target.validate()
+        self.prior.validate()
         self.flow.validate()
         self.time.validate()
         self.optimizer.validate()
@@ -162,7 +149,7 @@ class ImageToEnergyTrainingConfig:
     def as_run_config(self) -> dict[str, object]:
         return {
             "image": self.image.as_dict(),
-            "target": self.target.as_dict(),
+            "prior": self.prior.as_dict(),
             "flow": self.flow.as_dict(),
             "time": self.time.as_dict(),
             "optimizer": self.optimizer.as_dict(),
@@ -172,24 +159,55 @@ class ImageToEnergyTrainingConfig:
 
     def model_config(self) -> dict[str, object]:
         return flow_model_metadata(
-            image=self.image, flow=self.flow, extra={"target": self.target.as_dict()}
+            image=self.image,
+            flow=self.flow,
+            extra={
+                "prior": self.prior.as_dict(),
+                "time_range": {
+                    "image_to_energy": [IMAGE_TO_ENERGY_T0, IMAGE_TO_ENERGY_T1],
+                    "energy_to_image": [ENERGY_TO_IMAGE_T0, ENERGY_TO_IMAGE_T1],
+                },
+            },
         )
 
 
-def image_to_energy_training_config_from_dict(
+def image_energy_flow_prior_config_from_dict(
+    data: dict[str, Any],
+) -> ImageEnergyFlowPriorConfig:
+    kind = str(data.get("kind", "harmonics"))
+    if kind not in ("harmonics", "energy_bank"):
+        raise ValueError(f"unsupported prior kind: {kind!r}")
+    harmonics_data = data.get("harmonics")
+    energy_bank_data = data.get("energy_bank")
+    return ImageEnergyFlowPriorConfig(
+        kind=kind,  # type: ignore[arg-type]
+        harmonics=(
+            SyntheticHarmonicConfig()
+            if harmonics_data is None
+            else _synthetic_harmonic_config_from_dict(harmonics_data)
+        ),
+        energy_bank=(
+            None
+            if energy_bank_data is None
+            else energy_bank_config_from_dict(energy_bank_data)
+        ),
+    )
+
+
+def image_energy_flow_training_config_from_dict(
     data: dict[str, Any], *, resume_from_checkpoint: bool | None = None
-) -> ImageToEnergyTrainingConfig:
+) -> ImageEnergyFlowTrainingConfig:
     run_data = dict(data["run"])
     if resume_from_checkpoint is not None:
         run_data["resume_from_checkpoint"] = resume_from_checkpoint
-    return ImageToEnergyTrainingConfig(
+    return ImageEnergyFlowTrainingConfig(
         image=image_config_from_dict(data["image"]),
-        target=_image_to_energy_target_config_from_dict(data["target"]),
+        prior=image_energy_flow_prior_config_from_dict(data["prior"]),
         flow=flow_model_config_from_dict(data["flow"]),
         time=time_config_from_dict(data["time"]),
         optimizer=optimizer_config_from_dict(data["optimizer"]),
         validation=validation_config_from_dict(data["validation"]),
-        run=ImageToEnergyRunConfig(
+        run=ImageEnergyFlowRunConfig(
             run_training=bool(run_data["run_training"]),
             resume_from_checkpoint=bool(run_data["resume_from_checkpoint"]),
             steps=int(run_data["steps"]),
@@ -205,44 +223,21 @@ def image_to_energy_training_config_from_dict(
     )
 
 
-def _image_to_energy_target_config_from_dict(
-    data: dict[str, Any],
-) -> ImageToEnergyTargetConfig:
-    kind = str(data.get("kind", "harmonics"))
-    if kind not in ("harmonics", "energy_bank"):
-        raise ValueError(f"unsupported target kind: {kind!r}")
-    harmonics_data = data.get("harmonics")
-    energy_bank_data = data.get("energy_bank")
-    return ImageToEnergyTargetConfig(
-        kind=kind,  # type: ignore[arg-type]
-        harmonics=(
-            SyntheticHarmonicConfig()
-            if harmonics_data is None
-            else _synthetic_harmonic_config_from_dict(harmonics_data)
-        ),
-        energy_bank=(
-            None
-            if energy_bank_data is None
-            else energy_bank_config_from_dict(energy_bank_data)
-        ),
-    )
-
-
-def rerun_image_to_energy_training_config_from_log(
+def rerun_image_energy_flow_training_config_from_log(
     path: str | Path,
     *,
     run_id: str,
     resume_from_checkpoint: bool = False,
-) -> ImageToEnergyTrainingConfig:
+) -> ImageEnergyFlowTrainingConfig:
     record = load_run_record(path, run_id=run_id)
-    return image_to_energy_training_config_from_dict(
+    return image_energy_flow_training_config_from_dict(
         record["config"], resume_from_checkpoint=resume_from_checkpoint
     )
 
 
 @dataclass(frozen=True)
-class ImageToEnergyTrainingSession:
-    config: ImageToEnergyTrainingConfig
+class ImageEnergyFlowTrainingSession:
+    config: ImageEnergyFlowTrainingConfig
     device: torch.device
     checkpoint_path: Path
     log_path: Path
@@ -259,26 +254,31 @@ class ImageToEnergyTrainingSession:
 
 
 @dataclass(frozen=True)
-class ImageToEnergyGalleryItem:
+class ImageEnergyFlowGalleryItem:
     image: torch.Tensor
-    generated: dict[int, torch.Tensor]
+    encoded: dict[int, torch.Tensor]
+    reconstructed: dict[int, torch.Tensor]
 
 
-def create_image_to_energy_training_session(
+def create_image_energy_flow_training_session(
     *,
     project_root: str | Path,
-    config: ImageToEnergyTrainingConfig,
+    config: ImageEnergyFlowTrainingConfig,
     device: str | torch.device | None = None,
-) -> ImageToEnergyTrainingSession:
+) -> ImageEnergyFlowTrainingSession:
     config.validate()
     root = Path(project_root)
     energy_bank: torch.Tensor | None = None
-    if config.target.kind == "energy_bank":
-        assert config.target.energy_bank is not None
+    metadata: dict[str, object] = {"prior_kind": config.prior.kind}
+    if config.prior.kind == "energy_bank":
+        assert config.prior.energy_bank is not None
         energy_bank = load_energy_bank_for_flow(
             root,
-            config.target.energy_bank,
+            config.prior.energy_bank,
             sequence_length=config.value_count,
+        )
+        metadata["energy_bank_path"] = str(
+            resolve_energy_bank_path(root, config.prior.energy_bank)
         )
     core = create_flow_session_core(
         project_root=project_root,
@@ -290,9 +290,10 @@ def create_image_to_energy_training_session(
         seed=config.run.seed,
         run_config=config.as_run_config(),
         model_config=config.model_config(),
+        metadata=metadata,
         device=device,
     )
-    return ImageToEnergyTrainingSession(
+    return ImageEnergyFlowTrainingSession(
         config=config,
         device=core.device,
         checkpoint_path=core.checkpoint_path,
@@ -310,60 +311,60 @@ def create_image_to_energy_training_session(
     )
 
 
-def _sample_targets(
+def _sample_energy(
     *,
-    config: ImageToEnergyTrainingConfig,
+    config: ImageEnergyFlowTrainingConfig,
     batch_size: int,
     generator: torch.Generator,
     device: torch.device,
-    energy_bank: torch.Tensor | None = None,
+    energy_bank: torch.Tensor | None,
 ) -> torch.Tensor:
-    targets = sample_energy_prior_values(
-        kind=config.target.kind,
+    values = sample_energy_prior_values(
+        kind=config.prior.kind,
         batch_size=batch_size,
         generator=generator,
         device=device,
         sequence_length=config.value_count,
-        harmonics=config.target.harmonics,
+        harmonics=config.prior.harmonics,
         energy_bank=energy_bank,
     )
-    return targets.unsqueeze(1)
+    return values.unsqueeze(1)
 
 
-def train_image_to_energy_step(
+def train_image_energy_flow_step(
     *,
     model: DilatedConvFlow1d,
     optimizer: torch.optim.Optimizer,
     images: torch.Tensor,
-    config: ImageToEnergyTrainingConfig,
+    config: ImageEnergyFlowTrainingConfig,
     generator: torch.Generator,
     device: torch.device,
     energy_bank: torch.Tensor | None = None,
 ) -> FlowMatchingMetrics:
-    start = prepare_image_sequence(images, side=config.image.side, device=device)
-    end = _sample_targets(
+    image = prepare_image_sequence(images, side=config.image.side, device=device)
+    energy = _sample_energy(
         config=config,
-        batch_size=start.shape[0],
+        batch_size=image.shape[0],
         generator=generator,
         device=device,
         energy_bank=energy_bank,
     )
-    return train_flow_matching_step(
+    return train_bidirectional_flow_matching_step(
         model=model,
         optimizer=optimizer,
-        start=start,
-        end=end,
+        image=image,
+        energy=energy,
         time_config=config.time,
         max_grad_norm=config.optimizer.max_grad_norm,
         generator=generator,
     )
 
 
-def evaluate_image_to_energy_batch(
+def evaluate_image_energy_flow_batch(
     *,
     model: DilatedConvFlow1d,
     images: torch.Tensor,
-    config: ImageToEnergyTrainingConfig,
+    config: ImageEnergyFlowTrainingConfig,
     generator: torch.Generator,
     device: torch.device,
     energy_bank: torch.Tensor | None = None,
@@ -371,66 +372,102 @@ def evaluate_image_to_energy_batch(
     was_training = model.training
     model.eval()
     with torch.no_grad():
-        start = prepare_image_sequence(images, side=config.image.side, device=device)
-        end = _sample_targets(
+        image = prepare_image_sequence(images, side=config.image.side, device=device)
+        energy = _sample_energy(
             config=config,
-            batch_size=start.shape[0],
+            batch_size=image.shape[0],
             generator=generator,
             device=device,
             energy_bank=energy_bank,
         )
-        metrics = evaluate_flow_matching_batch(
+        metrics = evaluate_bidirectional_flow_matching_batch(
             model=model,
-            start=start,
-            end=end,
+            image=image,
+            energy=energy,
             time_config=config.time,
             generator=generator,
         )
-        diagnostics = integration_diagnostics(
-            model=model,
-            start=start,
-            steps=config.validation.euler_steps,
-            prefix="generated_energy",
+        diagnostics = {}
+        diagnostics.update(
+            integration_diagnostics_range(
+                model=model,
+                start=image,
+                steps=config.validation.euler_steps,
+                prefix="encoded_energy",
+                t0=IMAGE_TO_ENERGY_T0,
+                t1=IMAGE_TO_ENERGY_T1,
+            )
+        )
+        diagnostics.update(
+            integration_diagnostics_range(
+                model=model,
+                start=energy,
+                steps=config.validation.euler_steps,
+                prefix="reconstructed_image",
+                t0=ENERGY_TO_IMAGE_T0,
+                t1=ENERGY_TO_IMAGE_T1,
+            )
         )
     if was_training:
         model.train()
     return metrics, diagnostics
 
 
-def collect_image_to_energy_gallery(
+def collect_image_energy_flow_gallery(
     *,
     model: DilatedConvFlow1d,
     images: torch.Tensor,
+    energies: torch.Tensor,
     side: int,
     steps: tuple[int, ...] = (64, 32, 16, 8, 4),
     device: torch.device,
-) -> list[ImageToEnergyGalleryItem]:
+) -> list[ImageEnergyFlowGalleryItem]:
     if any(step_count <= 0 for step_count in steps):
         raise ValueError("integration steps must be positive")
     was_training = model.training
     model.eval()
     with torch.no_grad():
         image_batch = images.to(device=device, dtype=torch.float32)
-        start = prepare_image_sequence(image_batch, side=side, device=device)
-        generated = integrate_flow_images(
-            model=model, start=start, steps=steps, side=side
+        energy_batch = energies.to(device=device, dtype=torch.float32)
+        if energy_batch.ndim == 2:
+            energy_batch = energy_batch.unsqueeze(1)
+        start_image = prepare_image_sequence(image_batch, side=side, device=device)
+        encoded = integrate_flow_images_range(
+            model=model,
+            start=start_image,
+            steps=steps,
+            side=side,
+            t0=IMAGE_TO_ENERGY_T0,
+            t1=IMAGE_TO_ENERGY_T1,
+        )
+        reconstructed = integrate_flow_images_range(
+            model=model,
+            start=energy_batch,
+            steps=steps,
+            side=side,
+            t0=ENERGY_TO_IMAGE_T0,
+            t1=ENERGY_TO_IMAGE_T1,
         )
     if was_training:
         model.train()
     return [
-        ImageToEnergyGalleryItem(
+        ImageEnergyFlowGalleryItem(
             image=image_batch[index].detach().cpu(),
-            generated={
+            encoded={
                 step_count: values[index].detach().cpu()
-                for step_count, values in generated.items()
+                for step_count, values in encoded.items()
+            },
+            reconstructed={
+                step_count: values[index].detach().cpu()
+                for step_count, values in reconstructed.items()
             },
         )
         for index in range(image_batch.shape[0])
     ]
 
 
-def should_validate_image_to_energy(
-    *, step: int, config: ImageToEnergyTrainingConfig
+def should_validate_image_energy_flow(
+    *, step: int, config: ImageEnergyFlowTrainingConfig
 ) -> bool:
     return should_validate_flow(
         step=step, validation=config.validation, total_steps=config.run.steps
@@ -438,11 +475,11 @@ def should_validate_image_to_energy(
 
 
 def _metrics_dict(metrics: FlowMatchingMetrics) -> dict[str, float]:
-    return flow_metrics_dict(metrics, source_prefix="image", target_prefix="target")
+    return flow_metrics_dict(metrics, source_prefix="image", target_prefix="energy")
 
 
-def iter_image_to_energy_training(
-    session: ImageToEnergyTrainingSession,
+def iter_image_energy_flow_training(
+    session: ImageEnergyFlowTrainingSession,
 ) -> Iterator[TrainingStepResult]:
     config = session.config
     if session.resume_info.start_step > config.run.steps:
@@ -453,7 +490,7 @@ def iter_image_to_energy_training(
     validation_images_iter = cycle_image_batches(session.validation_image_loader)
     for step in range(session.resume_info.start_step, config.run.steps + 1):
         images = next(images_iter)
-        metrics = train_image_to_energy_step(
+        metrics = train_image_energy_flow_step(
             model=session.flow,
             optimizer=session.optimizer,
             images=images,
@@ -463,9 +500,9 @@ def iter_image_to_energy_training(
             energy_bank=session.energy_bank,
         )
         step_metrics = _metrics_dict(metrics)
-        if should_validate_image_to_energy(step=step, config=config):
+        if should_validate_image_energy_flow(step=step, config=config):
             validation_images = next(validation_images_iter)
-            validation_metrics, diagnostics = evaluate_image_to_energy_batch(
+            validation_metrics, diagnostics = evaluate_image_energy_flow_batch(
                 model=session.flow,
                 images=validation_images,
                 config=config,
@@ -494,3 +531,25 @@ def iter_image_to_energy_training(
         )
 
     session.training_run.mark_finished()
+
+
+__all__ = [
+    "ENERGY_TO_IMAGE_T0",
+    "ENERGY_TO_IMAGE_T1",
+    "IMAGE_TO_ENERGY_T0",
+    "IMAGE_TO_ENERGY_T1",
+    "ImageEnergyFlowGalleryItem",
+    "ImageEnergyFlowPriorConfig",
+    "ImageEnergyFlowRunConfig",
+    "ImageEnergyFlowTrainingConfig",
+    "ImageEnergyFlowTrainingSession",
+    "collect_image_energy_flow_gallery",
+    "create_image_energy_flow_training_session",
+    "evaluate_image_energy_flow_batch",
+    "image_energy_flow_prior_config_from_dict",
+    "image_energy_flow_training_config_from_dict",
+    "iter_image_energy_flow_training",
+    "rerun_image_energy_flow_training_config_from_log",
+    "should_validate_image_energy_flow",
+    "train_image_energy_flow_step",
+]

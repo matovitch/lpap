@@ -9,8 +9,7 @@ num_workers = 0
 [source]
 surrogate_checkpoint_name = "surrogate_c128_k4.pt"
 decoder_checkpoint_name = "decoder_c128_k4.pt"
-image_to_energy_checkpoint_name = "image_to_energy.pt"
-energy_to_image_checkpoint_name = "energy_to_image.pt"
+flow_checkpoint_name = "image_energy_flow.pt"
 load_best = true
 require_checkpoints = true
 train_image_to_energy_flow = true
@@ -71,5 +70,5 @@ log_every = 1
 run_id = "image_autoencoder"
 checkpoint_name = "image_autoencoder.pt"
 log_name = "image_autoencoder.sqlite"
-comment = "16-step e2e AE with dialed lambdas and signed-mass"
+comment = "16-step e2e AE; bidirectional flow clone at init"
 pinned = false

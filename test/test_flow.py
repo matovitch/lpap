@@ -9,10 +9,7 @@ from lpap.flow import (
     flow_matching_loss,
     integrate_euler_midpoint_time,
 )
-from lpap.image_to_energy_training import (
-    ImageToEnergyTimeConfig,
-    sample_image_to_energy_time,
-)
+from lpap.flow_training import FlowTimeConfig, sample_flow_time
 
 
 class FlowTest(unittest.TestCase):
@@ -54,9 +51,9 @@ class FlowTest(unittest.TestCase):
         self.assertEqual(metrics.loss, metrics.velocity_mse)
 
     def test_time_sampling_respects_eps(self) -> None:
-        config = ImageToEnergyTimeConfig(distribution="uniform", eps=0.1)
+        config = FlowTimeConfig(distribution="uniform", eps=0.1)
 
-        time = sample_image_to_energy_time(
+        time = sample_flow_time(
             batch_size=1024,
             config=config,
             generator=torch.Generator().manual_seed(123),
@@ -66,14 +63,14 @@ class FlowTest(unittest.TestCase):
         self.assertLessEqual(float(time.max()), 0.9)
 
     def test_beta_time_sampling_uses_generator(self) -> None:
-        config = ImageToEnergyTimeConfig(distribution="beta", eps=0.01)
+        config = FlowTimeConfig(distribution="beta", eps=0.01)
 
-        time_a = sample_image_to_energy_time(
+        time_a = sample_flow_time(
             batch_size=16,
             config=config,
             generator=torch.Generator().manual_seed(123),
         )
-        time_b = sample_image_to_energy_time(
+        time_b = sample_flow_time(
             batch_size=16,
             config=config,
             generator=torch.Generator().manual_seed(123),

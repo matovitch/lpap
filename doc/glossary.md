@@ -15,19 +15,18 @@
 - **LPAP operator**: The exact pooling rule that selects high-amplitude values into buckets with DIB metadata.
 - **Surrogate**: A transformer trained to predict full-`N` source-index logits for each LPAP bucket.
 - **Decoder**: A transformer that reconstructs source energy values from surrogate logits and LPAP-derived decoder tokens.
-- **Teacher**: A frozen model or exact operator used to supervise another model. The surrogate is supervised by exact LPAP targets; energy-to-image harmonics mode freezes surrogate+decoder as a projection teacher.
+- **Teacher**: A frozen model or exact operator used to supervise another model. The surrogate is supervised by exact LPAP targets.
 
 ## Flow Models
 
-- **Image-to-energy flow (`image_to_energy`)**: A 1D flow that maps Hilbert-flattened grayscale images to an energy prior (harmonics or energy bank).
-- **Energy-to-image flow (`energy_to_image`)**: A 1D flow that maps an energy prior (decoder-projected harmonics or energy bank) to Hilbert-flattened grayscale images.
+- **Image-energy flow (`image_energy_flow`)**: A 1D bidirectional flow: images are at `t=-1`, energy is at `t=0`, and image reconstruction is at `t=+1`. It integrates image→energy over `[-1, 0]` and energy→image over `[0, 1]`.
 - **Student steps**: The number of unrolled Euler midpoint steps used during image-autoencoder training.
-- **Energy bank**: A float tensor of shape `(n, energy_dim)` of empirical energies (typically i2e encodings). Flow training samples bank rows independently of image batches so the learned map targets the energy marginal rather than a paired joint.
+- **Energy bank**: A float tensor of shape `(n, energy_dim)` of empirical energies (typically image→energy encodings). Bidirectional flow training samples bank rows independently of image batches so the learned map targets the energy marginal rather than a paired joint.
 
 ## Autoencoders
 
 - **Inner energy path**: The energy-domain path `energy -> surrogate -> decoder -> energy`.
-- **Image autoencoder (`image_autoencoder`)**: The total end-to-end path `image -> image_to_energy -> surrogate -> decoder -> energy_to_image -> image`.
+- **Image autoencoder (`image_autoencoder`)**: The total end-to-end path `image -> image-energy flow -> surrogate -> decoder -> cloned image-energy flow -> image`.
 - **Energy reconstruction L1**: The loss comparing decoded energy against encoded energy inside the image autoencoder.
 - **LPAP teacher cross-entropy**: The auxiliary loss that keeps surrogate predictions anchored to exact LPAP source-index targets.
 

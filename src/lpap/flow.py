@@ -191,6 +191,49 @@ def flow_matching_loss(
     )
 
 
+def bidirectional_image_energy_state(
+    image: Float[torch.Tensor, "batch 1 n"],
+    energy: Float[torch.Tensor, "batch 1 n"],
+    time: Float[torch.Tensor, "batch"],
+) -> tuple[Float[torch.Tensor, "batch 1 n"], Float[torch.Tensor, "batch 1 n"]]:
+    """Bridge state and target velocity for global time ``t in [-1, 1]``.
+
+    ``t=-1`` is image, ``t=0`` is energy, ``t=+1`` is image again.
+    Left half ``t in [-1, 0]``: ``alpha = t + 1``, ``v* = energy - image``.
+    Right half ``t in (0, 1]``: ``alpha = 1 - t``, ``v* = image - energy``.
+    """
+    if image.shape != energy.shape:
+        raise ValueError("image and energy must have matching shapes")
+    if time.ndim != 1 or time.shape[0] != image.shape[0]:
+        raise ValueError("time must have shape batch")
+    left = time <= 0.0
+    alpha = torch.where(left, time + 1.0, 1.0 - time).to(
+        device=image.device, dtype=image.dtype
+    )[:, None, None]
+    values = (1.0 - alpha) * image + alpha * energy
+    forward = energy - image
+    target_velocity = torch.where(left[:, None, None], forward, -forward)
+    return values, target_velocity
+
+
+def bidirectional_flow_matching_loss(
+    model: nn.Module,
+    image: Float[torch.Tensor, "batch 1 n"],
+    energy: Float[torch.Tensor, "batch 1 n"],
+    time: Float[torch.Tensor, "batch"],
+) -> tuple[torch.Tensor, FlowMatchingMetrics]:
+    values, target_velocity = bidirectional_image_energy_state(image, energy, time)
+    predicted_velocity = model(values, time)
+    loss = torch_functional.mse_loss(predicted_velocity, target_velocity)
+    return loss, flow_metrics(
+        loss=loss,
+        predicted_velocity=predicted_velocity,
+        target_velocity=target_velocity,
+        start=image,
+        end=energy,
+    )
+
+
 def flow_metrics(
     *,
     loss: torch.Tensor,

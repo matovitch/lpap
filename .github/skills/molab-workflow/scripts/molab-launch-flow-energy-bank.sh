@@ -1,17 +1,15 @@
 #!/usr/bin/env bash
-# Launch an unpaired energy-bank flow worker on molab (i2e or e2i).
+# Launch the bidirectional image-energy-bank flow worker on molab.
 #
 # Required env: MOLAB_URL, MOLAB_TOKEN or MARIMO_TOKEN
 # Optional: MOLAB_SESSION
 #
 # Usage:
-#   bash …/molab-launch-flow-energy-bank.sh --kind image_to_energy_energy_bank --target-steps 10000
-#   bash …/molab-launch-flow-energy-bank.sh --kind energy_to_image_energy_bank --target-steps 10000
+#   bash …/molab-launch-flow-energy-bank.sh --target-steps 10000
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 molab_exec="$script_dir/molab-exec.sh"
-kind=""
 target_steps=""
 comment=""
 upload=1
@@ -21,10 +19,6 @@ as_json=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --kind)
-      kind="$2"
-      shift 2
-      ;;
     --target-steps)
       target_steps="$2"
       shift 2
@@ -60,8 +54,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -z "$kind" || -z "$target_steps" ]]; then
-  echo "molab-launch-flow-energy-bank: --kind and --target-steps are required" >&2
+if [[ -z "$target_steps" ]]; then
+  echo "molab-launch-flow-energy-bank: --target-steps is required" >&2
   exit 1
 fi
 if [[ ! "$target_steps" =~ ^[0-9]+$ ]]; then
@@ -83,14 +77,12 @@ import sys
 sys.path.insert(0, "/marimo")
 from molab.jobs import launch_flow_energy_bank_bg
 
-kind = $(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$kind")
 comment = None
 comment_b64 = "${comment_b64}"
 if comment_b64:
     comment = base64.b64decode(comment_b64).decode()
 energy_bank_path = base64.b64decode("${bank_b64}").decode()
 result = launch_flow_energy_bank_bg(
-    kind,
     "/marimo",
     target_steps=int("${target_steps}"),
     upload_artifacts_on_checkpoint=bool(${upload}),
@@ -102,7 +94,7 @@ if ${as_json} == 1:
     print(json.dumps(result, indent=2, sort_keys=True))
 else:
     print(
-        f"spawned pid={result['pid']} kind={kind} target={result['target_steps']} "
+        f"spawned pid={result['pid']} kind=image_energy_flow_energy_bank target={result['target_steps']} "
         f"log={result['log_path']}"
     )
 PY

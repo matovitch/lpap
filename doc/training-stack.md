@@ -7,9 +7,8 @@ notebook (energy-bank variants share the corresponding flow backend):
 
 - `surrogate`: learns full-`N` source-index logits for LPAP bucket selections on synthetic harmonic energy.
 - `decoder`: reconstructs source energy values from frozen surrogate logits.
-- `image_to_energy` / `image_to_energy_energy_bank`: flow from Hilbert-flattened grayscale images to an energy prior (synthetic harmonics or an empirical energy bank).
-- `energy_to_image` / `energy_to_image_energy_bank`: flow from an energy prior (decoder-projected harmonics or an empirical energy bank) to Hilbert-flattened grayscale images.
-- `image_autoencoder`: end-to-end grayscale AE (image-to-energy → LPAP surrogate/decoder → energy-to-image).
+- `image_energy_flow` / `image_energy_flow_energy_bank`: one bidirectional flow with image at `t=-1`, energy at `t=0`, and image reconstruction at `t=+1`.
+- `image_autoencoder`: end-to-end grayscale AE (image → energy → LPAP surrogate/decoder → image) initialized by cloning the bidirectional flow.
 
 ## Training Overview
 
@@ -20,10 +19,9 @@ flowchart TD
     dispatch --> kinds{{Model kind}}
     kinds --> surrogate[surrogate]
     kinds --> decoder[decoder]
-    kinds --> image_to_energy[image_to_energy (+ energy_bank)]
-    kinds --> energy_to_image[energy_to_image (+ energy_bank)]
+    kinds --> image_energy_flow[image_energy_flow (+ energy_bank)]
     kinds --> image_autoencoder[image_autoencoder]
-    surrogate & decoder & image_to_energy & energy_to_image & image_autoencoder --> session[Training session]
+    surrogate & decoder & image_energy_flow & image_autoencoder --> session[Training session]
     session --> checkpoint[(Checkpoint files)]
     session --> sqlite[(SQLite logs)]
 ```
@@ -70,33 +68,25 @@ flowchart TD
     harmonics_config[Surrogate TOML harmonics]
     surrogate_ckpt[Surrogate checkpoint]
     decoder_ckpt[Decoder checkpoint]
-    image_flow_config[Image to energy TOML]
-    energy_flow_config[Energy to image TOML]
+    image_energy_flow_config[Bidirectional image-energy TOML]
     energy_bank[Empirical energy bank .pt]
     image_autoencoder_config[Image autoencoder TOML]
 
     harmonics_config --> surrogate_ckpt
     surrogate_ckpt --> decoder_ckpt
-    surrogate_ckpt --> energy_flow_config
-    decoder_ckpt --> energy_flow_config
-    energy_bank --> image_flow_config
-    energy_bank --> energy_flow_config
-    image_flow_config --> image_to_energy[Image to energy training]
-    energy_flow_config --> energy_to_image[Energy to image training]
-    image_flow_config --> image_autoencoder_config
-    energy_flow_config --> image_autoencoder_config
+    energy_bank --> image_energy_flow_config
+    image_energy_flow_config --> image_energy_flow[Bidirectional flow training]
+    image_energy_flow_config --> image_autoencoder_config
     surrogate_ckpt --> image_autoencoder_config
     decoder_ckpt --> image_autoencoder_config
     image_autoencoder_config --> image_autoencoder[Image autoencoder training]
 
     surrogate_ckpt -. harmonic config .-> decoder_ckpt
-    surrogate_ckpt -. harmonic config .-> energy_to_image
-    decoder_ckpt -. decoder projection .-> energy_to_image
 ```
 
-The decoder does not duplicate harmonic source settings in its TOML. It reads them from the surrogate checkpoint. In harmonics mode, `energy_to_image` follows the same rule: it samples harmonics from the surrogate checkpoint's stored run config, passes them through the frozen surrogate and decoder (`source.teacher`), and uses the decoder reconstruction as its source distribution. In `energy_bank` mode it samples empirical energies directly and skips surrogate/decoder loading.
+The decoder does not duplicate harmonic source settings in its TOML. The bidirectional flow samples harmonics or empirical bank rows as its energy marginal at `t=0`; it does not use a separate decoder-projected reverse-flow teacher.
 
-Both image flows can also target/source an empirical energy bank (see `configs/training/*_energy_bank.toml` and `lpap.energy_bank`). Bank rows are sampled independently of image batches so training learns the energy *marginal*, not a paired joint map.
+The bidirectional flow can use an empirical energy bank (see `configs/training/image_energy_flow_energy_bank.toml` and `lpap.energy_bank`). Bank rows are sampled independently of image batches so training learns the energy *marginal*, not a paired joint map.
 
 `image_autoencoder` is the total autoencoder. It Hilbert-flattens a grayscale image, rolls an image-to-energy flow forward for a small fixed number of differentiable steps, passes the encoded energy through one or more LPAP surrogate/decoder pairs in parallel (shared flows), then rolls an energy-to-image flow forward to reconstruct the image. Pair-dependent losses (image L2, energy L1, surrogate CE) are averaged over pairs; signed-mass is applied once on the shared encoded energy. Configure pairs with `[[source.lpap_pairs]]` or the legacy flat `surrogate_checkpoint_name` / `decoder_checkpoint_name` (normalized to one pair).
 
@@ -141,8 +131,8 @@ L       = L_gap + floor_coef * L_floor
   Gap is scaled by `tau` (not by `m+ + m-`), so collapsing `e → 0` is not a free
   “balanced” win; the floor pushes each side toward ~`tau`.
 
-Current AE defaults also use **16-step** Euler on both flows with the
-`energy_to_image.pt` teacher, and a longer default budget of **20k** steps.
+Current AE defaults use **16-step** Euler in each direction, cloning
+`image_energy_flow.pt` into both AE flow branches, and a longer default budget of **20k** steps.
 
 ### Dialing AE lambdas
 
@@ -163,7 +153,7 @@ RMS gauges for encoded/decoded energy and input/reconstructed image.
 
 ## Flow Training Factorization
 
-The two image/energy flow modules share one implementation spine in `lpap.flow_training`.
+Bidirectional image/energy flow training uses `lpap.flow_training` as its implementation spine.
 
 ```mermaid
 flowchart TD
@@ -175,14 +165,11 @@ flowchart TD
     shared --> loss[Flow matching train and eval]
     shared --> diag[Integration diagnostics]
 
-    cfg & data & time & core & loss & diag --> image_module[lpap.image_to_energy_training]
-    cfg & data & time & core & loss & diag --> energy_module[lpap.energy_to_image_training]
+    cfg & data & time & core & loss & diag --> image_module[lpap.image_energy_flow_training]
 ```
 
-The direction-specific modules still own the parts that are genuinely different:
-
-- `image_to_energy_training.py` owns image source preparation and energy prior targets (harmonics or bank).
-- `energy_to_image_training.py` owns energy prior sources (nested harmonics teacher or bank).
+`image_energy_flow_training.py` owns the image/energy endpoints, bidirectional
+flow-matching objective, and the `[-1, 0]` / `[0, +1]` integration ranges.
 
 ## Notebooks
 

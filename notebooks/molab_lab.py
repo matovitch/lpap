@@ -109,8 +109,7 @@ def ae_setup():
                     name="c256",
                 ),
             ),
-            image_to_energy_checkpoint_name="image_to_energy_energy_bank.pt",
-            energy_to_image_checkpoint_name="energy_to_image_energy_bank.pt",
+            flow_checkpoint_name="image_energy_flow_energy_bank.pt",
             load_best=True,
             require_checkpoints=True,
             train_image_to_energy_flow=True,
@@ -142,7 +141,7 @@ def ae_setup():
     - install: `{install_note}`
     - HF: `{"HF_TOKEN set" if os.environ.get("HF_TOKEN", "").strip() else "HF_TOKEN missing"}`
     - LPAP pairs: `{", ".join(_pair_names)}`
-    - flows: i2e=`{ae_base.source.image_to_energy_checkpoint_name}` · e2i=`{ae_base.source.energy_to_image_checkpoint_name}`
+    - bidirectional flow: `{ae_base.source.flow_checkpoint_name}`
     - Euler: i2e=`{ae_base.integration.image_to_energy_steps}` · e2i=`{ae_base.integration.energy_to_image_steps}`
     - ckpt / log: `{ae_base.run.checkpoint_name}` / `{ae_base.run.log_name}`
     - steps: `{ae_base.run.steps}`
@@ -177,8 +176,9 @@ def status(ae_base, mo, project_root, torch):
         "c128_dec": project_root / "checkpoints" / "decoder_c128_k4.pt",
         "c256_surr": project_root / "checkpoints" / "surrogate_c256_k4.pt",
         "c256_dec": project_root / "checkpoints" / "decoder_c256_k4.pt",
-        "i2e_bank": project_root / "checkpoints" / "image_to_energy_energy_bank.pt",
-        "e2i_bank": project_root / "checkpoints" / "energy_to_image_energy_bank.pt",
+        "image_energy_flow_bank": project_root
+        / "checkpoints"
+        / "image_energy_flow_energy_bank.pt",
         "ae": project_root / "checkpoints" / ae_base.run.checkpoint_name,
     }
     _lines = []
@@ -332,6 +332,12 @@ def e0_peak_probe(
     from lpap.flow import integrate_euler_midpoint_time
     from lpap.flow_training import cycle_image_batches, prepare_image_sequence
     from lpap.hilbert import hilbert_unflatten_images
+    from lpap.image_energy_flow_training import (
+        ENERGY_TO_IMAGE_T0,
+        ENERGY_TO_IMAGE_T1,
+        IMAGE_TO_ENERGY_T0,
+        IMAGE_TO_ENERGY_T1,
+    )
     from lpap.training_plots import _grayscale_png_img, _signed_png_img
 
     _ckpt = project_root / "checkpoints" / "_gallery_snapshot.pt"
@@ -365,7 +371,11 @@ def e0_peak_probe(
         _seq = prepare_image_sequence(_images, side=_side, device=_peak_session.device)
         with torch.no_grad():
             _encoded = integrate_euler_midpoint_time(
-                _peak_session.model.image_to_energy_flow, _seq, _i2e_steps
+                _peak_session.model.image_to_energy_flow,
+                _seq,
+                _i2e_steps,
+                t0=IMAGE_TO_ENERGY_T0,
+                t1=IMAGE_TO_ENERGY_T1,
             )[
                 :, 0
             ]  # (B, N)
@@ -381,7 +391,11 @@ def e0_peak_probe(
             for _i, _v in enumerate(_sweep_vals.tolist()):
                 _sweep_energy[_i, 0, 0] = float(_v)
             _sweep_img = integrate_euler_midpoint_time(
-                _peak_session.model.energy_to_image_flow, _sweep_energy, _e2i_steps
+                _peak_session.model.energy_to_image_flow,
+                _sweep_energy,
+                _e2i_steps,
+                t0=ENERGY_TO_IMAGE_T0,
+                t1=ENERGY_TO_IMAGE_T1,
             )
             _sweep_spatial = hilbert_unflatten_images(_sweep_img, side=_side)[:, 0]
 
@@ -395,16 +409,22 @@ def e0_peak_probe(
                 _peak_session.model.energy_to_image_flow,
                 _show.unsqueeze(1),
                 _e2i_steps,
+                t0=ENERGY_TO_IMAGE_T0,
+                t1=ENERGY_TO_IMAGE_T1,
             )
             _only_img = integrate_euler_midpoint_time(
                 _peak_session.model.energy_to_image_flow,
                 _only.unsqueeze(1),
                 _e2i_steps,
+                t0=ENERGY_TO_IMAGE_T0,
+                t1=ENERGY_TO_IMAGE_T1,
             )
             _ablate_img = integrate_euler_midpoint_time(
                 _peak_session.model.energy_to_image_flow,
                 _ablate.unsqueeze(1),
                 _e2i_steps,
+                t0=ENERGY_TO_IMAGE_T0,
+                t1=ENERGY_TO_IMAGE_T1,
             )
             _src_spatial = hilbert_unflatten_images(_seq[:_peak_n_show], side=_side)[:, 0]
             _full_spatial = hilbert_unflatten_images(_full_img, side=_side)[:, 0]

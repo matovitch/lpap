@@ -15,12 +15,6 @@ from lpap.decoder import (
     prepare_lpap_decoder_batch,
     reconstruct_lpap_decoder_values,
 )
-from lpap.energy_to_image_training import (
-    resolve_checkpoint_path,
-    load_decoder_source,
-    load_surrogate_source,
-    validate_source_matches_config,
-)
 from lpap.flow import DilatedConvFlow1d, integrate_euler_midpoint_time
 from lpap.flow_training import (
     FlowImageConfig,
@@ -40,12 +34,24 @@ from lpap.flow_training import (
 )
 from lpap.hilbert import hilbert_unflatten_images
 from lpap.image_autoencoder_loss import signed_mass_balance_loss
+from lpap.image_energy_flow_training import (
+    ENERGY_TO_IMAGE_T0,
+    ENERGY_TO_IMAGE_T1,
+    IMAGE_TO_ENERGY_T0,
+    IMAGE_TO_ENERGY_T1,
+)
 from lpap.permutation import make_grouped_permutation_indices
 from lpap.surrogate import (
     LPAPSurrogateTargets,
     LPAPSurrogateTransformer,
     lpap_surrogate_loss,
     prepare_lpap_surrogate_batch,
+)
+from lpap.teacher_checkpoints import (
+    load_decoder_source,
+    load_surrogate_source,
+    resolve_checkpoint_path,
+    validate_lpap_pair_matches_sequence_length,
 )
 from lpap.training import (
     TrainingResumeInfo,
@@ -54,7 +60,6 @@ from lpap.training import (
     TrainingStepResult,
 )
 from lpap.training_log import load_run_record
-
 
 ImageAutoencoderImageConfig = FlowImageConfig
 ImageAutoencoderFlowConfig = FlowModelConfig
@@ -89,8 +94,7 @@ class ImageAutoencoderSourceConfig:
     lpap_pairs: tuple[ImageAutoencoderLpapPairConfig, ...] = (
         ImageAutoencoderLpapPairConfig(),
     )
-    image_to_energy_checkpoint_name: str = "image_to_energy.pt"
-    energy_to_image_checkpoint_name: str = "energy_to_image.pt"
+    flow_checkpoint_name: str = "image_energy_flow.pt"
     load_best: bool = True
     require_checkpoints: bool = True
     train_image_to_energy_flow: bool = True
@@ -113,11 +117,9 @@ class ImageAutoencoderSourceConfig:
     def as_dict(self) -> dict[str, object]:
         return {
             "lpap_pairs": [pair.as_dict() for pair in self.lpap_pairs],
-            # Legacy flat names (pair 0) for older readers / hand-edited TOML.
             "surrogate_checkpoint_name": self.surrogate_checkpoint_name,
             "decoder_checkpoint_name": self.decoder_checkpoint_name,
-            "image_to_energy_checkpoint_name": self.image_to_energy_checkpoint_name,
-            "energy_to_image_checkpoint_name": self.energy_to_image_checkpoint_name,
+            "flow_checkpoint_name": self.flow_checkpoint_name,
             "load_best": self.load_best,
             "require_checkpoints": self.require_checkpoints,
             "train_image_to_energy_flow": self.train_image_to_energy_flow,
@@ -162,12 +164,7 @@ def image_autoencoder_source_config_from_dict(
 ) -> ImageAutoencoderSourceConfig:
     config = ImageAutoencoderSourceConfig(
         lpap_pairs=lpap_pairs_from_source_dict(source_data),
-        image_to_energy_checkpoint_name=str(
-            source_data["image_to_energy_checkpoint_name"]
-        ),
-        energy_to_image_checkpoint_name=str(
-            source_data["energy_to_image_checkpoint_name"]
-        ),
+        flow_checkpoint_name=str(source_data["flow_checkpoint_name"]),
         load_best=bool(source_data["load_best"]),
         require_checkpoints=bool(source_data["require_checkpoints"]),
         train_image_to_energy_flow=bool(source_data["train_image_to_energy_flow"]),
@@ -473,7 +470,11 @@ class ImageAutoencoderModel(nn.Module):
         ):
             raise ValueError("pair runtime lengths must match ModuleList sizes")
         encoded_energy = integrate_euler_midpoint_time(
-            self.image_to_energy_flow, image, image_to_energy_steps
+            self.image_to_energy_flow,
+            image,
+            image_to_energy_steps,
+            t0=IMAGE_TO_ENERGY_T0,
+            t1=IMAGE_TO_ENERGY_T1,
         )
         values = encoded_energy[:, 0]
         pair_outputs: list[ImageAutoencoderPairForward] = []
@@ -500,7 +501,11 @@ class ImageAutoencoderModel(nn.Module):
                 decoder_logits, decoder_batch
             ).unsqueeze(1)
             reconstructed_image = integrate_euler_midpoint_time(
-                self.energy_to_image_flow, decoded_energy, energy_to_image_steps
+                self.energy_to_image_flow,
+                decoded_energy,
+                energy_to_image_steps,
+                t0=ENERGY_TO_IMAGE_T0,
+                t1=ENERGY_TO_IMAGE_T1,
             )
             pair_outputs.append(
                 ImageAutoencoderPairForward(
@@ -539,8 +544,7 @@ class ImageAutoencoderTrainingSession:
     image_loader: DataLoader
     validation_image_loader: DataLoader
     lpap_pairs: tuple[ImageAutoencoderLpapPairRuntime, ...]
-    image_to_energy_checkpoint_path: Path
-    energy_to_image_checkpoint_path: Path
+    flow_checkpoint_path: Path
     model: ImageAutoencoderModel
     optimizer: torch.optim.Optimizer
     training_run: TrainingRun
@@ -693,11 +697,8 @@ def create_image_autoencoder_training_session(
     torch.manual_seed(config.run.seed)
     checkpoint_path = root / "checkpoints" / config.run.checkpoint_name
     log_path = root / "training_logs" / config.run.log_name
-    image_to_energy_checkpoint_path = resolve_checkpoint_path(
-        root, config.source.image_to_energy_checkpoint_name
-    )
-    energy_to_image_checkpoint_path = resolve_checkpoint_path(
-        root, config.source.energy_to_image_checkpoint_name
+    flow_checkpoint_path = resolve_checkpoint_path(
+        root, config.source.flow_checkpoint_name
     )
 
     pair_runtimes: list[ImageAutoencoderLpapPairRuntime] = []
@@ -722,8 +723,8 @@ def create_image_autoencoder_training_session(
             load_best=config.source.load_best,
             device=target_device,
         )
-        validate_source_matches_config(
-            config=config,
+        validate_lpap_pair_matches_sequence_length(
+            sequence_length=config.value_count,
             surrogate_model_config=surrogate_model_config,
             decoder_model_config=decoder_model_config,
         )
@@ -764,25 +765,18 @@ def create_image_autoencoder_training_session(
     image_to_energy_flow = DilatedConvFlow1d(
         **config.image_to_energy_flow.as_dict()
     ).to(target_device)
-    image_to_energy_state = load_flow_checkpoint_state(
-        path=image_to_energy_checkpoint_path,
-        load_best=config.source.load_best,
-        require_checkpoint=config.source.require_checkpoints,
-        device=target_device,
-    )
-    if image_to_energy_state is not None:
-        image_to_energy_flow.load_state_dict(image_to_energy_state)
     energy_to_image_flow = DilatedConvFlow1d(
         **config.energy_to_image_flow.as_dict()
     ).to(target_device)
-    energy_to_image_state = load_flow_checkpoint_state(
-        path=energy_to_image_checkpoint_path,
+    flow_state = load_flow_checkpoint_state(
+        path=flow_checkpoint_path,
         load_best=config.source.load_best,
         require_checkpoint=config.source.require_checkpoints,
         device=target_device,
     )
-    if energy_to_image_state is not None:
-        energy_to_image_flow.load_state_dict(energy_to_image_state)
+    if flow_state is not None:
+        image_to_energy_flow.load_state_dict(flow_state)
+        energy_to_image_flow.load_state_dict(flow_state)
     model = ImageAutoencoderModel(
         image_to_energy_flow=image_to_energy_flow,
         surrogates=surrogates,
@@ -844,8 +838,7 @@ def create_image_autoencoder_training_session(
             ],
             "surrogate_checkpoint_path": str(pair_runtimes[0].surrogate_checkpoint_path),
             "decoder_checkpoint_path": str(pair_runtimes[0].decoder_checkpoint_path),
-            "image_to_energy_checkpoint_path": str(image_to_energy_checkpoint_path),
-            "energy_to_image_checkpoint_path": str(energy_to_image_checkpoint_path),
+            "flow_checkpoint_path": str(flow_checkpoint_path),
         },
     )
     resume_info = training_run.resume_or_initialize()
@@ -864,8 +857,7 @@ def create_image_autoencoder_training_session(
         image_loader=image_loader,
         validation_image_loader=validation_image_loader,
         lpap_pairs=tuple(pair_runtimes),
-        image_to_energy_checkpoint_path=image_to_energy_checkpoint_path,
-        energy_to_image_checkpoint_path=energy_to_image_checkpoint_path,
+        flow_checkpoint_path=flow_checkpoint_path,
         model=model,
         optimizer=optimizer,
         training_run=training_run,
@@ -1092,12 +1084,7 @@ def iter_image_autoencoder_training(
                 ],
                 "surrogate_checkpoint_path": str(session.surrogate_checkpoint_path),
                 "decoder_checkpoint_path": str(session.decoder_checkpoint_path),
-                "image_to_energy_checkpoint_path": str(
-                    session.image_to_energy_checkpoint_path
-                ),
-                "energy_to_image_checkpoint_path": str(
-                    session.energy_to_image_checkpoint_path
-                ),
+                "flow_checkpoint_path": str(session.flow_checkpoint_path),
             },
         )
 

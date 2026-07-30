@@ -5,14 +5,12 @@ import unittest
 from pathlib import Path
 
 from lpap.decoder_training import LPAPDecoderTrainingConfig
-from lpap.energy_to_image_training import EnergyToImageTrainingConfig
 from lpap.image_autoencoder_training import ImageAutoencoderTrainingConfig
-from lpap.image_to_energy_training import ImageToEnergyTrainingConfig
+from lpap.image_energy_flow_training import ImageEnergyFlowTrainingConfig
 from lpap.surrogate_training import LPAPSurrogateTrainingConfig
 from lpap.training_log import upsert_run
 from lpap.training_notebook import (
-    default_energy_to_image_energy_bank_training_config,
-    default_image_to_energy_energy_bank_training_config,
+    default_image_energy_flow_energy_bank_training_config,
     restore_training_config_from_log,
     training_config_from_file,
     training_config_from_project_file,
@@ -28,22 +26,15 @@ class TrainingNotebookConfigTest(unittest.TestCase):
 
         surrogate = training_config_from_project_file(project_root, "surrogate")
         decoder = training_config_from_project_file(project_root, "decoder")
-        image_to_energy = training_config_from_project_file(
-            project_root, "image_to_energy"
-        )
-        energy_to_image = training_config_from_project_file(
-            project_root, "energy_to_image"
+        image_energy_flow = training_config_from_project_file(
+            project_root, "image_energy_flow"
         )
         image_autoencoder = training_config_from_project_file(
             project_root, "image_autoencoder"
         )
-        image_to_energy_bank = training_config_from_file(
-            project_root / "configs/training/image_to_energy_energy_bank.toml",
-            "image_to_energy",
-        )
-        energy_to_image_bank = training_config_from_file(
-            project_root / "configs/training/energy_to_image_energy_bank.toml",
-            "energy_to_image",
+        image_energy_flow_bank = training_config_from_file(
+            project_root / "configs/training/image_energy_flow_energy_bank.toml",
+            "image_energy_flow_energy_bank",
         )
 
         self.assertIsInstance(surrogate, LPAPSurrogateTrainingConfig)
@@ -56,46 +47,32 @@ class TrainingNotebookConfigTest(unittest.TestCase):
         self.assertEqual(decoder.teacher.checkpoint_name, "surrogate_c128_k4.pt")
         self.assertTrue(decoder.teacher.require_checkpoint)
         self.assertEqual(decoder.regularization.source_ce_weight, 0.1)
-        self.assertIsInstance(image_to_energy, ImageToEnergyTrainingConfig)
-        self.assertEqual(image_to_energy.run.run_id, "image_to_energy")
+        self.assertIsInstance(image_energy_flow, ImageEnergyFlowTrainingConfig)
+        self.assertEqual(image_energy_flow.run.run_id, "image_energy_flow")
         self.assertEqual(
-            image_to_energy.image.dataset_path, "data/images_32x32_gray.pt"
+            image_energy_flow.image.dataset_path, "data/images_32x32_gray.pt"
         )
-        self.assertEqual(image_to_energy.time.distribution, "beta")
-        self.assertEqual(image_to_energy.target.kind, "harmonics")
-        self.assertIsNone(image_to_energy.target.energy_bank)
-        self.assertIsInstance(energy_to_image, EnergyToImageTrainingConfig)
-        self.assertEqual(energy_to_image.run.run_id, "energy_to_image")
-        self.assertEqual(energy_to_image.source.kind, "harmonics")
+        self.assertEqual(image_energy_flow.time.distribution, "beta")
+        self.assertEqual(image_energy_flow.prior.kind, "harmonics")
+        self.assertIsNone(image_energy_flow.prior.energy_bank)
+        self.assertEqual(image_energy_flow_bank.prior.kind, "energy_bank")
         self.assertEqual(
-            energy_to_image.source.teacher.decoder_checkpoint_name,
-            "decoder_c128_k4.pt",
+            image_energy_flow_bank.prior.energy_bank.path,
+            "data/encoded_energies_ae_best.pt",
         )
-        self.assertIsNone(energy_to_image.source.energy_bank)
-        self.assertEqual(image_to_energy_bank.target.kind, "energy_bank")
-        self.assertEqual(
-            image_to_energy_bank.target.energy_bank.path,
-            "data/encoded_energies_ae_best_131k.pt",
-        )
-        self.assertEqual(image_to_energy_bank.run.steps, 2000)
-        self.assertEqual(image_to_energy_bank.validation.every, 50)
-        self.assertEqual(energy_to_image_bank.source.kind, "energy_bank")
-        self.assertEqual(
-            energy_to_image_bank.source.energy_bank.path,
-            "data/encoded_energies_ae_best_131k.pt",
-        )
-        self.assertEqual(energy_to_image_bank.run.steps, 2000)
+        self.assertEqual(image_energy_flow_bank.run.steps, 2000)
+        self.assertEqual(image_energy_flow_bank.validation.every, 50)
         self.assertIsInstance(image_autoencoder, ImageAutoencoderTrainingConfig)
         self.assertEqual(image_autoencoder.run.run_id, "image_autoencoder")
         self.assertEqual(image_autoencoder.integration.image_to_energy_steps, 16)
         self.assertEqual(image_autoencoder.integration.energy_to_image_steps, 16)
         self.assertEqual(
-            image_autoencoder.source.energy_to_image_checkpoint_name,
-            "energy_to_image.pt",
+            image_autoencoder.source.flow_checkpoint_name,
+            "image_energy_flow.pt",
         )
         self.assertEqual(
             image_autoencoder.run.comment,
-            "16-step e2e AE with dialed lambdas and signed-mass",
+            "16-step e2e AE; bidirectional flow clone at init",
         )
         self.assertEqual(image_autoencoder.loss.signed_mass_balance_weight, 0.02)
         self.assertEqual(image_autoencoder.loss.energy_l1_weight, 0.5)
@@ -106,33 +83,23 @@ class TrainingNotebookConfigTest(unittest.TestCase):
         self.assertEqual(image_autoencoder.image.batch_size, 32)
         self.assertEqual(image_autoencoder.validation.batch_size, 32)
 
-    def test_default_energy_bank_helpers(self) -> None:
-        i2e = default_image_to_energy_energy_bank_training_config()
-        e2i = default_energy_to_image_energy_bank_training_config()
-        self.assertEqual(i2e.target.kind, "energy_bank")
-        self.assertEqual(i2e.run.run_id, "image_to_energy_energy_bank")
-        self.assertEqual(i2e.run.steps, 2000)
-        self.assertEqual(e2i.source.kind, "energy_bank")
-        self.assertEqual(e2i.run.run_id, "energy_to_image_energy_bank")
-        self.assertEqual(e2i.run.steps, 2000)
+    def test_default_energy_bank_helper(self) -> None:
+        flow = default_image_energy_flow_energy_bank_training_config()
+        self.assertEqual(flow.prior.kind, "energy_bank")
+        self.assertEqual(flow.run.run_id, "image_energy_flow_energy_bank")
+        self.assertEqual(flow.run.steps, 2000)
 
     def test_energy_bank_kinds_load_from_project_and_map_backend(self) -> None:
         from lpap.training_notebook import training_backend_kind
 
         project_root = Path(__file__).resolve().parents[1]
-        i2e = training_config_from_project_file(
-            project_root, "image_to_energy_energy_bank"
+        flow = training_config_from_project_file(
+            project_root, "image_energy_flow_energy_bank"
         )
-        e2i = training_config_from_project_file(
-            project_root, "energy_to_image_energy_bank"
-        )
-        self.assertEqual(i2e.target.kind, "energy_bank")
-        self.assertEqual(e2i.source.kind, "energy_bank")
+        self.assertEqual(flow.prior.kind, "energy_bank")
         self.assertEqual(
-            training_backend_kind("image_to_energy_energy_bank"), "image_to_energy"
-        )
-        self.assertEqual(
-            training_backend_kind("energy_to_image_energy_bank"), "energy_to_image"
+            training_backend_kind("image_energy_flow_energy_bank"),
+            "image_energy_flow",
         )
 
     def test_loads_custom_surrogate_toml_config(self) -> None:
@@ -194,10 +161,10 @@ class TrainingNotebookConfigTest(unittest.TestCase):
             self.assertTrue(config.run.pinned)
 
     def test_training_config_path_uses_model_kind_filename(self) -> None:
-        path = training_config_path("/tmp/project", "energy_to_image")
+        path = training_config_path("/tmp/project", "image_energy_flow")
 
         self.assertEqual(
-            path, Path("/tmp/project/configs/training/energy_to_image.toml")
+            path, Path("/tmp/project/configs/training/image_energy_flow.toml")
         )
 
     def test_serializes_training_config_to_toml(self) -> None:
@@ -219,11 +186,11 @@ class TrainingNotebookConfigTest(unittest.TestCase):
         self.assertNotIn("[data.harmonics]", text)
         self.assertIn("[teacher]", text)
 
-    def test_energy_to_image_serializes_nested_teacher(self) -> None:
+    def test_image_energy_flow_serializes_prior(self) -> None:
         project_root = Path(__file__).resolve().parents[1]
-        config = training_config_from_project_file(project_root, "energy_to_image")
+        config = training_config_from_project_file(project_root, "image_energy_flow")
         text = training_config_to_toml(config)
-        self.assertIn("[source.teacher]", text)
+        self.assertIn("[prior.harmonics]", text)
         self.assertIn('kind = "harmonics"', text)
 
     def test_restores_training_toml_from_run_log(self) -> None:

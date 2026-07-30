@@ -1,5 +1,4 @@
-# Selectable kind: train image→energy against the empirical AE energy bank.
-# Load via model_kind ``image_to_energy_energy_bank`` in the training notebook.
+# Bidirectional image↔energy flow with empirical energy-bank prior at t=0.
 
 [image]
 dataset_path = "data/images_32x32_gray.pt"
@@ -9,11 +8,11 @@ normalize = true
 shuffle = true
 num_workers = 0
 
-[target]
+[prior]
 kind = "energy_bank"
 
-[target.energy_bank]
-path = "data/encoded_energies_ae_best_131k.pt"
+[prior.energy_bank]
+path = "data/encoded_energies_ae_best.pt"
 energies_key = "energies"
 
 [flow]
@@ -50,8 +49,8 @@ steps = 2000
 seed = 789
 display_every = 25
 log_every = 5
-run_id = "image_to_energy_energy_bank"
-checkpoint_name = "image_to_energy_energy_bank.pt"
-log_name = "image_to_energy_energy_bank.sqlite"
-comment = "energy-bank prior probe; unpaired images"
+run_id = "image_energy_flow_energy_bank"
+checkpoint_name = "image_energy_flow_energy_bank.pt"
+log_name = "image_energy_flow_energy_bank.sqlite"
+comment = "bidirectional image↔bank energy; unpaired images"
 pinned = false

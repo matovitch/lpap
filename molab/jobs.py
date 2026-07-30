@@ -25,26 +25,17 @@ AE_ENERGY_BANK_LOG = "image_autoencoder_multi_energy_bank.sqlite"
 AE_ENERGY_BANK_BG_STEM = "image_autoencoder_multi_energy_bank_bg"
 AE_ENERGY_BANK_SCRIPT = "train_image_autoencoder_multi_energy_bank_bg.py"
 
-FlowKind = Literal["image_to_energy_energy_bank", "energy_to_image_energy_bank"]
+FlowKind = Literal["image_energy_flow_energy_bank"]
 
 _FLOW_SPECS: dict[FlowKind, dict[str, str]] = {
-    "image_to_energy_energy_bank": {
-        "run_id": "image_to_energy_energy_bank",
-        "checkpoint": "image_to_energy_energy_bank.pt",
-        "log": "image_to_energy_energy_bank.sqlite",
-        "bg_stem": "image_to_energy_energy_bank_bg",
-        "script": "train_image_to_energy_energy_bank_bg.py",
-        "default_fn": "default_image_to_energy_energy_bank_training_config",
-        "done_marker": "I2E_ENERGY_BANK_DONE",
-    },
-    "energy_to_image_energy_bank": {
-        "run_id": "energy_to_image_energy_bank",
-        "checkpoint": "energy_to_image_energy_bank.pt",
-        "log": "energy_to_image_energy_bank.sqlite",
-        "bg_stem": "energy_to_image_energy_bank_bg",
-        "script": "train_energy_to_image_energy_bank_bg.py",
-        "default_fn": "default_energy_to_image_energy_bank_training_config",
-        "done_marker": "E2I_ENERGY_BANK_DONE",
+    "image_energy_flow_energy_bank": {
+        "run_id": "image_energy_flow_energy_bank",
+        "checkpoint": "image_energy_flow_energy_bank.pt",
+        "log": "image_energy_flow_energy_bank.sqlite",
+        "bg_stem": "image_energy_flow_energy_bank_bg",
+        "script": "train_image_energy_flow_energy_bank_bg.py",
+        "default_fn": "default_image_energy_flow_energy_bank_training_config",
+        "done_marker": "IMAGE_ENERGY_FLOW_ENERGY_BANK_DONE",
     },
 }
 
@@ -104,8 +95,7 @@ config = replace(
                 name="c256",
             ),
         ),
-        image_to_energy_checkpoint_name="image_to_energy_energy_bank.pt",
-        energy_to_image_checkpoint_name="energy_to_image_energy_bank.pt",
+        flow_checkpoint_name="image_energy_flow_energy_bank.pt",
         load_best=True,
         require_checkpoints=True,
         train_image_to_energy_flow=True,
@@ -143,7 +133,7 @@ print(
 print(session.resume_info.message, flush=True)
 print(f"best_so_far={{session.training_run.best_metric}}", flush=True)
 print(
-    "flows=image_to_energy_energy_bank.pt,energy_to_image_energy_bank.pt "
+    "flow=image_energy_flow_energy_bank.pt "
     "pairs=c128,c256 bank={energy_bank_path!r}",
     flush=True,
 )
@@ -171,7 +161,6 @@ print("AE_MULTI_ENERGY_BANK_DONE", flush=True)
 
 
 def flow_energy_bank_worker_source(
-    kind: FlowKind,
     *,
     target_steps: int,
     project_root: str | Path = "/marimo",
@@ -183,8 +172,7 @@ def flow_energy_bank_worker_source(
     """Return Python source for an unpaired energy-bank flow worker."""
     if target_steps <= 0:
         raise ValueError("target_steps must be positive")
-    if kind not in _FLOW_SPECS:
-        raise ValueError(f"unknown flow kind: {kind}")
+    kind: FlowKind = "image_energy_flow_energy_bank"
     spec = _FLOW_SPECS[kind]
     root = Path(project_root)
     resolved_comment = comment or (
@@ -192,18 +180,6 @@ def flow_energy_bank_worker_source(
     )
     upload = "True" if upload_artifacts_on_checkpoint else "False"
     notify = "True" if notify_on_finished else "False"
-    if kind == "image_to_energy_energy_bank":
-        bank_replace = f"""
-    target=replace(
-        base.target,
-        energy_bank=replace(base.target.energy_bank, path={energy_bank_path!r}),
-    ),"""
-    else:
-        bank_replace = f"""
-    source=replace(
-        base.source,
-        energy_bank=replace(base.source.energy_bank, path={energy_bank_path!r}),
-    ),"""
     return f'''from __future__ import annotations
 
 from dataclasses import replace
@@ -220,7 +196,11 @@ TARGET = {int(target_steps)}
 KIND = {kind!r}
 base = {spec["default_fn"]}()
 config = replace(
-    base,{bank_replace}
+    base,
+    prior=replace(
+        base.prior,
+        energy_bank=replace(base.prior.energy_bank, path={energy_bank_path!r}),
+    ),
     run=replace(
         base.run,
         run_training=True,
@@ -349,7 +329,6 @@ def launch_ae_energy_bank_bg(
 
 
 def launch_flow_energy_bank_bg(
-    kind: FlowKind,
     project_root: str | Path = "/marimo",
     *,
     target_steps: int,
@@ -359,15 +338,15 @@ def launch_flow_energy_bank_bg(
     require_secrets: bool = True,
     energy_bank_path: str = "data/encoded_energies_ae_best.pt",
 ) -> dict[str, Any]:
-    """Write + spawn an unpaired energy-bank flow worker (i2e or e2i)."""
+    """Write + spawn the bidirectional energy-bank flow worker."""
     root = Path(project_root)
+    kind: FlowKind = "image_energy_flow_energy_bank"
     spec = _FLOW_SPECS[kind]
     return _spawn_job(
         project_root=root,
         script_name=spec["script"],
         bg_stem=spec["bg_stem"],
         source=flow_energy_bank_worker_source(
-            kind,
             target_steps=target_steps,
             project_root=root,
             upload_artifacts_on_checkpoint=upload_artifacts_on_checkpoint,
@@ -552,12 +531,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
     flow = sub.add_parser(
         "launch-flow-energy-bank",
-        help="spawn image_to_energy_energy_bank or energy_to_image_energy_bank",
-    )
-    flow.add_argument(
-        "--kind",
-        required=True,
-        choices=sorted(_FLOW_SPECS),
+        help="spawn the bidirectional image_energy_flow_energy_bank worker",
     )
     add_common(flow)
 
@@ -596,7 +570,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         elif args.command == "launch-flow-energy-bank":
             result = launch_flow_energy_bank_bg(
-                args.kind,
                 args.project_root,
                 target_steps=args.target_steps,
                 upload_artifacts_on_checkpoint=not args.no_upload,
