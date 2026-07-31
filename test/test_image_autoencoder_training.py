@@ -7,8 +7,8 @@ from pathlib import Path
 import torch
 
 from lpap.checkpoints import save_training_checkpoint
-from lpap.data import SyntheticHarmonicConfig
 from lpap.decoder import LPAPDecoderTransformer
+from lpap.energy_bank import EnergyBankConfig
 from lpap.flow import DilatedConvFlow1d
 from lpap.image_autoencoder_training import (
     ImageAutoencoderIntegrationConfig,
@@ -53,7 +53,6 @@ def _save_tiny_teacher_pair(
         layer_count=1,
         head_count=4,
     )
-    harmonics = SyntheticHarmonicConfig(harmonic_count=3)
     save_training_checkpoint(
         checkpoint_dir / surrogate_name,
         model=surrogate,
@@ -64,7 +63,7 @@ def _save_tiny_teacher_pair(
                     batch_size=2,
                     bucket_count=bucket_count,
                     probe_count=probe_count,
-                    harmonics=harmonics,
+                    energy_bank=EnergyBankConfig(path="data/encoded_energies_ae_best.pt"),
                 ).as_dict()
             },
             "model_config": {
@@ -287,8 +286,9 @@ class ImageAutoencoderTrainingTest(unittest.TestCase):
             self.assertIn("validation_image_reconstruction_l2", results[-1].metrics)
             self.assertEqual(len(gallery), 1)
             self.assertEqual(gallery[0].image.shape, (4, 4))
-            self.assertEqual(gallery[0].encoded_energy.shape, (16,))
+            self.assertEqual(gallery[0].encoded_energy.shape, (4, 4))
             self.assertEqual(gallery[0].reconstructed_image.shape, (4, 4))
+            self.assertEqual(gallery[0].pairs[0].decoded_energy.shape, (4, 4))
             self.assertEqual(len(gallery[0].pairs), 1)
             self.assertEqual(gallery[0].pairs[0].name, "c4")
 

@@ -4,6 +4,10 @@ bucket_count = 256
 # Match surrogate: value_count = 256 * 4 = 1024.
 probe_count = 4
 
+[data.energy_bank]
+path = "data/encoded_energies_ae_best.pt"
+energies_key = "energies"
+
 [decoder]
 frontend_initial_temperature = 0.25
 hidden_dim = 256

@@ -82,6 +82,11 @@ def render_image_energy_flow_run_gallery(
     sample_count: int = 3,
     integration_steps: tuple[int, ...] = (64, 32, 16, 8, 4),
 ) -> str:
+    from lpap.energy_bank import (
+        load_energy_bank_for_flow,
+        sample_energy_prior_values,
+    )
+
     root = Path(project_root)
     record = load_run_record(log_path, run_id=run_id)
     config = image_energy_flow_training_config_from_dict(
@@ -104,9 +109,24 @@ def render_image_energy_flow_run_gallery(
     if count <= 0:
         return "<p>No image samples are available.</p>"
     images = torch.stack([dataset[index][0] for index in range(count)])
-    energies = torch.zeros(
-        count, 1, config.value_count, device=device, dtype=torch.float32
-    )
+    energy_bank = None
+    if config.prior.kind == "energy_bank":
+        assert config.prior.energy_bank is not None
+        energy_bank = load_energy_bank_for_flow(
+            root,
+            config.prior.energy_bank,
+            sequence_length=config.value_count,
+        )
+    generator = torch.Generator(device=device).manual_seed(0)
+    energies = sample_energy_prior_values(
+        kind=config.prior.kind,
+        batch_size=count,
+        generator=generator,
+        device=device,
+        sequence_length=config.value_count,
+        harmonics=config.prior.harmonics,
+        energy_bank=energy_bank,
+    ).unsqueeze(1)
     return render_image_energy_flow_gallery_html(
         collect_image_energy_flow_gallery(
             model=flow,

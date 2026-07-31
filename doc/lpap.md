@@ -27,7 +27,7 @@ The current training stack uses LPAP as a supervised projection target and as th
 
 ```mermaid
 flowchart TD
-    harmonics[Synthetic harmonics]
+    energy_bank[Empirical i2e energy bank]
     permute[Fixed grouped permutation]
     lpap[LPAP teacher]
     surrogate[Surrogate transformer]
@@ -35,19 +35,21 @@ flowchart TD
     image_flow[Image to energy flow]
     reverse_flow[Energy to image flow]
     image[32x32 image]
+    harmonics[Synthetic harmonics]
 
-    harmonics --> permute --> lpap
+    energy_bank --> permute --> lpap
     lpap --> surrogate
     surrogate --> decoder
-    image --> image_flow --> harmonics
-    harmonics --> surrogate --> decoder --> reverse_flow --> image
+    harmonics --> image_flow
+    image --> image_flow --> energy_bank
+    energy_bank --> surrogate --> decoder --> reverse_flow --> image
 ```
 
 The grouped permutation is seeded once and fixed for training. It acts as the LPAP front end: amplitudes are scattered so each contiguous source group of size `N // C` contributes approximately uniformly to the bucket columns when viewed as `(N // C) x C`. The inverse permutation is the corresponding back end for returning values to the original energy ordering.
 
 The surrogate model consumes `C` tokens of dimension `N // C`. Its local RoPE attention mask is circular-backward: bucket token `i` can attend to the rolled source lanes that LPAP may inspect, `(i - roll) mod C` for `roll < k_max`. It predicts full-`N` source-index logits for each output bucket instead of only local probe indices. The training loss is weighted cross entropy, with per-bucket weights equal to the absolute selected amplitudes.
 
-The decoder consumes frozen surrogate logits and reconstructs the original source energy values. Decoder training uses a reconstruction objective plus an adaptive weighted source-logit cross-entropy regularizer. The decoder and downstream `energy_to_image` flow read harmonic source configuration from the surrogate checkpoint, keeping checkpoint payloads authoritative for source distributions.
+The decoder consumes frozen surrogate logits and reconstructs the original source energy values. Decoder training uses a reconstruction objective plus an adaptive weighted source-logit cross-entropy regularizer. Surrogate and decoder both sample from the same empirical energy bank; harmonics are used for flow prior init, not for teacher training.
 
 ## Tensor View
 

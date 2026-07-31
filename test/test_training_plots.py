@@ -51,6 +51,12 @@ class TrainingPlotsTest(unittest.TestCase):
                         32: torch.linspace(1.0, 0.0, 16).reshape(1, 4, 4),
                         4: torch.zeros(1, 4, 4),
                     },
+                    prior_energy=torch.linspace(-0.5, 0.5, 16).reshape(1, 4, 4),
+                    from_prior={
+                        64: torch.linspace(0.2, 0.8, 16).reshape(1, 4, 4),
+                        32: torch.linspace(0.8, 0.2, 16).reshape(1, 4, 4),
+                        4: torch.full((1, 4, 4), 0.5),
+                    },
                 )
             ],
             steps=(64, 32, 4),
@@ -60,7 +66,8 @@ class TrainingPlotsTest(unittest.TestCase):
         self.assertLess(html.index("image"), html.index(">64 steps<"))
         self.assertLess(html.index(">64 steps<"), html.index(">32 steps<"))
         self.assertLess(html.index(">32 steps<"), html.index(">4 steps<"))
-        self.assertIn("energy → image", html)
+        self.assertIn("round-trip energy → image", html)
+        self.assertIn("prior energy → image", html)
         self.assertIn("rgb(255, 255, 255)", html)
         self.assertIn("rgb(255, 0, 0)", html)
         self.assertIn("rgb(0, 0, 255)", html)

@@ -304,7 +304,7 @@ def _signed_png_img(
         """
 
 
-_AE_GALLERY_PAIR_ORDER = ("c256", "c128")
+_AE_GALLERY_PAIR_ORDER = ("c256_k24", "c128_k16", "c256", "c128")
 
 
 def _ordered_ae_gallery_pairs(pairs: Sequence[Any]) -> list[Any]:
@@ -326,8 +326,8 @@ def render_signed_triplet_gallery_html(items: Sequence[Any], *, size: int = 32) 
         return "<p>No gallery samples are available.</p>"
 
     panels = []
-    labels = ("harmonics", "LPAP selected", "decoder")
-    keys = ("harmonics", "lpap", "decoder")
+    labels = ("source energy", "LPAP hard", "decoder soft")
+    keys = ("energy", "lpap", "decoder")
     for item_index, item in enumerate(items, start=1):
         tensors = [getattr(item, key).detach().cpu().reshape(-1) for key in keys]
         expected_count = size * size
@@ -512,9 +512,9 @@ def render_image_energy_flow_gallery_html(
         )()
         for item in items
     ]
-    energy_to_image_items = [
+    round_trip_items = [
         type(
-            "ImageEnergyFlowReconstructedGalleryItem",
+            "ImageEnergyFlowRoundTripGalleryItem",
             (),
             {
                 "source": item.encoded[max(item.encoded)],
@@ -523,15 +523,28 @@ def render_image_energy_flow_gallery_html(
         )()
         for item in items
     ]
+    prior_items = [
+        type(
+            "ImageEnergyFlowPriorGalleryItem",
+            (),
+            {
+                "source": item.prior_energy,
+                "generated": item.from_prior,
+            },
+        )()
+        for item in items
+    ]
     return (
-        "<h3>image → energy</h3>"
+        "<h3>image → energy (t: −1 → 0)</h3>"
         + render_image_to_energy_gallery_html(
             image_to_energy_items, steps=steps, size=size
         )
-        + "<h3>energy → image</h3>"
+        + "<h3>round-trip energy → image (t: 0 → +1 from encoded)</h3>"
         + render_energy_to_image_gallery_html(
-            energy_to_image_items, steps=steps, size=size
+            round_trip_items, steps=steps, size=size
         )
+        + "<h3>prior energy → image (t: 0 → +1)</h3>"
+        + render_energy_to_image_gallery_html(prior_items, steps=steps, size=size)
     )
 
 

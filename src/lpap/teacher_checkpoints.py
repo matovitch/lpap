@@ -8,12 +8,8 @@ from typing import Any
 import torch
 
 from lpap.checkpoints import load_training_checkpoint
-from lpap.data import SyntheticHarmonicConfig
 from lpap.decoder import LPAPDecoderTransformer
-from lpap.decoder_training import (
-    _surrogate_harmonics_from_checkpoint,
-    _surrogate_model_config_from_checkpoint,
-)
+from lpap.decoder_training import _surrogate_model_config_from_checkpoint
 from lpap.surrogate import LPAPSurrogateTransformer
 
 
@@ -28,13 +24,12 @@ def load_surrogate_source(
     load_best: bool,
     require_checkpoint: bool,
     device: torch.device,
-) -> tuple[LPAPSurrogateTransformer, dict[str, int], SyntheticHarmonicConfig]:
+) -> tuple[LPAPSurrogateTransformer, dict[str, int]]:
     model_config, payload = _surrogate_model_config_from_checkpoint(
         path=path, require_checkpoint=require_checkpoint
     )
     if model_config is None or payload is None:
         raise FileNotFoundError(f"surrogate checkpoint not found: {path}")
-    harmonics = _surrogate_harmonics_from_checkpoint(payload)
     surrogate = LPAPSurrogateTransformer(
         value_count=model_config["value_count"],
         probe_count=model_config["probe_count"],
@@ -48,7 +43,7 @@ def load_surrogate_source(
     surrogate.eval()
     for parameter in surrogate.parameters():
         parameter.requires_grad_(False)
-    return surrogate, model_config, harmonics
+    return surrogate, model_config
 
 
 def _decoder_model_config_from_checkpoint(

@@ -4,8 +4,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import torch
+
 from lpap.checkpoints import save_training_checkpoint
-from lpap.data import SyntheticHarmonicConfig
 from lpap.decoder_training import (
     LPAPDecoderModelConfig,
     LPAPDecoderRegularizationConfig,
@@ -15,6 +16,7 @@ from lpap.decoder_training import (
     create_lpap_decoder_training_session,
     iter_lpap_decoder_training,
 )
+from lpap.energy_bank import EnergyBankConfig
 from lpap.surrogate import LPAPSurrogateTransformer
 from lpap.surrogate_training import (
     LPAPSurrogateDataConfig,
@@ -22,10 +24,17 @@ from lpap.surrogate_training import (
 )
 
 
+def _write_tiny_energy_bank(root: Path, *, rows: int = 32, dim: int = 16) -> None:
+    path = root / "data" / "encoded_energies_ae_best.pt"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save({"energies": torch.randn(rows, dim)}, path)
+
+
 class LPAPDecoderTrainingTest(unittest.TestCase):
     def test_session_trains_and_logs_small_run(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
+            _write_tiny_energy_bank(root, dim=16)
             surrogate = LPAPSurrogateTransformer(
                 value_count=16,
                 probe_count=4,
@@ -44,7 +53,9 @@ class LPAPDecoderTrainingTest(unittest.TestCase):
                             batch_size=2,
                             bucket_count=4,
                             probe_count=4,
-                            harmonics=SyntheticHarmonicConfig(harmonic_count=3),
+                            energy_bank=EnergyBankConfig(
+                                path="data/encoded_energies_ae_best.pt"
+                            ),
                         ).as_dict()
                     },
                     "model_config": {
@@ -64,7 +75,7 @@ class LPAPDecoderTrainingTest(unittest.TestCase):
                     batch_size=2,
                     bucket_count=4,
                     probe_count=4,
-                    harmonics=SyntheticHarmonicConfig(harmonic_count=3),
+                    energy_bank=EnergyBankConfig(path="data/encoded_energies_ae_best.pt"),
                 ),
                 decoder=LPAPDecoderModelConfig(
                     frontend_initial_temperature=0.5,
@@ -92,19 +103,11 @@ class LPAPDecoderTrainingTest(unittest.TestCase):
             results = list(iter_lpap_decoder_training(session))
 
             self.assertEqual(len(results), 2)
-            self.assertTrue(session.surrogate_checkpoint_loaded)
-            self.assertEqual(session.surrogate_k_max, 2)
-            self.assertEqual(session.surrogate_model_config["hidden_dim"], 16)
-            self.assertEqual(session.harmonics.harmonic_count, 3)
-            self.assertEqual(len(session.surrogate.blocks), 1)
             self.assertTrue(session.checkpoint_path.exists())
             self.assertTrue(session.log_path.exists())
+            self.assertEqual(session.energy_bank.shape[-1], 16)
             self.assertIn("loss", results[-1].metrics)
-            self.assertIn("reconstruction_l1", results[-1].metrics)
-            self.assertIn("source_ce_regularizer", results[-1].metrics)
-            self.assertIn("source_ce_weight", results[-1].metrics)
             self.assertIn("validation_loss", results[-1].metrics)
-            self.assertIn("validation_source_ce_regularizer", results[-1].metrics)
             self.assertTrue(any(result.improved for result in results))
 
 

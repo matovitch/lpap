@@ -5,8 +5,8 @@ See the [documentation index](index.md) for the full documentation map and the [
 LPAP currently wires these trainable model kinds into the shared marimo training
 notebook (energy-bank variants share the corresponding flow backend):
 
-- `surrogate`: learns full-`N` source-index logits for LPAP bucket selections on synthetic harmonic energy.
-- `decoder`: reconstructs source energy values from frozen surrogate logits.
+- `surrogate`: learns full-`N` source-index logits for LPAP bucket selections on empirical i2e energy-bank rows.
+- `decoder`: reconstructs source energy values from frozen surrogate logits (same energy bank).
 - `image_energy_flow` / `image_energy_flow_energy_bank`: one bidirectional flow with image at `t=-1`, energy at `t=0`, and image reconstruction at `t=+1`.
 - `image_autoencoder`: end-to-end grayscale AE (image → energy → LPAP surrogate/decoder → image) initialized by cloning the bidirectional flow.
 
@@ -65,28 +65,24 @@ This is a research repository. Local checkpoint and SQLite schemas are allowed t
 
 ```mermaid
 flowchart TD
-    harmonics_config[Surrogate TOML harmonics]
+    energy_bank[Empirical energy bank .pt]
     surrogate_ckpt[Surrogate checkpoint]
     decoder_ckpt[Decoder checkpoint]
     image_energy_flow_config[Bidirectional image-energy TOML]
-    energy_bank[Empirical energy bank .pt]
     image_autoencoder_config[Image autoencoder TOML]
 
-    harmonics_config --> surrogate_ckpt
+    energy_bank --> surrogate_ckpt
     surrogate_ckpt --> decoder_ckpt
+    energy_bank --> decoder_ckpt
     energy_bank --> image_energy_flow_config
     image_energy_flow_config --> image_energy_flow[Bidirectional flow training]
     image_energy_flow_config --> image_autoencoder_config
     surrogate_ckpt --> image_autoencoder_config
     decoder_ckpt --> image_autoencoder_config
     image_autoencoder_config --> image_autoencoder[Image autoencoder training]
-
-    surrogate_ckpt -. harmonic config .-> decoder_ckpt
 ```
 
-The decoder does not duplicate harmonic source settings in its TOML. The bidirectional flow samples harmonics or empirical bank rows as its energy marginal at `t=0`; it does not use a separate decoder-projected reverse-flow teacher.
-
-The bidirectional flow can use an empirical energy bank (see `configs/training/image_energy_flow_energy_bank.toml` and `lpap.energy_bank`). Bank rows are sampled independently of image batches so training learns the energy *marginal*, not a paired joint map.
+Surrogate and decoder train on the same empirical energy bank (`[data.energy_bank]` in their TOMLs). Synthetic harmonics remain available as the flow prior for `image_energy_flow` init only. The bidirectional flow can also sample bank rows as its energy marginal at `t=0` (see `configs/training/image_energy_flow_energy_bank.toml` and `lpap.energy_bank`); bank rows are sampled independently of image batches so training learns the energy *marginal*, not a paired joint map.
 
 `image_autoencoder` is the total autoencoder. It Hilbert-flattens a grayscale image, rolls an image-to-energy flow forward for a small fixed number of differentiable steps, passes the encoded energy through one or more LPAP surrogate/decoder pairs in parallel (shared flows), then rolls an energy-to-image flow forward to reconstruct the image. Pair-dependent losses (image L2, energy L1, surrogate CE) are averaged over pairs; signed-mass is applied once on the shared encoded energy. Configure pairs with `[[source.lpap_pairs]]` or the legacy flat `surrogate_checkpoint_name` / `decoder_checkpoint_name` (normalized to one pair).
 

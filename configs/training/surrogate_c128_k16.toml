@@ -1,4 +1,4 @@
-# C=128 LPAP surrogate on harmonics; k_max=16.
+# C=128 LPAP surrogate on energy bank; k_max=16.
 # value_count = 128 * 8 = 1024.
 
 [data]
@@ -6,12 +6,10 @@ batch_size = 32
 bucket_count = 128
 probe_count = 8
 
-[data.harmonics]
-harmonic_count = 32
-gain_variance = 1.0
-gain_half_life = 4.0
-spikiness_range = [4.0, 6.0]
-dtype = "torch.float32"
+[data.energy_bank]
+path = "data/encoded_energies_ae_best.pt"
+energies_key = "energies"
+
 
 [model]
 k_max = 16
@@ -40,5 +38,5 @@ log_every = 1
 run_id = "surrogate_c128_k16"
 checkpoint_name = "surrogate_c128_k16.pt"
 log_name = "surrogate_c128_k16.sqlite"
-comment = "C=128 harmonics surrogate; k_max=16; N=1024"
+comment = "C=128 energy-bank surrogate; k_max=16; N=1024"
 pinned = false

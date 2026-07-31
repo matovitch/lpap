@@ -5,6 +5,10 @@ batch_size = 32
 bucket_count = 512
 probe_count = 2
 
+[data.energy_bank]
+path = "data/encoded_energies_ae_best.pt"
+energies_key = "energies"
+
 [decoder]
 frontend_initial_temperature = 0.25
 hidden_dim = 256
@@ -42,5 +46,5 @@ log_every = 1
 run_id = "decoder_c512_k32"
 checkpoint_name = "decoder_c512_k32.pt"
 log_name = "decoder_c512_k32.sqlite"
-comment = "C=512 harmonics decoder; teacher k_max=32; N=1024"
+comment = "C=512 energy-bank decoder; teacher k_max=32; N=1024"
 pinned = false

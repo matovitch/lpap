@@ -112,12 +112,9 @@ class TrainingNotebookConfigTest(unittest.TestCase):
                 bucket_count = 8
                 probe_count = 2
 
-                [data.harmonics]
-                harmonic_count = 3
-                gain_variance = 0.5
-                gain_half_life = 2.0
-                spikiness_range = [1.0, 3.0]
-                dtype = "torch.float32"
+                [data.energy_bank]
+                path = "data/encoded_energies_ae_best.pt"
+                energies_key = "energies"
 
                 [model]
                 k_max = 2
@@ -173,16 +170,17 @@ class TrainingNotebookConfigTest(unittest.TestCase):
 
         text = training_config_to_toml(config)
 
-        self.assertIn("[data.harmonics]", text)
-        self.assertIn('dtype = "torch.float32"', text)
+        self.assertIn("[data.energy_bank]", text)
+        self.assertIn("encoded_energies_ae_best.pt", text)
         self.assertIn("surrogate_c128_k4.pt", text)
 
-    def test_decoder_toml_does_not_serialize_harmonics(self) -> None:
+    def test_decoder_toml_serializes_energy_bank(self) -> None:
         project_root = Path(__file__).resolve().parents[1]
         config = training_config_from_project_file(project_root, "decoder")
 
         text = training_config_to_toml(config)
 
+        self.assertIn("[data.energy_bank]", text)
         self.assertNotIn("[data.harmonics]", text)
         self.assertIn("[teacher]", text)
 

@@ -1,4 +1,4 @@
-# C=512 LPAP surrogate on harmonics; k_max=32.
+# C=512 LPAP surrogate on energy bank; k_max=32.
 # value_count = 512 * 2 = 1024.
 
 [data]
@@ -6,12 +6,10 @@ batch_size = 32
 bucket_count = 512
 probe_count = 2
 
-[data.harmonics]
-harmonic_count = 32
-gain_variance = 1.0
-gain_half_life = 4.0
-spikiness_range = [4.0, 6.0]
-dtype = "torch.float32"
+[data.energy_bank]
+path = "data/encoded_energies_ae_best.pt"
+energies_key = "energies"
+
 
 [model]
 k_max = 32
@@ -40,5 +38,5 @@ log_every = 1
 run_id = "surrogate_c512_k32"
 checkpoint_name = "surrogate_c512_k32.pt"
 log_name = "surrogate_c512_k32.sqlite"
-comment = "C=512 harmonics surrogate; k_max=32; N=1024"
+comment = "C=512 energy-bank surrogate; k_max=32; N=1024"
 pinned = false

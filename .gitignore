@@ -26,3 +26,6 @@ training_logs/*.sqlite-*
 .hf_token
 .env
 configs/secrets.toml
+
+# Local reboot archives (checkpoints/logs)
+archive/

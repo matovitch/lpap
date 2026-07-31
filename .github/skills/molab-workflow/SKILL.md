@@ -51,6 +51,7 @@ All under `.github/skills/molab-workflow/scripts/` (require `MOLAB_URL` +
 | `molab-train-status.sh` | AE bg / ckpt / SQLite summary |
 | `molab-notify.sh` | Pushover ping (end of agent-side long waits) |
 | `molab-launch-ae-energy-bank.sh` | Detached multi-pair AE (bank flows) |
+| `molab-launch-ae-bidirectional-flow.sh` | Detached multi-pair AE from `image_energy_flow.pt` |
 | `molab-launch-flow-energy-bank.sh` | Detached bidirectional energy-bank flow |
 | `molab-push-package-file.sh` | Hot-patch one local `src/lpap/*.py` into site-packages + reload |
 | `molab-export-notebook.sh` | Backport live cells → `notebooks/molab_lab.py` |
@@ -119,12 +120,11 @@ Current AE lab roles (rename/extend as the notebook evolves):
 
 | Name | Role |
 |------|------|
-| `ae_setup` | imports + AE config |
-| `status` | bg worker / train status |
-| `gallery_cache` | ckpt load + forward (slow refresh) |
+| `ae_setup` | imports + AE config for the active run |
+| `status` | bg worker / checkpoint readiness |
+| `gallery_cache` | AE ckpt load + forward on **CPU** (slow refresh; safe while GPU trains) |
 | `gallery_gamma` | display-γ slider |
-| `gallery_view` | PNG gallery render (cheap) |
-| `e0_peak_probe` | e0 peak diagnostics |
+| `gallery_view` | AE PNG gallery render (cheap) |
 
 ## Hard rules
 

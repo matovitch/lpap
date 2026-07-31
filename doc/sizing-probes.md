@@ -36,7 +36,7 @@ code.
 
 | Stage | First grid | Hold fixed | Rank by |
 | --- | --- | --- | --- |
-| `surrogate` | `hidden_dim` ∈ {256, 512}, `layer_count` ∈ {8, 12} | harmonics, buckets, `k_max`, heads (must divide width) | val loss, weighted accuracy |
+| `surrogate` | `hidden_dim` ∈ {256, 512}, `layer_count` ∈ {8, 12} | energy bank, buckets, `k_max`, heads (must divide width) | val loss, weighted accuracy |
 | `decoder` | match surrogate width/depth family if applicable | **surrogate checkpoint** | recon / decoder metrics |
 | `image_to_energy` / `energy_to_image` | `width` ∈ {128, 192, 256}; optional `dilation_cycles` ∈ {2, 3} | sequence length, data | val FM loss + gallery |
 | Integration | Euler / `teacher_steps` / `student_steps` | chosen width | quality vs step-count curve |

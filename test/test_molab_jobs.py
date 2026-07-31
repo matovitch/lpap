@@ -9,6 +9,7 @@ from unittest.mock import patch
 from molab.jobs import (
     AE_ENERGY_BANK_BG_STEM,
     AE_ENERGY_BANK_SCRIPT,
+    ae_bidirectional_flow_worker_source,
     ae_energy_bank_worker_source,
     flow_energy_bank_worker_source,
     launch_ae_energy_bank_bg,
@@ -39,6 +40,22 @@ class MolabJobsTest(unittest.TestCase):
         self.assertIn("resume_from_checkpoint=False", source)
         self.assertNotIn("image_to_energy_checkpoint_name", source)
         compile(source, "<ae_worker>", "exec")
+
+    def test_ae_bidirectional_flow_worker_source(self) -> None:
+        source = ae_bidirectional_flow_worker_source(
+            target_steps=20000,
+            project_root="/marimo",
+            comment="unit-bidir",
+        )
+        self.assertIn("TARGET = 20000", source)
+        self.assertIn('flow_checkpoint_name="image_energy_flow.pt"', source)
+        self.assertIn("surrogate_c128_k16.pt", source)
+        self.assertIn("decoder_c256_k24.pt", source)
+        self.assertIn('name="c128_k16"', source)
+        self.assertIn('name="c256_k24"', source)
+        self.assertIn("comment='unit-bidir'", source)
+        self.assertIn("AE_MULTI_BIDIR_FLOW_DONE", source)
+        compile(source, "<ae_bidir_worker>", "exec")
 
     def test_ae_worker_source_resume(self) -> None:
         source = ae_energy_bank_worker_source(

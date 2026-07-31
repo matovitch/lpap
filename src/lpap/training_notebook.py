@@ -95,19 +95,12 @@ def training_backend_kind(model_kind: TrainingModelKind) -> str:
 
 
 def default_surrogate_training_config() -> LPAPSurrogateTrainingConfig:
-    harmonics = SyntheticHarmonicConfig(
-        harmonic_count=16,
-        gain_variance=1.0,
-        gain_half_life=4.0,
-        spikiness_range=(4.0, 8.0),
-        dtype=torch.float32,
-    )
     return LPAPSurrogateTrainingConfig(
         data=LPAPSurrogateDataConfig(
             batch_size=32,
             bucket_count=128,
             probe_count=8,
-            harmonics=harmonics,
+            energy_bank=EnergyBankConfig(path="data/encoded_energies_ae_best.pt"),
         ),
         model=LPAPSurrogateModelConfig(
             k_max=4,
@@ -146,6 +139,7 @@ def default_decoder_training_config() -> LPAPDecoderTrainingConfig:
             batch_size=32,
             bucket_count=128,
             probe_count=8,
+            energy_bank=EnergyBankConfig(path="data/encoded_energies_ae_best.pt"),
         ),
         decoder=LPAPDecoderModelConfig(
             frontend_initial_temperature=0.25,

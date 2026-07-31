@@ -8,7 +8,7 @@ from typing import Any
 import torch
 from torch.utils.data import DataLoader
 
-from lpap.data import SyntheticHarmonicConfig
+from lpap.data import SyntheticHarmonicConfig, synthetic_harmonic_config_from_dict
 from lpap.energy_bank import (
     EnergyBankConfig,
     EnergyPriorKind,
@@ -42,7 +42,6 @@ from lpap.flow_training import (
     validate_image_flow_shape,
     validation_config_from_dict,
 )
-from lpap.surrogate_training import _synthetic_harmonic_config_from_dict
 from lpap.training import (
     TrainingResumeInfo,
     TrainingRun,
@@ -184,7 +183,7 @@ def image_energy_flow_prior_config_from_dict(
         harmonics=(
             SyntheticHarmonicConfig()
             if harmonics_data is None
-            else _synthetic_harmonic_config_from_dict(harmonics_data)
+            else synthetic_harmonic_config_from_dict(harmonics_data)
         ),
         energy_bank=(
             None
@@ -258,6 +257,8 @@ class ImageEnergyFlowGalleryItem:
     image: torch.Tensor
     encoded: dict[int, torch.Tensor]
     reconstructed: dict[int, torch.Tensor]
+    prior_energy: torch.Tensor
+    from_prior: dict[int, torch.Tensor]
 
 
 def create_image_energy_flow_training_session(
@@ -422,6 +423,15 @@ def collect_image_energy_flow_gallery(
     steps: tuple[int, ...] = (64, 32, 16, 8, 4),
     device: torch.device,
 ) -> list[ImageEnergyFlowGalleryItem]:
+    """Build gallery panels for both flow halves.
+
+    ``encoded``: image → energy at each Euler budget.
+    ``reconstructed``: round-trip decode of that encoded energy (same budget).
+    ``from_prior``: energy prior samples → image (independent of the image batch).
+    """
+    from lpap.flow import integrate_euler_midpoint_time
+    from lpap.hilbert import hilbert_unflatten_images
+
     if any(step_count <= 0 for step_count in steps):
         raise ValueError("integration steps must be positive")
     was_training = model.training
@@ -432,15 +442,28 @@ def collect_image_energy_flow_gallery(
         if energy_batch.ndim == 2:
             energy_batch = energy_batch.unsqueeze(1)
         start_image = prepare_image_sequence(image_batch, side=side, device=device)
-        encoded = integrate_flow_images_range(
-            model=model,
-            start=start_image,
-            steps=steps,
-            side=side,
-            t0=IMAGE_TO_ENERGY_T0,
-            t1=IMAGE_TO_ENERGY_T1,
-        )
-        reconstructed = integrate_flow_images_range(
+        encoded: dict[int, torch.Tensor] = {}
+        reconstructed: dict[int, torch.Tensor] = {}
+        for step_count in steps:
+            encoded_seq = integrate_euler_midpoint_time(
+                model,
+                start_image,
+                step_count,
+                t0=IMAGE_TO_ENERGY_T0,
+                t1=IMAGE_TO_ENERGY_T1,
+            )
+            encoded[step_count] = hilbert_unflatten_images(encoded_seq, side=side)
+            reconstructed_seq = integrate_euler_midpoint_time(
+                model,
+                encoded_seq,
+                step_count,
+                t0=ENERGY_TO_IMAGE_T0,
+                t1=ENERGY_TO_IMAGE_T1,
+            )
+            reconstructed[step_count] = hilbert_unflatten_images(
+                reconstructed_seq, side=side
+            )
+        from_prior = integrate_flow_images_range(
             model=model,
             start=energy_batch,
             steps=steps,
@@ -448,6 +471,7 @@ def collect_image_energy_flow_gallery(
             t0=ENERGY_TO_IMAGE_T0,
             t1=ENERGY_TO_IMAGE_T1,
         )
+        prior_energy = hilbert_unflatten_images(energy_batch, side=side)
     if was_training:
         model.train()
     return [
@@ -460,6 +484,11 @@ def collect_image_energy_flow_gallery(
             reconstructed={
                 step_count: values[index].detach().cpu()
                 for step_count, values in reconstructed.items()
+            },
+            prior_energy=prior_energy[index].detach().cpu(),
+            from_prior={
+                step_count: values[index].detach().cpu()
+                for step_count, values in from_prior.items()
             },
         )
         for index in range(image_batch.shape[0])

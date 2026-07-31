@@ -10,7 +10,6 @@ import torch
 from torch import nn
 
 from lpap.checkpoints import load_training_checkpoint
-from lpap.data import SyntheticHarmonicConfig
 from lpap.decoder_training import (
     LPAPDecoderModelConfig,
     LPAPDecoderRunConfig,
@@ -18,6 +17,7 @@ from lpap.decoder_training import (
     LPAPDecoderTrainingConfig,
     rerun_lpap_decoder_training_config_from_log,
 )
+from lpap.energy_bank import EnergyBankConfig
 from lpap.surrogate_training import (
     LPAPSurrogateDataConfig,
     LPAPSurrogateModelConfig,
@@ -321,18 +321,13 @@ class TrainingRunTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             log_path = root / "training_logs" / "runs.sqlite"
-            harmonics = SyntheticHarmonicConfig(
-                harmonic_count=7,
-                gain_variance=0.5,
-                gain_half_life=3.0,
-                spikiness_range=(2.0, 5.0),
-            )
+            energy_bank = EnergyBankConfig(path="data/bank.pt", energies_key="energies")
             surrogate_config = LPAPSurrogateTrainingConfig(
                 data=LPAPSurrogateDataConfig(
                     batch_size=4,
                     bucket_count=8,
                     probe_count=4,
-                    harmonics=harmonics,
+                    energy_bank=energy_bank,
                 ),
                 model=LPAPSurrogateModelConfig(
                     k_max=3, hidden_dim=32, layer_count=2, head_count=4
@@ -378,7 +373,8 @@ class TrainingRunTest(unittest.TestCase):
 
             self.assertFalse(loaded_surrogate.run.resume_from_checkpoint)
             self.assertEqual(loaded_surrogate.model.hidden_dim, 32)
-            self.assertEqual(loaded_surrogate.data.harmonics.harmonic_count, 7)
+            self.assertEqual(loaded_surrogate.data.energy_bank.path, "data/bank.pt")
+            self.assertEqual(loaded_decoder.data.energy_bank.path, "data/bank.pt")
             self.assertFalse(loaded_decoder.run.resume_from_checkpoint)
             self.assertEqual(loaded_decoder.decoder.frontend_initial_temperature, 0.75)
             self.assertEqual(loaded_decoder.teacher.checkpoint_name, "teacher.pt")

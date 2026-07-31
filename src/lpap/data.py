@@ -90,6 +90,24 @@ class SyntheticHarmonicConfig:
         )
 
 
+def _torch_dtype_from_string(value: str) -> torch.dtype:
+    name = value.removeprefix("torch.")
+    dtype = getattr(torch, name, None)
+    if not isinstance(dtype, torch.dtype):
+        raise ValueError(f"unsupported torch dtype: {value}")
+    return dtype
+
+
+def synthetic_harmonic_config_from_dict(data: dict[str, Any]) -> SyntheticHarmonicConfig:
+    return SyntheticHarmonicConfig(
+        harmonic_count=int(data["harmonic_count"]),
+        gain_variance=float(data["gain_variance"]),
+        gain_half_life=float(data["gain_half_life"]),
+        spikiness_range=tuple(float(value) for value in data["spikiness_range"]),
+        dtype=_torch_dtype_from_string(str(data["dtype"])),
+    )
+
+
 class ImageTensorDataset(Dataset[tuple[torch.Tensor, str]]):
     def __init__(
         self,

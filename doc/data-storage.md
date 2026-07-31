@@ -73,7 +73,7 @@ flowchart TD
     checkpoint --> viz
 ```
 
-Checkpoints are authoritative for model-dependent configuration. In particular, decoder training and `energy_to_image` read harmonic source configuration from the surrogate checkpoint rather than from duplicated TOML or SQLite fields.
+Checkpoints are authoritative for model-dependent configuration. Surrogate and decoder training sample from `[data.energy_bank]` in their TOMLs (same empirical i2e bank); they no longer carry harmonic source settings.
 
 SQLite logs are for discovery, plotting, and rerun ergonomics. Because this repository is a research experiment, stale checkpoint or SQLite schemas should usually be regenerated rather than migrated.
 

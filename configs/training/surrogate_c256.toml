@@ -4,12 +4,10 @@ bucket_count = 256
 # Keep value_count = bucket_count * probe_count = 1024 (32x32 energy / image length).
 probe_count = 4
 
-[data.harmonics]
-harmonic_count = 32
-gain_variance = 1.0
-gain_half_life = 4.0
-spikiness_range = [4.0, 6.0]
-dtype = "torch.float32"
+[data.energy_bank]
+path = "data/encoded_energies_ae_best.pt"
+energies_key = "energies"
+
 
 [model]
 k_max = 4

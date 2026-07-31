@@ -348,7 +348,6 @@ class ImageAutoencoderTrainingConfig:
         pair_surrogate_configs: tuple[dict[str, int], ...],
         pair_decoder_configs: tuple[dict[str, object], ...],
         pair_names: tuple[str, ...],
-        harmonics: object,
     ) -> dict[str, object]:
         return flow_model_metadata(
             image=self.image,
@@ -365,7 +364,6 @@ class ImageAutoencoderTrainingConfig:
                 # Legacy single-pair keys (pair 0) for older readers.
                 "surrogate": pair_surrogate_configs[0],
                 "decoder": pair_decoder_configs[0],
-                "harmonics": harmonics.as_dict(),
             },
         )
 
@@ -531,7 +529,6 @@ class ImageAutoencoderLpapPairRuntime:
     permutation: torch.Tensor
     surrogate_model_config: dict[str, int]
     decoder_model_config: dict[str, object]
-    harmonics: object
 
 
 @dataclass(frozen=True)
@@ -563,10 +560,6 @@ class ImageAutoencoderTrainingSession:
     @property
     def permutation(self) -> torch.Tensor:
         return self.lpap_pairs[0].permutation
-
-    @property
-    def harmonics(self) -> object:
-        return self.lpap_pairs[0].harmonics
 
     @property
     def surrogate_model_config(self) -> dict[str, int]:
@@ -712,7 +705,7 @@ def create_image_autoencoder_training_session(
         decoder_checkpoint_path = resolve_checkpoint_path(
             root, pair_config.decoder_checkpoint_name
         )
-        surrogate, surrogate_model_config, harmonics = load_surrogate_source(
+        surrogate, surrogate_model_config = load_surrogate_source(
             path=surrogate_checkpoint_path,
             load_best=config.source.load_best,
             require_checkpoint=config.source.require_checkpoints,
@@ -742,7 +735,6 @@ def create_image_autoencoder_training_session(
                 permutation=permutation,
                 surrogate_model_config=surrogate_model_config,
                 decoder_model_config=decoder_model_config,
-                harmonics=harmonics,
             )
         )
         surrogates.append(surrogate)
@@ -824,7 +816,6 @@ def create_image_autoencoder_training_session(
                 runtime.decoder_model_config for runtime in pair_runtimes
             ),
             pair_names=pair_names,
-            harmonics=pair_runtimes[0].harmonics,
         ),
         metadata={
             "device": str(target_device),
@@ -1108,12 +1099,15 @@ def collect_image_autoencoder_gallery(
             images, side=side, device=session.device
         )
         _loss, _metrics, output = _forward_loss(session=session, image=image)
-        # Image-domain tensors are Hilbert sequences in the model; unflatten for
-        # spatial gallery panels. Energy stays in sequence order (row-major viz).
+        # Flows operate in Hilbert order; unflatten image *and* energy for spatial
+        # gallery panels (row-major PNG). Leaving energy in Hilbert order makes
+        # panels look scrambled even when the tensors are structurally fine.
         spatial_image = hilbert_unflatten_images(image, side=side)
+        spatial_encoded = hilbert_unflatten_images(output.encoded_energy, side=side)
         items: list[ImageAutoencoderGalleryItem] = []
         for index in range(images.shape[0]):
             pair_items: list[ImageAutoencoderGalleryPairItem] = []
+            encoded = spatial_encoded[index, 0]
             for runtime, pair_output in zip(
                 session.lpap_pairs, output.pairs, strict=True
             ):
@@ -1121,8 +1115,9 @@ def collect_image_autoencoder_gallery(
                     pair_output.reconstructed_image[index : index + 1], side=side
                 )[0, 0]
                 source_spatial = spatial_image[index, 0]
-                decoded = pair_output.decoded_energy[index, 0]
-                encoded = output.encoded_energy[index, 0]
+                decoded = hilbert_unflatten_images(
+                    pair_output.decoded_energy[index : index + 1], side=side
+                )[0, 0]
                 pair_items.append(
                     ImageAutoencoderGalleryPairItem(
                         name=runtime.name,
@@ -1137,7 +1132,7 @@ def collect_image_autoencoder_gallery(
             items.append(
                 ImageAutoencoderGalleryItem(
                     image=spatial_image[index, 0].detach().cpu(),
-                    encoded_energy=output.encoded_energy[index, 0].detach().cpu(),
+                    encoded_energy=encoded.detach().cpu(),
                     pairs=tuple(pair_items),
                 )
             )

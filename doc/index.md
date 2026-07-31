@@ -44,8 +44,9 @@ the end-to-end image autoencoder.
 
 ```mermaid
 flowchart TD
-    synthetic[Synthetic harmonic energy] --> surrogate[Surrogate]
+    energy_bank[Empirical i2e energy bank] --> surrogate[Surrogate]
     surrogate --> decoder[Decoder]
+    harmonics[Synthetic harmonics] --> flow[Image-energy flow init]
     i2e[Image-to-energy flow]
     e2i[Energy-to-image flow]
 
@@ -54,6 +55,8 @@ flowchart TD
         decoder
     end
 
+    flow --> i2e
+    flow --> e2i
     i2e --> autoencoder[Image autoencoder]
     e2i --> autoencoder
     inner --> autoencoder

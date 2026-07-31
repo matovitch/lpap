@@ -184,6 +184,8 @@ class ImageEnergyFlowTrainingTest(unittest.TestCase):
         self.assertEqual(len(items), 1)
         self.assertEqual(tuple(items[0].encoded), (4, 2))
         self.assertEqual(tuple(items[0].reconstructed), (4, 2))
+        self.assertEqual(tuple(items[0].from_prior), (4, 2))
+        self.assertEqual(tuple(items[0].prior_energy.shape), (1, 4, 4))
         self.assertEqual(
             (IMAGE_TO_ENERGY_T0, IMAGE_TO_ENERGY_T1),
             (-1.0, 0.0),
