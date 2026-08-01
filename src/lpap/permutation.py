@@ -11,6 +11,13 @@ def make_grouped_permutation_indices(
     seed: int,
     device: str | torch.device | None = None,
 ) -> Int[torch.Tensor, "n"]:
+    """Build a fixed grouped LPAP permutation from ``seed``.
+
+    RNG always runs on **CPU** (then the tensor is moved to ``device``) so the
+    same seed yields the same layout on CPU and CUDA. Checkpoints also store the
+    concrete ``permutation`` tensor — prefer that tensor when reloading a run;
+    the seed alone is for fresh runs / documentation in SQLite config.
+    """
     if value_count <= 0:
         raise ValueError("value_count must be positive")
     if bucket_count <= 0:

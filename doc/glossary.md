@@ -8,7 +8,7 @@
 - **Bucket**: One LPAP output lane. The value count `N` is split into `bucket_count` buckets, each with `probe_count = N / bucket_count` source slots.
 - **Probe**: A source slot inside a bucket before LPAP selection.
 - **DIB**: Distance in buckets from a value's original bucket to the bucket where it is selected.
-- **Grouped permutation**: The fixed seeded permutation applied before LPAP tokenization so each bucket receives balanced source positions.
+- **Grouped permutation**: The fixed seeded permutation applied before LPAP tokenization so each bucket receives balanced source positions. Generation always uses a **CPU** RNG (then moves the tensor to the training device) so the same `permutation_seed` is device-stable. Checkpoints store both the seed and the concrete `permutation` tensor — reload the tensor when present.
 
 ## LPAP Models
 

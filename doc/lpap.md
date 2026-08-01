@@ -45,7 +45,14 @@ flowchart TD
     energy_bank --> surrogate --> decoder --> reverse_flow --> image
 ```
 
-The grouped permutation is seeded once and fixed for training. It acts as the LPAP front end: amplitudes are scattered so each contiguous source group of size `N // C` contributes approximately uniformly to the bucket columns when viewed as `(N // C) x C`. The inverse permutation is the corresponding back end for returning values to the original energy ordering.
+The grouped permutation is seeded once and fixed for training. It is generated
+with a **CPU** RNG (then moved to the training device) so the seed is
+device-stable; checkpoints also store the concrete tensor and loaders prefer
+that tensor over regenerating from seed. It acts as the LPAP front end:
+amplitudes are scattered so each contiguous source group of size `N // C`
+contributes approximately uniformly to the bucket columns when viewed as
+`(N // C) x C`. The inverse permutation is the corresponding back end for
+returning values to the original energy ordering.
 
 The surrogate model consumes `C` tokens of dimension `N // C`. Its local RoPE attention mask is circular-backward: bucket token `i` can attend to the rolled source lanes that LPAP may inspect, `(i - roll) mod C` for `roll < k_max`. It predicts full-`N` source-index logits for each output bucket instead of only local probe indices. The training loss is weighted cross entropy, with per-bucket weights equal to the absolute selected amplitudes.
 

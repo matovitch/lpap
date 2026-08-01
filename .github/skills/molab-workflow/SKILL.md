@@ -193,4 +193,6 @@ Reports ckpt step, SQLite max step, and bg alive / last log step.
 
 ## Training order
 
-`surrogate` → `decoder` → image flows (or energy-bank flows) → `image_autoencoder`.
+Bank curriculum: harmonics-prior flow → encode energy bank → bank teachers
+(`surrogate` → `decoder`) → `image_autoencoder`.
+Teachers use the energy bank; the AE needs images + flow + teacher checkpoints.

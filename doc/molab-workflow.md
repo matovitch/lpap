@@ -230,8 +230,10 @@ Caches `data/images_32x32_gray.pt` (skips if present). Do not confuse with
 
 ## Training order
 
-`surrogate` → `decoder` → image flows → `image_autoencoder`.
-Surrogate/decoder need no image dataset (synthetic harmonics).
+Bank curriculum: harmonics-prior `image_energy_flow` → encode energy bank →
+bank teachers (`surrogate`/`decoder`) → `image_autoencoder`.
+Teachers sample the energy bank (no image dataset); the AE needs images + flow
++ teacher checkpoints.
 
 ## Session checklist
 
