@@ -35,6 +35,22 @@ class GroupedPermutationTest(unittest.TestCase):
         )
         torch.testing.assert_close(restored, values)
 
+    def test_permutation_seed_is_device_stable(self) -> None:
+        cpu = make_grouped_permutation_indices(
+            value_count=24, bucket_count=4, seed=123, device="cpu"
+        )
+        # Requesting CUDA still uses the CPU RNG stream when available is not
+        # required; device only selects the output placement.
+        placed = make_grouped_permutation_indices(
+            value_count=24, bucket_count=4, seed=123, device="cpu"
+        )
+        torch.testing.assert_close(cpu, placed)
+        if torch.cuda.is_available():
+            cuda = make_grouped_permutation_indices(
+                value_count=24, bucket_count=4, seed=123, device="cuda"
+            )
+            torch.testing.assert_close(cpu, cuda.cpu())
+
     def test_each_bucket_gets_balanced_source_groups(self) -> None:
         value_count = 30
         bucket_count = 5

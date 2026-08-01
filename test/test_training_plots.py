@@ -156,6 +156,31 @@ class TrainingPlotsTest(unittest.TestCase):
                 gamma=0.0,
             )
 
+    def test_renders_signed_triplet_gallery_as_png(self) -> None:
+        from types import SimpleNamespace
+
+        from lpap.training_plots import render_signed_triplet_gallery_html
+
+        html = render_signed_triplet_gallery_html(
+            [
+                SimpleNamespace(
+                    energy=torch.linspace(-1.0, 1.0, 16),
+                    lpap=torch.linspace(1.0, -1.0, 16),
+                    surrogate_hard=torch.linspace(-0.5, 0.5, 16),
+                    decoder=torch.zeros(16),
+                )
+            ],
+            size=4,
+            display_px=64,
+            gamma=1.0,
+        )
+        self.assertIn("data:image/png;base64,", html)
+        self.assertIn("image-rendering: pixelated", html)
+        self.assertIn("source energy", html)
+        self.assertIn("oracle LPAP", html)
+        self.assertIn("surrogate hard", html)
+        self.assertIn("decoder soft", html)
+
 
 if __name__ == "__main__":
     unittest.main()

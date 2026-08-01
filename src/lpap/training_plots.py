@@ -321,13 +321,23 @@ def _ordered_ae_gallery_pairs(pairs: Sequence[Any]) -> list[Any]:
     return ordered
 
 
-def render_signed_triplet_gallery_html(items: Sequence[Any], *, size: int = 32) -> str:
+def render_signed_triplet_gallery_html(
+    items: Sequence[Any],
+    *,
+    size: int = 32,
+    display_px: int = 128,
+    gamma: float = 1.0,
+) -> str:
     if not items:
         return "<p>No gallery samples are available.</p>"
+    if display_px <= 0:
+        raise ValueError("display_px must be positive")
+    if gamma <= 0:
+        raise ValueError("gamma must be positive")
 
     panels = []
-    labels = ("source energy", "LPAP hard", "decoder soft")
-    keys = ("energy", "lpap", "decoder")
+    labels = ("source energy", "oracle LPAP", "surrogate hard", "decoder soft")
+    keys = ("energy", "lpap", "surrogate_hard", "decoder")
     for item_index, item in enumerate(items, start=1):
         tensors = [getattr(item, key).detach().cpu().reshape(-1) for key in keys]
         expected_count = size * size
@@ -336,22 +346,22 @@ def render_signed_triplet_gallery_html(items: Sequence[Any], *, size: int = 32) 
         max_abs = max(
             float(tensor.abs().max().clamp_min(1.0e-12)) for tensor in tensors
         )
-        grids = "".join(
-            f"""
-            <div style="display: grid; gap: 6px;">
-              <div style="font-weight: 600;">{escape(label)}</div>
-              <div style="display: grid; grid-template-columns: repeat({size}, 6px); grid-template-rows: repeat({size}, 6px); width: {size * 6}px; height: {size * 6}px; border: 1px solid #30333a; background: #000;">
-                {_signed_pixels(tensor, size=size, max_abs=max_abs)}
-              </div>
-            </div>
-            """
+        tiles = "".join(
+            _signed_png_img(
+                tensor,
+                size=size,
+                max_abs=max_abs,
+                display_px=display_px,
+                label=label,
+                gamma=gamma,
+            )
             for label, tensor in zip(labels, tensors, strict=True)
         )
         panels.append(
             f"""
             <div style="display: grid; gap: 10px;">
               <div style="font-weight: 700;">sample {item_index}</div>
-              <div style="display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-start;">{grids}</div>
+              <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-start;">{tiles}</div>
             </div>
             """
         )
@@ -361,7 +371,7 @@ def render_signed_triplet_gallery_html(items: Sequence[Any], *, size: int = 32) 
       {"".join(panels)}
       <div style="display: flex; align-items: center; gap: 8px;">
         <span style="width: 44px; height: 12px; background: linear-gradient(90deg, #004cff, #000, #ff2600); border: 1px solid #30333a;"></span>
-        <span>negative / zero / positive, scaled per sample triplet</span>
+        <span>negative / zero / positive, scaled per sample triplet (γ={gamma:g})</span>
       </div>
     </div>
     """

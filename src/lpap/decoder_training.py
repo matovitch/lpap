@@ -18,6 +18,7 @@ from lpap.decoder import (
     train_lpap_decoder_step,
 )
 from lpap.energy_bank import energy_bank_config_from_dict
+from lpap.hilbert import hilbert_unflatten_images
 from lpap.surrogate import prepare_lpap_surrogate_batch
 from lpap.permutation import make_grouped_permutation_indices
 from lpap.surrogate import LPAPSurrogateTransformer
@@ -291,6 +292,7 @@ class LPAPDecoderTrainingSession:
 class LPAPDecoderGalleryItem:
     energy: torch.Tensor
     lpap: torch.Tensor
+    surrogate_hard: torch.Tensor
     decoder: torch.Tensor
 
 
@@ -372,7 +374,9 @@ def _create_surrogate_teacher(
     require_checkpoint: bool,
     config: LPAPDecoderTrainingConfig,
     device: torch.device,
-) -> tuple[LPAPSurrogateTransformer, bool, dict[str, int]]:
+) -> tuple[
+    LPAPSurrogateTransformer, bool, dict[str, int], torch.Tensor | None
+]:
     model_config, payload = _surrogate_model_config_from_checkpoint(
         path=path, require_checkpoint=require_checkpoint
     )
@@ -392,10 +396,14 @@ def _create_surrogate_teacher(
         layer_count=model_config["layer_count"],
         head_count=model_config["head_count"],
     ).to(device)
+    saved_permutation: torch.Tensor | None = None
     if payload is not None:
         state_key = "best_model_state" if load_best else "model_state"
         surrogate.load_state_dict(payload[state_key])
-    return surrogate, loaded, model_config
+        raw_perm = (payload.get("training_state") or {}).get("permutation")
+        if raw_perm is not None:
+            saved_permutation = torch.as_tensor(raw_perm).long()
+    return surrogate, loaded, model_config, saved_permutation
 
 
 def create_lpap_decoder_training_session(
@@ -422,19 +430,27 @@ def create_lpap_decoder_training_session(
         ensure=config.teacher.require_checkpoint,
     )
     energy_bank = load_teacher_energy_bank(root, config.data)
-    permutation = make_grouped_permutation_indices(
-        value_count=config.value_count,
-        bucket_count=config.data.bucket_count,
-        seed=config.run.permutation_seed,
-        device=target_device,
-    )
-    surrogate, surrogate_loaded, surrogate_model_config = _create_surrogate_teacher(
+    (
+        surrogate,
+        surrogate_loaded,
+        surrogate_model_config,
+        teacher_permutation,
+    ) = _create_surrogate_teacher(
         path=surrogate_checkpoint_path,
         load_best=config.teacher.load_best,
         require_checkpoint=config.teacher.require_checkpoint,
         config=config,
         device=target_device,
     )
+    if teacher_permutation is not None:
+        permutation = teacher_permutation.to(device=target_device)
+    else:
+        permutation = make_grouped_permutation_indices(
+            value_count=config.value_count,
+            bucket_count=config.data.bucket_count,
+            seed=config.run.permutation_seed,
+            device=target_device,
+        )
     surrogate.eval()
     for parameter in surrogate.parameters():
         parameter.requires_grad_(False)
@@ -638,6 +654,11 @@ def collect_lpap_decoder_gallery(
         )
         logits = session.decoder(decoder_batch.tokens)
         lpap_values = reconstruct_lpap_bucket_values(decoder_batch)
+        surrogate_hard_values = torch.zeros_like(values).scatter_add(
+            1,
+            surrogate_logits.argmax(dim=-1),
+            decoder_batch.surrogate_targets.buckets.to(dtype=values.dtype),
+        )
         decoder_values = reconstruct_lpap_decoder_values(logits, decoder_batch)
 
     if decoder_was_training:
@@ -645,11 +666,24 @@ def collect_lpap_decoder_gallery(
     if surrogate_was_training:
         session.surrogate.train()
 
+    # Energy-bank rows are Hilbert-ordered (flow encode); unflatten for spatial panels.
+    side = int(values.shape[-1] ** 0.5)
+    if side * side != int(values.shape[-1]):
+        raise ValueError(
+            f"gallery energy length {int(values.shape[-1])} is not a square"
+        )
+
+    def _spatial(flat: torch.Tensor) -> torch.Tensor:
+        return hilbert_unflatten_images(
+            flat.detach().cpu().unsqueeze(0).unsqueeze(0), side=side
+        )[0, 0]
+
     return [
         LPAPDecoderGalleryItem(
-            energy=values[index].detach().cpu(),
-            lpap=lpap_values[index].detach().cpu(),
-            decoder=decoder_values[index].detach().cpu(),
+            energy=_spatial(values[index]),
+            lpap=_spatial(lpap_values[index]),
+            surrogate_hard=_spatial(surrogate_hard_values[index]),
+            decoder=_spatial(decoder_values[index]),
         )
         for index in range(sample_count)
     ]

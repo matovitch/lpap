@@ -711,7 +711,7 @@ def create_image_autoencoder_training_session(
             pair_config.decoder_checkpoint_name,
             ensure=config.source.require_checkpoints,
         )
-        surrogate, surrogate_model_config = load_surrogate_source(
+        surrogate, surrogate_model_config, teacher_permutation = load_surrogate_source(
             path=surrogate_checkpoint_path,
             load_best=config.source.load_best,
             require_checkpoint=config.source.require_checkpoints,
@@ -727,12 +727,15 @@ def create_image_autoencoder_training_session(
             surrogate_model_config=surrogate_model_config,
             decoder_model_config=decoder_model_config,
         )
-        permutation = make_grouped_permutation_indices(
-            value_count=config.value_count,
-            bucket_count=int(decoder_model_config["bucket_count"]),
-            seed=surrogate_model_config["permutation_seed"],
-            device=target_device,
-        )
+        if teacher_permutation is not None:
+            permutation = teacher_permutation.to(device=target_device)
+        else:
+            permutation = make_grouped_permutation_indices(
+                value_count=config.value_count,
+                bucket_count=int(decoder_model_config["bucket_count"]),
+                seed=surrogate_model_config["permutation_seed"],
+                device=target_device,
+            )
         pair_runtimes.append(
             ImageAutoencoderLpapPairRuntime(
                 name=pair_name,

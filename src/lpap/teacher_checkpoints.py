@@ -34,7 +34,7 @@ def load_surrogate_source(
     load_best: bool,
     require_checkpoint: bool,
     device: torch.device,
-) -> tuple[LPAPSurrogateTransformer, dict[str, int]]:
+) -> tuple[LPAPSurrogateTransformer, dict[str, int], torch.Tensor | None]:
     model_config, payload = _surrogate_model_config_from_checkpoint(
         path=path, require_checkpoint=require_checkpoint
     )
@@ -53,7 +53,11 @@ def load_surrogate_source(
     surrogate.eval()
     for parameter in surrogate.parameters():
         parameter.requires_grad_(False)
-    return surrogate, model_config
+    saved_permutation: torch.Tensor | None = None
+    raw_perm = (payload.get("training_state") or {}).get("permutation")
+    if raw_perm is not None:
+        saved_permutation = torch.as_tensor(raw_perm).long()
+    return surrogate, model_config, saved_permutation
 
 
 def _decoder_model_config_from_checkpoint(

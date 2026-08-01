@@ -18,34 +18,32 @@ def make_grouped_permutation_indices(
     if value_count % bucket_count != 0:
         raise ValueError("value_count must be divisible by bucket_count")
 
+    # Always draw with a CPU generator so seed→permutation is device-stable.
+    # (CUDA Generator(manual_seed=s) != CPU Generator(manual_seed=s).)
     target_device = torch.device("cpu") if device is None else torch.device(device)
     probe_count = value_count // bucket_count
-    generator = torch.Generator(device=target_device).manual_seed(seed)
+    generator = torch.Generator(device="cpu").manual_seed(seed)
     by_bucket: list[list[int]] = [[] for _ in range(bucket_count)]
 
     for source_group in range(bucket_count):
         source_start = source_group * probe_count
-        local_order = torch.randperm(
-            probe_count, generator=generator, device=target_device
-        ).tolist()
+        local_order = torch.randperm(probe_count, generator=generator).tolist()
         for local_position, source_offset in enumerate(local_order):
             target_bucket = (local_position + source_group) % bucket_count
             by_bucket[target_bucket].append(source_start + int(source_offset))
 
-    permutation = torch.empty(value_count, dtype=torch.long, device=target_device)
+    permutation = torch.empty(value_count, dtype=torch.long, device="cpu")
     for target_bucket, source_indices in enumerate(by_bucket):
         if len(source_indices) != probe_count:
             raise RuntimeError(
                 "grouped permutation construction violated bucket balance"
             )
-        row_order = torch.randperm(
-            probe_count, generator=generator, device=target_device
-        ).tolist()
+        row_order = torch.randperm(probe_count, generator=generator).tolist()
         for target_row, source_list_index in enumerate(row_order):
             destination_index = target_row * bucket_count + target_bucket
             permutation[destination_index] = source_indices[int(source_list_index)]
 
-    return permutation
+    return permutation.to(device=target_device)
 
 
 def invert_permutation_indices(
