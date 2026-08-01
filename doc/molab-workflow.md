@@ -126,8 +126,19 @@ python -m pip install "jaxtyping>=0.3.7"
 `lpap` is not on PyPI — do not `uv add lpap==0.1.0`. After pulling new commits,
 `--force-reinstall` the git ref if imports are missing.
 
-Sandbox artifacts: `/marimo/checkpoints/*.pt`, `/marimo/training_logs/*.sqlite`
-(idle ~90 min / session ~12 h).
+Sandbox layout (molab persistence, from Aug 2026): only notebook source and
+`storage/`, `public/`, `layouts/` survive between sessions. Treat
+`/marimo/data`, `/marimo/checkpoints`, and `/marimo/training_logs` as
+**session-local caches**. Large files (>1 GB: images, energy banks) must live
+on Hugging Face and are **lazily pulled** when training/code needs them
+(`ensure_image_tensor_archive`, `ensure_project_artifact` /
+`load_energy_bank_for_flow`, checkpoint `ensure=` / resume). Prefer
+`upload_artifacts_on_checkpoint=True` so HF stays the source of truth — do not
+preload everything at sync time.
+
+Sandbox artifacts (ephemeral): `/marimo/checkpoints/*.pt`,
+`/marimo/training_logs/*.sqlite`, `/marimo/data/*` (idle ~90 min / session
+~12 h).
 
 ## Shared training
 

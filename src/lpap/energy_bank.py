@@ -29,7 +29,7 @@ EnergyPriorKind = Literal["harmonics", "energy_bank"]
 class EnergyBankConfig:
     """Filesystem pointer to an energy bank ``.pt`` payload."""
 
-    path: str = "data/encoded_energies_ae_best_131k.pt"
+    path: str = "data/encoded_energies_ae_best.pt"
     energies_key: str = "energies"
 
     def validate(self) -> None:
@@ -138,8 +138,16 @@ def load_energy_bank_for_flow(
     *,
     sequence_length: int,
 ) -> Float[torch.Tensor, "n energy"]:
-    """Load a bank and check it matches the flow sequence length."""
-    path = resolve_energy_bank_path(root, config)
+    """Load a bank and check it matches the flow sequence length.
+
+    Lazily pulls ``config.path`` from the artifacts HF bucket when missing.
+    """
+    from lpap.artifact_sync import ensure_project_artifact
+
+    path = ensure_project_artifact(
+        resolve_energy_bank_path(root, config),
+        project_root=root,
+    )
     energies = load_energy_bank(path, energies_key=config.energies_key)
     if int(energies.shape[-1]) != sequence_length:
         raise ValueError(

@@ -414,7 +414,13 @@ def create_lpap_decoder_training_session(
     root = Path(project_root)
     checkpoint_path = root / "checkpoints" / config.run.checkpoint_name
     log_path = root / "training_logs" / config.run.log_name
-    surrogate_checkpoint_path = root / "checkpoints" / config.teacher.checkpoint_name
+    from lpap.teacher_checkpoints import resolve_checkpoint_path
+
+    surrogate_checkpoint_path = resolve_checkpoint_path(
+        root,
+        config.teacher.checkpoint_name,
+        ensure=config.teacher.require_checkpoint,
+    )
     energy_bank = load_teacher_energy_bank(root, config.data)
     permutation = make_grouped_permutation_indices(
         value_count=config.value_count,

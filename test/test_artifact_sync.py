@@ -13,6 +13,8 @@ from lpap.artifact_sync import (
     default_artifacts_bucket,
     download_files,
     download_training_artifacts,
+    ensure_checkpoint,
+    ensure_project_artifact,
     resolve_hf_token,
     upload_checkpoint_artifacts,
     upload_files,
@@ -221,6 +223,58 @@ class ArtifactSyncTest(unittest.TestCase):
                 upload_mock.call_args.kwargs["project_root"],
                 root,
             )
+
+    def test_ensure_project_artifact_returns_existing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            local = root / "checkpoints" / "model.pt"
+            local.parent.mkdir(parents=True)
+            local.write_bytes(b"local")
+            with patch("lpap.artifact_sync.download_files") as download_mock:
+                path = ensure_project_artifact(local, project_root=root)
+            self.assertEqual(path, local.resolve())
+            download_mock.assert_not_called()
+
+    def test_ensure_project_artifact_downloads_when_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            local = root / "data" / "bank.pt"
+
+            def _fake_download(pairs, **kwargs):
+                dest = Path(pairs[0][1])
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(b"remote")
+                return [dest]
+
+            with patch(
+                "lpap.artifact_sync.download_files", side_effect=_fake_download
+            ) as download_mock:
+                path = ensure_project_artifact(
+                    "data/bank.pt", project_root=root
+                )
+            self.assertEqual(path, local.resolve())
+            self.assertEqual(path.read_bytes(), b"remote")
+            remotes = [remote for remote, _ in download_mock.call_args.args[0]]
+            self.assertEqual(remotes, ["data/bank.pt"])
+
+    def test_ensure_checkpoint_uses_checkpoints_prefix(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            def _fake_download(pairs, **kwargs):
+                dest = Path(pairs[0][1])
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(b"ckpt")
+                return [dest]
+
+            with patch(
+                "lpap.artifact_sync.download_files", side_effect=_fake_download
+            ) as download_mock:
+                path = ensure_checkpoint(root, "image_energy_flow.pt")
+            self.assertEqual(path.name, "image_energy_flow.pt")
+            self.assertTrue(path.is_file())
+            remotes = [remote for remote, _ in download_mock.call_args.args[0]]
+            self.assertEqual(remotes, ["checkpoints/image_energy_flow.pt"])
 
 
 if __name__ == "__main__":

@@ -256,8 +256,19 @@ def load_flow_checkpoint_state(
     load_best: bool,
     require_checkpoint: bool,
     device: str | torch.device,
+    project_root: str | Path | None = None,
 ) -> dict[str, torch.Tensor] | None:
     checkpoint_path = Path(path)
+    if not checkpoint_path.exists() and require_checkpoint:
+        from lpap.artifact_sync import ensure_project_artifact
+        from lpap.storage import infer_project_root_from_checkpoint
+
+        root = (
+            Path(project_root)
+            if project_root is not None
+            else infer_project_root_from_checkpoint(checkpoint_path)
+        )
+        ensure_project_artifact(checkpoint_path, project_root=root)
     if not checkpoint_path.exists():
         if require_checkpoint:
             raise FileNotFoundError(f"flow checkpoint not found: {checkpoint_path}")
@@ -453,6 +464,23 @@ def load_flow_image_loader(
     dataset_path = Path(config.dataset_path)
     if not dataset_path.is_absolute():
         dataset_path = root / dataset_path
+    if not dataset_path.is_file():
+        from lpap.dataset_fetch import (
+            default_image_pt_path,
+            ensure_image_tensor_archive,
+        )
+
+        configured = default_image_pt_path(root).resolve()
+        if dataset_path.resolve() == configured:
+            # Molab sessions are ephemeral; drop the .zst after decompress to
+            # avoid keeping ~1.2GB that will not persist anyway.
+            keep_zst = root.resolve() != Path("/marimo")
+            ensure_image_tensor_archive(root, keep_zst=keep_zst)
+        else:
+            raise FileNotFoundError(
+                f"image dataset not found: {dataset_path} "
+                "(and path is not the configured images.local_pt)"
+            )
     dataset = load_image_tensor_dataset(dataset_path, normalize=config.normalize)
     if dataset.images.shape[2:] != (config.side, config.side):
         raise ValueError("image dataset side does not match config")

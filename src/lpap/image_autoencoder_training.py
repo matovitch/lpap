@@ -691,7 +691,9 @@ def create_image_autoencoder_training_session(
     checkpoint_path = root / "checkpoints" / config.run.checkpoint_name
     log_path = root / "training_logs" / config.run.log_name
     flow_checkpoint_path = resolve_checkpoint_path(
-        root, config.source.flow_checkpoint_name
+        root,
+        config.source.flow_checkpoint_name,
+        ensure=config.source.require_checkpoints,
     )
 
     pair_runtimes: list[ImageAutoencoderLpapPairRuntime] = []
@@ -700,10 +702,14 @@ def create_image_autoencoder_training_session(
     for index, pair_config in enumerate(config.source.lpap_pairs):
         pair_name = pair_config.resolved_name(index)
         surrogate_checkpoint_path = resolve_checkpoint_path(
-            root, pair_config.surrogate_checkpoint_name
+            root,
+            pair_config.surrogate_checkpoint_name,
+            ensure=config.source.require_checkpoints,
         )
         decoder_checkpoint_path = resolve_checkpoint_path(
-            root, pair_config.decoder_checkpoint_name
+            root,
+            pair_config.decoder_checkpoint_name,
+            ensure=config.source.require_checkpoints,
         )
         surrogate, surrogate_model_config = load_surrogate_source(
             path=surrogate_checkpoint_path,
@@ -765,6 +771,7 @@ def create_image_autoencoder_training_session(
         load_best=config.source.load_best,
         require_checkpoint=config.source.require_checkpoints,
         device=target_device,
+        project_root=root,
     )
     if flow_state is not None:
         image_to_energy_flow.load_state_dict(flow_state)

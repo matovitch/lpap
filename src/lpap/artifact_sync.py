@@ -109,6 +109,7 @@ def download_files(
 
     Public buckets can be read anonymously (``token=False``). If a token is
     available it is used; otherwise downloads run without authentication.
+    Writes via a ``.partial`` sibling then renames into place.
     """
     from huggingface_hub import HfFileSystem
 
@@ -128,9 +129,73 @@ def download_files(
         uri = bucket_uri(resolved_bucket, remote)
         if not fs.exists(uri):
             raise FileNotFoundError(uri)
-        fs.get(uri, str(dest))
+        tmp = dest.with_suffix(dest.suffix + ".partial")
+        try:
+            fs.get(uri, str(tmp))
+            tmp.replace(dest)
+        finally:
+            tmp.unlink(missing_ok=True)
         written.append(dest)
     return written
+
+
+def ensure_project_artifact(
+    local_path: str | Path,
+    *,
+    project_root: str | Path,
+    remote_path: str | None = None,
+    bucket: str | None = None,
+    token: str | None = None,
+    force_download: bool = False,
+) -> Path:
+    """Return a local artifact path, downloading from the artifacts bucket if missing.
+
+    ``local_path`` may be absolute or relative to ``project_root``. The remote key
+    defaults to the path relative to ``project_root`` (e.g. ``checkpoints/a.pt``,
+    ``data/encoded_energies_ae_best.pt``). Session-local caches under molab are
+    ephemeral; HF remains the source of truth.
+    """
+    root = Path(project_root).resolve()
+    path = Path(local_path)
+    dest = path.resolve() if path.is_absolute() else (root / path).resolve()
+    if dest.is_file() and not force_download:
+        return dest
+    if remote_path is None:
+        try:
+            remote = dest.relative_to(root).as_posix()
+        except ValueError as exc:
+            raise ValueError(
+                f"local path {dest} is outside project_root {root}; "
+                "pass remote_path= explicitly"
+            ) from exc
+    else:
+        remote = remote_path.lstrip("/")
+    download_files(
+        [(remote, dest)],
+        bucket=bucket,
+        token=token,
+        project_root=root,
+    )
+    return dest
+
+
+def ensure_checkpoint(
+    project_root: str | Path,
+    name: str,
+    *,
+    force_download: bool = False,
+    token: str | None = None,
+) -> Path:
+    """Ensure ``checkpoints/<name>`` exists locally (lazy HF pull if needed)."""
+    root = Path(project_root)
+    path = Path(name)
+    local = path if path.is_absolute() else root / "checkpoints" / path
+    return ensure_project_artifact(
+        local,
+        project_root=root,
+        force_download=force_download,
+        token=token,
+    )
 
 
 def default_artifact_pairs(

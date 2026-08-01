@@ -139,11 +139,13 @@ Current AE lab roles (rename/extend as the notebook evolves):
    while paired.
 5. **Install via `molab-sync.sh`** after new commits (or the git pip one-liner
    in the doc). `lpap` is not on PyPI.
-6. **Sync artifacts** with `lpap.artifact_sync` ↔ `artifacts.bucket` from
-   `/marimo/configs/storage.toml`. Long AE runs: launcher sets
-   `upload_artifacts_on_checkpoint=True` (+ notify on finished).
-7. **Images** via `ensure_image_tensor_archive` / `pixi run data-download`
-   using `images.*` from that same storage.toml (cached `.pt`).
+6. **Sync / fetch artifacts** via `lpap.artifact_sync` ↔ `artifacts.bucket`.
+   Long runs: `upload_artifacts_on_checkpoint=True` (+ notify on finished).
+   **Do not preload** banks/images at sync time — training paths **lazily**
+   `ensure_*` from HF into ephemeral `/marimo/{data,checkpoints,...}`.
+7. **Images** via `ensure_image_tensor_archive` (called automatically from
+   flow/AE image loaders when `images.local_pt` is missing). On `/marimo`,
+   the `.zst` is dropped after decompress to save disk.
 8. **Name durable cells** (see above); talk about them by name with the human.
 9. **No unconditional force-reinstall in lab setup cells** — use `molab-sync`
    (or `LPAP_FORCE_REINSTALL`) instead of wiping the env on every re-run-all.

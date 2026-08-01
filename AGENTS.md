@@ -36,11 +36,13 @@ On molab, call the same `lpap` modules inside `molab-exec` after git install. De
 Worktree `lpap-molab` / `molab-summer` (leave `../lpap` on `main`). Human opens
 GPU + pair and pastes **URL/token** (`MOLAB_URL` / `MOLAB_TOKEN`); leave
 `MOLAB_SESSION` unset unless multi-session (`molab-exec` errors on stale ids).
-Needs local `configs/secrets.toml` for sync. **Before launch:**
-`molab-train-status` (reuse a live run). Long AE: `molab-sync` →
-`molab-launch-ae-energy-bank` → poll status (Pushover/HF). Short/shared →
-visible code-mode cells; scratchpad = probes. Full rules:
-`.github/skills/molab-workflow/SKILL.md`.
+Needs local `configs/secrets.toml` for sync. Only notebook + `storage/` /
+`public/` / `layouts/` persist; treat `data/`, `checkpoints/`, `training_logs/`
+as session caches and **lazily** `ensure_*` from HF (no preload in
+`molab-sync`). **Before launch:** `molab-train-status` (reuse a live run).
+Long AE: `molab-sync` → `molab-launch-ae-energy-bank` → poll status
+(Pushover/HF). Short/shared → visible code-mode cells; scratchpad = probes.
+Full rules: `.github/skills/molab-workflow/SKILL.md`.
 
 **Long waits in the same turn:** bg training already notifies on finish when
 configured. Agent-side waits (encode, HF upload, poll loops) **MUST** end with

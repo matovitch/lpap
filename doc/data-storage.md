@@ -29,6 +29,11 @@ is skipped. Use `--force-download` to refresh from the bucket.
 Training checkpoints and molab run artifacts use a **different** bucket
 (`artifacts.bucket`); do not mix the two.
 
+On molab, local `data/`, `checkpoints/`, and `training_logs/` are
+session-ephemeral caches. Missing files are pulled lazily from HF when first
+needed (`ensure_project_artifact`, `ensure_image_tensor_archive`). Prefer
+uploading on checkpoint rather than relying on molab disk across sessions.
+
 Other options (DVC, Git LFS, GitHub Releases) remain possible, but the HF
 bucket + `lpap.dataset_fetch` path is the default for public clones.
 

@@ -13,9 +13,19 @@ from lpap.decoder_training import _surrogate_model_config_from_checkpoint
 from lpap.surrogate import LPAPSurrogateTransformer
 
 
-def resolve_checkpoint_path(root: Path, name: str) -> Path:
+def resolve_checkpoint_path(
+    root: Path,
+    name: str,
+    *,
+    ensure: bool = False,
+) -> Path:
     path = Path(name)
-    return path if path.is_absolute() else root / "checkpoints" / path
+    resolved = path if path.is_absolute() else root / "checkpoints" / path
+    if ensure and not resolved.is_file():
+        from lpap.artifact_sync import ensure_project_artifact
+
+        ensure_project_artifact(resolved, project_root=root)
+    return resolved
 
 
 def load_surrogate_source(

@@ -372,9 +372,15 @@ def render_image_to_energy_gallery_html(
     *,
     steps: Sequence[int] = (64, 32, 16, 8, 4),
     size: int = 32,
+    display_px: int = 128,
+    gamma: float = 1.0,
 ) -> str:
     if not items:
         return "<p>No image-to-energy gallery samples are available.</p>"
+    if display_px <= 0:
+        raise ValueError("display_px must be positive")
+    if gamma <= 0:
+        raise ValueError("gamma must be positive")
 
     expected_count = size * size
     panels = []
@@ -394,32 +400,33 @@ def render_image_to_energy_gallery_html(
             float(tensor.abs().max().clamp_min(1.0e-12))
             for tensor in generated.values()
         )
-        image_panel = f"""
-                <div style="display: grid; gap: 6px;">
-                    <div style="font-weight: 600;">image</div>
-                    <div style="display: grid; grid-template-columns: repeat({size}, 6px); grid-template-rows: repeat({size}, 6px); width: {size * 6}px; height: {size * 6}px; border: 1px solid #30333a; background: #000;">
-                        {_grayscale_pixels(image, size=size)}
-                    </div>
-                </div>
-                """
-        energy_panels = "".join(
-            f"""
-                        <div style="display: grid; gap: 6px;">
-                            <div style="font-weight: 600;">{step_count} steps</div>
-                            <div style="display: grid; grid-template-columns: repeat({size}, 6px); grid-template-rows: repeat({size}, 6px); width: {size * 6}px; height: {size * 6}px; border: 1px solid #30333a; background: #000;">
-                                {_signed_pixels(generated[step_count], size=size, max_abs=max_abs)}
-                            </div>
-                        </div>
-                        """
+        tiles = [
+            _grayscale_png_img(
+                image,
+                size=size,
+                display_px=display_px,
+                label="image",
+                gamma=gamma,
+            )
+        ]
+        tiles.extend(
+            _signed_png_img(
+                generated[step_count],
+                size=size,
+                max_abs=max_abs,
+                display_px=display_px,
+                label=f"{step_count} steps",
+                gamma=gamma,
+            )
             for step_count in steps
         )
         panels.append(
             f"""
-                        <div style="display: grid; gap: 10px;">
-                            <div style="font-weight: 700;">sample {item_index}</div>
-                            <div style="display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-start;">{image_panel}{energy_panels}</div>
-                        </div>
-                        """
+            <div style="display: grid; gap: 10px;">
+              <div style="font-weight: 700;">sample {item_index}</div>
+              <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-start;">{"".join(tiles)}</div>
+            </div>
+            """
         )
 
     return f"""
@@ -438,9 +445,15 @@ def render_energy_to_image_gallery_html(
     *,
     steps: Sequence[int] = (64, 32, 16, 8, 4),
     size: int = 32,
+    display_px: int = 128,
+    gamma: float = 1.0,
 ) -> str:
     if not items:
         return "<p>No energy-to-image gallery samples are available.</p>"
+    if display_px <= 0:
+        raise ValueError("display_px must be positive")
+    if gamma <= 0:
+        raise ValueError("gamma must be positive")
 
     expected_count = size * size
     panels = []
@@ -455,32 +468,33 @@ def render_energy_to_image_gallery_html(
         if any(tensor.numel() != expected_count for tensor in generated.values()):
             raise ValueError(f"generated images must contain {expected_count} values")
         max_abs = float(source.abs().max().clamp_min(1.0e-12))
-        source_panel = f"""
-            <div style="display: grid; gap: 6px;">
-                <div style="font-weight: 600;">source</div>
-                <div style="display: grid; grid-template-columns: repeat({size}, 6px); grid-template-rows: repeat({size}, 6px); width: {size * 6}px; height: {size * 6}px; border: 1px solid #30333a; background: #000;">
-                {_signed_pixels(source, size=size, max_abs=max_abs)}
-                </div>
-            </div>
-            """
-        image_panels = "".join(
-            f"""
-                <div style="display: grid; gap: 6px;">
-                    <div style="font-weight: 600;">{step_count} steps</div>
-                    <div style="display: grid; grid-template-columns: repeat({size}, 6px); grid-template-rows: repeat({size}, 6px); width: {size * 6}px; height: {size * 6}px; border: 1px solid #30333a; background: #000;">
-                    {_grayscale_pixels(generated[step_count], size=size)}
-                    </div>
-                </div>
-                """
+        tiles = [
+            _signed_png_img(
+                source,
+                size=size,
+                max_abs=max_abs,
+                display_px=display_px,
+                label="source",
+                gamma=gamma,
+            )
+        ]
+        tiles.extend(
+            _grayscale_png_img(
+                generated[step_count],
+                size=size,
+                display_px=display_px,
+                label=f"{step_count} steps",
+                gamma=gamma,
+            )
             for step_count in steps
         )
         panels.append(
             f"""
-                <div style="display: grid; gap: 10px;">
-                    <div style="font-weight: 700;">sample {item_index}</div>
-                    <div style="display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-start;">{source_panel}{image_panels}</div>
-                </div>
-                """
+            <div style="display: grid; gap: 10px;">
+              <div style="font-weight: 700;">sample {item_index}</div>
+              <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-start;">{"".join(tiles)}</div>
+            </div>
+            """
         )
 
     return f"""
@@ -499,6 +513,8 @@ def render_image_energy_flow_gallery_html(
     *,
     steps: Sequence[int] = (64, 32, 16, 8, 4),
     size: int = 32,
+    display_px: int = 128,
+    gamma: float = 1.0,
 ) -> str:
     """Render both legs of a bidirectional image/energy flow gallery."""
     if not items:
@@ -537,14 +553,28 @@ def render_image_energy_flow_gallery_html(
     return (
         "<h3>image → energy (t: −1 → 0)</h3>"
         + render_image_to_energy_gallery_html(
-            image_to_energy_items, steps=steps, size=size
+            image_to_energy_items,
+            steps=steps,
+            size=size,
+            display_px=display_px,
+            gamma=gamma,
         )
         + "<h3>round-trip energy → image (t: 0 → +1 from encoded)</h3>"
         + render_energy_to_image_gallery_html(
-            round_trip_items, steps=steps, size=size
+            round_trip_items,
+            steps=steps,
+            size=size,
+            display_px=display_px,
+            gamma=gamma,
         )
         + "<h3>prior energy → image (t: 0 → +1)</h3>"
-        + render_energy_to_image_gallery_html(prior_items, steps=steps, size=size)
+        + render_energy_to_image_gallery_html(
+            prior_items,
+            steps=steps,
+            size=size,
+            display_px=display_px,
+            gamma=gamma,
+        )
     )
 
 

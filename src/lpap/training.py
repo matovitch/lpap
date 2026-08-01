@@ -99,6 +99,19 @@ class TrainingRun:
         resumed = False
         message = "starting fresh"
         checkpoint_step: int | None = None
+        if self.config.resume and not self.config.checkpoint_path.exists():
+            try:
+                from lpap.artifact_sync import ensure_project_artifact
+                from lpap.storage import infer_project_root_from_checkpoint
+
+                ensure_project_artifact(
+                    self.config.checkpoint_path,
+                    project_root=infer_project_root_from_checkpoint(
+                        self.config.checkpoint_path
+                    ),
+                )
+            except (FileNotFoundError, ValueError, OSError):
+                pass
         if self.config.resume and self.config.checkpoint_path.exists():
             payload = load_training_checkpoint(
                 self.config.checkpoint_path, map_location="cpu"

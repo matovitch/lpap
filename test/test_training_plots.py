@@ -68,9 +68,8 @@ class TrainingPlotsTest(unittest.TestCase):
         self.assertLess(html.index(">32 steps<"), html.index(">4 steps<"))
         self.assertIn("round-trip energy → image", html)
         self.assertIn("prior energy → image", html)
-        self.assertIn("rgb(255, 255, 255)", html)
-        self.assertIn("rgb(255, 0, 0)", html)
-        self.assertIn("rgb(0, 0, 255)", html)
+        self.assertIn("data:image/png;base64,", html)
+        self.assertIn('image-rendering: pixelated', html)
 
     def test_renders_image_autoencoder_gallery(self) -> None:
         from lpap.image_autoencoder_training import ImageAutoencoderGalleryPairItem
