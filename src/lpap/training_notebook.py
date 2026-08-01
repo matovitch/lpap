@@ -336,8 +336,9 @@ def default_image_autoencoder_training_config() -> ImageAutoencoderTrainingConfi
         ),
         validation=FlowValidationConfig(
             enabled=True,
-            every=50,
+            every=250,
             batch_size=32,
+            num_batches=8,
             seed=60_123,
             validate_at_end=True,
             euler_steps=(16,),

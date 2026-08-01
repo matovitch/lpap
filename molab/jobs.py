@@ -110,7 +110,9 @@ config = replace(
         train_decoder=True,
         train_energy_to_image_flow=True,
     ),
-    validation=replace(base.validation, every=50, batch_size=32),
+    validation=replace(
+        base.validation, every=250, batch_size=32, num_batches=8
+    ),
     run=ImageAutoencoderRunConfig(
         run_training=True,
         resume_from_checkpoint={resume},
@@ -360,7 +362,9 @@ config = replace(
         train_decoder=True,
         train_energy_to_image_flow=True,
     ),
-    validation=replace(base.validation, every=50, batch_size=32),
+    validation=replace(
+        base.validation, every=250, batch_size=32, num_batches=8
+    ),
     run=ImageAutoencoderRunConfig(
         run_training=True,
         resume_from_checkpoint={resume},

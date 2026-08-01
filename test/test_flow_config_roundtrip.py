@@ -64,8 +64,19 @@ class FlowConfigRoundTripTest(unittest.TestCase):
             seed=7,
             validate_at_end=True,
             euler_steps=(1, 2, 4),
+            num_batches=8,
         )
         self.assertEqual(validation_config_from_dict(config.as_dict()), config)
+
+    def test_validation_config_defaults_num_batches_when_missing(self) -> None:
+        payload = FlowValidationConfig(every=10, batch_size=4).as_dict()
+        del payload["num_batches"]
+        restored = validation_config_from_dict(payload)
+        self.assertEqual(restored.num_batches, 1)
+
+    def test_validation_config_rejects_non_positive_num_batches(self) -> None:
+        with self.assertRaises(ValueError):
+            FlowValidationConfig(num_batches=0).validate()
 
 
 if __name__ == "__main__":

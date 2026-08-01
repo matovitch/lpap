@@ -135,12 +135,17 @@ class FlowValidationConfig:
     seed: int = 30_123
     validate_at_end: bool = True
     euler_steps: tuple[int, ...] = (1, 4, 16)
+    # How many loader batches to average on each validation pass.
+    # Default 1 keeps historical single-batch behaviour.
+    num_batches: int = 1
 
     def validate(self) -> None:
         if self.every <= 0:
             raise ValueError("validation every must be positive")
         if self.batch_size <= 0:
             raise ValueError("validation batch_size must be positive")
+        if self.num_batches <= 0:
+            raise ValueError("validation num_batches must be positive")
         if any(steps <= 0 for steps in self.euler_steps):
             raise ValueError("validation euler_steps must be positive")
 
@@ -152,6 +157,7 @@ class FlowValidationConfig:
             "seed": self.seed,
             "validate_at_end": self.validate_at_end,
             "euler_steps": self.euler_steps,
+            "num_batches": self.num_batches,
         }
 
 
@@ -247,6 +253,7 @@ def validation_config_from_dict(data: dict[str, Any]) -> FlowValidationConfig:
         seed=int(data["seed"]),
         validate_at_end=bool(data["validate_at_end"]),
         euler_steps=tuple(int(value) for value in data["euler_steps"]),
+        num_batches=int(data.get("num_batches", 1)),
     )
 
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -1010,6 +1010,93 @@ def evaluate_image_autoencoder_batch(
     return metrics
 
 
+def average_image_autoencoder_metrics(
+    metrics_list: Sequence[ImageAutoencoderMetrics],
+) -> ImageAutoencoderMetrics:
+    if not metrics_list:
+        raise ValueError("metrics_list must be non-empty")
+    count = float(len(metrics_list))
+    pair_keys = {
+        key for metrics in metrics_list for key in metrics.pair_metrics
+    }
+    return ImageAutoencoderMetrics(
+        loss=sum(metrics.loss for metrics in metrics_list) / count,
+        image_reconstruction_l2=sum(
+            metrics.image_reconstruction_l2 for metrics in metrics_list
+        )
+        / count,
+        energy_reconstruction_l1=sum(
+            metrics.energy_reconstruction_l1 for metrics in metrics_list
+        )
+        / count,
+        surrogate_teacher_ce=sum(
+            metrics.surrogate_teacher_ce for metrics in metrics_list
+        )
+        / count,
+        surrogate_weighted_accuracy=sum(
+            metrics.surrogate_weighted_accuracy for metrics in metrics_list
+        )
+        / count,
+        signed_mass_balance=sum(
+            metrics.signed_mass_balance for metrics in metrics_list
+        )
+        / count,
+        signed_mass_imbalance=sum(
+            metrics.signed_mass_imbalance for metrics in metrics_list
+        )
+        / count,
+        signed_mass_gap=sum(metrics.signed_mass_gap for metrics in metrics_list)
+        / count,
+        signed_mass_floor=sum(
+            metrics.signed_mass_floor for metrics in metrics_list
+        )
+        / count,
+        encoded_positive_mass=sum(
+            metrics.encoded_positive_mass for metrics in metrics_list
+        )
+        / count,
+        encoded_negative_mass=sum(
+            metrics.encoded_negative_mass for metrics in metrics_list
+        )
+        / count,
+        encoded_energy_rms=sum(
+            metrics.encoded_energy_rms for metrics in metrics_list
+        )
+        / count,
+        decoded_energy_rms=sum(
+            metrics.decoded_energy_rms for metrics in metrics_list
+        )
+        / count,
+        reconstructed_image_rms=sum(
+            metrics.reconstructed_image_rms for metrics in metrics_list
+        )
+        / count,
+        image_rms=sum(metrics.image_rms for metrics in metrics_list) / count,
+        pair_metrics={
+            key: sum(metrics.pair_metrics.get(key, 0.0) for metrics in metrics_list)
+            / count
+            for key in sorted(pair_keys)
+        },
+    )
+
+
+def evaluate_image_autoencoder_validation(
+    *,
+    session: ImageAutoencoderTrainingSession,
+    images_iter: Iterator[torch.Tensor],
+    num_batches: int,
+) -> ImageAutoencoderMetrics:
+    if num_batches <= 0:
+        raise ValueError("num_batches must be positive")
+    batch_metrics = [
+        evaluate_image_autoencoder_batch(
+            session=session, images=next(images_iter)
+        )
+        for _ in range(num_batches)
+    ]
+    return average_image_autoencoder_metrics(batch_metrics)
+
+
 def should_validate_image_autoencoder(
     *, step: int, config: ImageAutoencoderTrainingConfig
 ) -> bool:
@@ -1056,9 +1143,10 @@ def iter_image_autoencoder_training(
         metrics = train_image_autoencoder_step(session=session, images=images)
         step_metrics = _metrics_dict(metrics)
         if should_validate_image_autoencoder(step=step, config=config):
-            validation_images = next(validation_images_iter)
-            validation_metrics = evaluate_image_autoencoder_batch(
-                session=session, images=validation_images
+            validation_metrics = evaluate_image_autoencoder_validation(
+                session=session,
+                images_iter=validation_images_iter,
+                num_batches=config.validation.num_batches,
             )
             step_metrics.update(
                 {
@@ -1170,9 +1258,11 @@ __all__ = [
     "ImageAutoencoderTrainingConfig",
     "ImageAutoencoderTrainingSession",
     "ImageAutoencoderValidationConfig",
+    "average_image_autoencoder_metrics",
     "collect_image_autoencoder_gallery",
     "create_image_autoencoder_training_session",
     "evaluate_image_autoencoder_batch",
+    "evaluate_image_autoencoder_validation",
     "image_autoencoder_source_config_from_dict",
     "image_autoencoder_training_config_from_dict",
     "iter_image_autoencoder_training",

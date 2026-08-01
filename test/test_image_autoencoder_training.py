@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import torch
 
@@ -14,12 +15,16 @@ from lpap.image_autoencoder_training import (
     ImageAutoencoderIntegrationConfig,
     ImageAutoencoderLossConfig,
     ImageAutoencoderLpapPairConfig,
+    ImageAutoencoderMetrics,
     ImageAutoencoderRunConfig,
     ImageAutoencoderSourceConfig,
     ImageAutoencoderTrainingConfig,
     ImageAutoencoderTrainingSession,
+    average_image_autoencoder_metrics,
     collect_image_autoencoder_gallery,
     create_image_autoencoder_training_session,
+    evaluate_image_autoencoder_batch,
+    evaluate_image_autoencoder_validation,
     image_autoencoder_source_config_from_dict,
     image_autoencoder_training_config_from_dict,
     iter_image_autoencoder_training,
@@ -109,6 +114,7 @@ def _build_tiny_autoencoder_session(
     root: Path,
     *,
     lpap_pairs: tuple[ImageAutoencoderLpapPairConfig, ...] | None = None,
+    validation: FlowValidationConfig | None = None,
 ) -> ImageAutoencoderTrainingSession:
     checkpoint_dir = root / "checkpoints"
     data_dir = root / "data"
@@ -194,7 +200,8 @@ def _build_tiny_autoencoder_session(
             learning_rate=1.0e-4,
             max_grad_norm=1.0,
         ),
-        validation=FlowValidationConfig(
+        validation=validation
+        or FlowValidationConfig(
             every=1,
             batch_size=2,
             euler_steps=(1,),
@@ -462,6 +469,91 @@ class ImageAutoencoderTrainingTest(unittest.TestCase):
             }
         )
         self.assertEqual(len(config.source.lpap_pairs), 1)
+        self.assertEqual(config.validation.num_batches, 1)
+
+    def test_average_image_autoencoder_metrics_means_scalars_and_pair_keys(
+        self,
+    ) -> None:
+        left = ImageAutoencoderMetrics(
+            loss=1.0,
+            image_reconstruction_l2=2.0,
+            energy_reconstruction_l1=3.0,
+            surrogate_teacher_ce=4.0,
+            surrogate_weighted_accuracy=0.2,
+            signed_mass_balance=0.1,
+            signed_mass_imbalance=0.2,
+            signed_mass_gap=0.3,
+            signed_mass_floor=0.4,
+            encoded_positive_mass=0.5,
+            encoded_negative_mass=0.6,
+            encoded_energy_rms=0.7,
+            decoded_energy_rms=0.8,
+            reconstructed_image_rms=0.9,
+            image_rms=1.1,
+            pair_metrics={"image_reconstruction_l2/c4": 2.0},
+        )
+        right = ImageAutoencoderMetrics(
+            loss=3.0,
+            image_reconstruction_l2=4.0,
+            energy_reconstruction_l1=5.0,
+            surrogate_teacher_ce=6.0,
+            surrogate_weighted_accuracy=0.4,
+            signed_mass_balance=0.3,
+            signed_mass_imbalance=0.4,
+            signed_mass_gap=0.5,
+            signed_mass_floor=0.6,
+            encoded_positive_mass=0.7,
+            encoded_negative_mass=0.8,
+            encoded_energy_rms=0.9,
+            decoded_energy_rms=1.0,
+            reconstructed_image_rms=1.1,
+            image_rms=1.3,
+            pair_metrics={"image_reconstruction_l2/c4": 6.0},
+        )
+        mean = average_image_autoencoder_metrics([left, right])
+        self.assertAlmostEqual(mean.loss, 2.0)
+        self.assertAlmostEqual(mean.image_reconstruction_l2, 3.0)
+        self.assertAlmostEqual(mean.pair_metrics["image_reconstruction_l2/c4"], 4.0)
+
+    def test_validation_averages_configured_num_batches(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            session = _build_tiny_autoencoder_session(
+                root,
+                validation=FlowValidationConfig(
+                    every=1,
+                    batch_size=2,
+                    num_batches=3,
+                    euler_steps=(1,),
+                ),
+            )
+            calls: list[int] = []
+            real_evaluate = evaluate_image_autoencoder_batch
+
+            def _counting_evaluate(*, session, images):
+                calls.append(int(images.shape[0]))
+                return real_evaluate(session=session, images=images)
+
+            with mock.patch(
+                "lpap.image_autoencoder_training.evaluate_image_autoencoder_batch",
+                side_effect=_counting_evaluate,
+            ):
+                results = list(iter_image_autoencoder_training(session))
+
+            self.assertEqual(len(results), 1)
+            self.assertEqual(len(calls), 3)
+            self.assertIn("validation_loss", results[-1].metrics)
+
+    def test_evaluate_validation_rejects_non_positive_num_batches(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            session = _build_tiny_autoencoder_session(root)
+            with self.assertRaises(ValueError):
+                evaluate_image_autoencoder_validation(
+                    session=session,
+                    images_iter=iter(()),
+                    num_batches=0,
+                )
 
 
 if __name__ == "__main__":
