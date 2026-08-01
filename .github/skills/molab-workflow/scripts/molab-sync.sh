@@ -88,10 +88,12 @@ r = subprocess.run(
 print("pip_rc", r.returncode, flush=True)
 if r.returncode != 0:
     raise SystemExit(r.returncode)
-subprocess.run(
-    [sys.executable, "-m", "pip", "install", "jaxtyping>=0.3.7"],
-    check=False,
-)
+# lpap installs with --no-deps; pull runtime extras the molab image may lack.
+for spec in ("jaxtyping>=0.3.7", "zstandard>=0.25.0"):
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", spec],
+        check=False,
+    )
 for name in list(sys.modules):
     if name == "lpap" or name.startswith("lpap."):
         del sys.modules[name]
