@@ -108,10 +108,6 @@ args = [
 ]
 description = "Render a Manim scene and preview with ffplay (avoids flaky xdg-open/VLC)."
 
-[tasks.manim-smoke]
-cmd = "manim render -ql --media_dir animations/media animations/smoke.py SmokeTest"
-description = "Render the low-quality Manim smoke clip (workflow check)."
-
 [tasks.manim-full]
 cmd = "manim render -ql --media_dir animations/media animations/lpap_operator.py LpapFullFilm"
 description = "Render the complete Acts 0–7 film once (low quality)."

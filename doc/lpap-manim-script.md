@@ -11,7 +11,6 @@ pixi run manim-full-play     # replay last low-quality render
 pixi run manim-full-play-hq  # replay last 1080p60 render
 pixi run manim-full-preview  # render low-quality + ffplay
 pixi run manim-readme        # copy HQ MP4 + build GIF → doc/assets/ (for README)
-pixi run manim-smoke         # tiny workflow smoke render
 ```
 
 Storyboard acts below are beats inside `LpapFullFilm` (helpers in
