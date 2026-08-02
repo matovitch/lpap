@@ -35,7 +35,7 @@ pixi run notebook-energy-to-image
 pixi run notebook-image-autoencoder
 ```
 
-Remote GPU (branch `molab-summer`): [molab workflow](molab-workflow.md)
+Remote GPU (`lpap-molab` on `main`): [molab workflow](molab-workflow.md)
 (`molab-sync` → launch → `molab-train-status`).
 
 ## Model Order

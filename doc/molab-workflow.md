@@ -1,8 +1,9 @@
 # Molab remote GPU workflow (agents)
 
 Drive free [molab](https://molab.marimo.io) GPUs from a local agent via
-[marimo-pair](https://github.com/marimo-team/marimo-pair). Keep the original
-Pixi checkout on `main` for local work.
+[marimo-pair](https://github.com/marimo-team/marimo-pair). The default branch
+`main` lives in the `lpap-molab` worktree; the sibling checkout parks the
+pre-molab tip on `main-pre-molab`.
 
 ## Topology
 
@@ -10,18 +11,17 @@ Pixi checkout on `main` for local work.
 Laptop agent (Cursor/Zed)     molab sandbox
   worktree lpap-molab    →      one paired notebook
   marimo-pair skill      →      HTTP + token (no SSH)
-  git push molab-summer  →      uv/pip install lpap from git
+  git push main          →      uv/pip install lpap from git
 ```
 
 | Role | Path / branch |
 | --- | --- |
-| Local Pixi home | `../lpap` on `main` |
-| Molab / agent home | `../lpap-molab` on `molab-summer` |
+| Molab / agent home | `../lpap-molab` on `main` |
+| Parked pre-molab tip | `../lpap` on `main-pre-molab` |
 | Pair skill | `~/.cursor/skills/marimo-pair` |
 | Molab wrapper | `.github/skills/molab-workflow/scripts/molab-exec.sh` |
 
-Push package/notebook changes on `molab-summer` and install that ref on molab.
-Do not mix routine Pixi work into the molab worktree unless backporting.
+Push package/notebook changes on `main` and install that ref on molab.
 
 ## Pairing commands
 
@@ -107,7 +107,7 @@ Controls on the lab notebook: model kind, target steps, chunk steps,
 instead of long lab cells. Train logic stays in `src/lpap/`.
 
 While paired, mutate the **live** notebook with `cm` (not the `.py` on disk).
-Backport stable cell structure to `molab_lab.py` on `molab-summer` when useful.
+Backport stable cell structure to `molab_lab.py` on `main` when useful.
 
 **Cell naming:** durable lab cells get a marimo name + `# cell: <name>` first
 line (`ae_setup`, `status`, `gallery_cache`, …). Talk about cells by name, not
@@ -118,13 +118,13 @@ by opaque ids. See `.github/skills/molab-workflow/SKILL.md`. Backport with
 
 ```bash
 python -m pip install --no-deps \
-  "lpap @ git+https://github.com/matovitch/lpap.git@molab-summer"
+  "lpap @ git+https://github.com/matovitch/lpap.git@main"
 python -m pip install "jaxtyping>=0.3.7"
 ```
 
-`molab-summer` relaxes `requires-python` for molab; `main` may stay stricter.
-`lpap` is not on PyPI — do not `uv add lpap==0.1.0`. After pulling new commits,
-`--force-reinstall` the git ref if imports are missing.
+Install from `@main` (default branch). `lpap` is not on PyPI — do not
+`uv add lpap==0.1.0`. After pulling new commits, `--force-reinstall` the git
+ref if imports are missing.
 
 Sandbox layout (molab persistence, from Aug 2026): only notebook source and
 `storage/`, `public/`, `layouts/` survive between sessions. Treat

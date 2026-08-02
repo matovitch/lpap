@@ -107,7 +107,7 @@ flowchart LR
 
 ## Remote GPU (molab)
 
-Summer worktree / branch `molab-summer`: pair a molab notebook, then sync and
+Worktree `lpap-molab` on `main`: pair a molab notebook, then sync and
 run long AE jobs with detached workers (Pushover + HF upload-on-checkpoint).
 Short shared work stays in visible notebook cells.
 

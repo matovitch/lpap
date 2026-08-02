@@ -31,9 +31,10 @@ On molab, call the same `lpap` modules inside `molab-exec` after git install. De
 - **Artifacts**: `checkpoints/` (`model_state` + `best_model_state`) and `training_logs/` SQLite — keep out of Git. No backward compat; regenerate when schemas change. Cadence writes (`log_every`, `display_every`, …), not every step.
 - **Verify** with `pixi run lint` and `pixi run test` before commit. One test module per `src/lpap/` module; keep tests CPU-runnable; gate CUDA/Triton with `torch.cuda.is_available()`.
 
-## Molab (summer)
+## Molab
 
-Worktree `lpap-molab` / `molab-summer` (leave `../lpap` on `main`). Human opens
+Worktree `lpap-molab` on `main` (default). Sibling `../lpap` parks the pre-molab
+tip on `main-pre-molab`. Human opens
 GPU + pair and pastes **URL/token** (`MOLAB_URL` / `MOLAB_TOKEN`); leave
 `MOLAB_SESSION` unset unless multi-session (`molab-exec` errors on stale ids).
 Needs local `configs/secrets.toml` for sync. Only notebook + `storage/` /

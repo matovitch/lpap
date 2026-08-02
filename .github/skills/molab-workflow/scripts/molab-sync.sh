@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Sync local molab-summer package + configs into the paired molab kernel.
+# Sync local main-branch package + configs into the paired molab kernel.
 #
 # Steps:
-#   1. Force-reinstall lpap from git (default ref: molab-summer)
+#   1. Force-reinstall lpap from git (default ref: main)
 #   2. Copy configs/storage.toml → /marimo/configs/storage.toml
 #   3. Copy repo molab/ helpers → /marimo/molab/ (not part of lpap)
 #   4. Inject configs/secrets.toml → kernel env (molab-inject-secrets.sh)
@@ -11,7 +11,7 @@
 # Optional: MOLAB_SESSION (prefer unset unless the server has multiple sessions)
 #
 # Optional env / flags:
-#   LPAP_GIT_REF=molab-summer     git ref / branch / SHA to install
+#   LPAP_GIT_REF=main             git ref / branch / SHA to install
 #   --ref REF                     same as LPAP_GIT_REF for this call
 #   --skip-install                skip pip reinstall
 #   --skip-secrets                skip inject
@@ -29,7 +29,7 @@ molab_exec="$script_dir/molab-exec.sh"
 inject_secrets="$script_dir/molab-inject-secrets.sh"
 storage_toml="$repo_root/configs/storage.toml"
 molab_helpers="$repo_root/molab"
-git_ref="${LPAP_GIT_REF:-molab-summer}"
+git_ref="${LPAP_GIT_REF:-main}"
 do_install=1
 do_secrets=1
 do_storage=1

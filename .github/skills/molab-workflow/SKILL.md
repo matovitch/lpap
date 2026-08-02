@@ -2,7 +2,7 @@
 name: molab-workflow
 description: >-
   Use when working on LPAP via molab remote GPUs, marimo-pair to a molab URL,
-  the lpap-molab worktree, or molab-summer branch. Covers pairing, molab-sync,
+  or the lpap-molab worktree on main. Covers pairing, molab-sync,
   detached long AE runs, short shared code-mode cells, and artifact sync.
 ---
 
@@ -12,7 +12,7 @@ Read [doc/molab-workflow.md](../../doc/molab-workflow.md) for full notes.
 
 ## Setup
 
-- Worktree: `lpap-molab` / branch `molab-summer` (leave `../lpap` on `main`).
+- Worktree: `lpap-molab` on `main`. Sibling `../lpap` parks `main-pre-molab`.
 - Export targeting env once per session:
 
   ```bash
