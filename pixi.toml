@@ -15,11 +15,11 @@ cmd = "PYTHONPATH=src:. python -m unittest discover -s test"
 description = "Run the project test suite."
 
 [tasks.lint]
-cmd = "ruff check src/lpap molab test notebooks bench"
+cmd = "ruff check src/lpap molab test notebooks bench animations"
 description = "Run Ruff lint checks."
 
 [tasks.format]
-cmd = "ruff format src/lpap molab test notebooks bench"
+cmd = "ruff format src/lpap molab test notebooks bench animations"
 description = "Format Python source with Ruff."
 
 [tasks.bench-lpap]
@@ -90,6 +90,162 @@ description = "Summarize step/best KPIs from a checkpoint + SQLite training log.
 cmd = "PYTHONPATH=src python -m lpap.dataset_fetch --project-root ."
 description = "Download and decompress the public 32x32 grayscale image archive into data/."
 
+[tasks.manim]
+cmd = "manim render -q{{ quality }} --media_dir animations/media animations/{{ file }} {{ scene }}"
+args = [
+	{ arg = "file", default = "lpap_operator.py" },
+	{ arg = "scene", default = "Act0Arrive" },
+	{ arg = "quality", default = "l" },
+]
+description = "Render a Manim scene to animations/media/ (quality: l/m/h/k)."
+
+[tasks.manim-preview]
+cmd = "manim render -pql --preview_command ffplay --media_dir animations/media animations/{{ file }} {{ scene }}"
+args = [
+	{ arg = "file", default = "lpap_operator.py" },
+	{ arg = "scene", default = "Act0Arrive" },
+	{ arg = "quality", default = "l" },
+]
+description = "Render a Manim scene and preview with ffplay (avoids flaky xdg-open/VLC)."
+
+[tasks.manim-smoke]
+cmd = "manim render -ql --media_dir animations/media animations/smoke.py SmokeTest"
+description = "Render the low-quality Manim smoke clip (workflow check)."
+
+[tasks.manim-act0]
+cmd = "manim render -ql --media_dir animations/media animations/lpap_operator.py Act0Arrive"
+description = "Render Act 0 (numbers appear) at low quality for review."
+
+[tasks.manim-act0-preview]
+cmd = "manim render -pql --preview_command ffplay --media_dir animations/media animations/lpap_operator.py Act0Arrive"
+description = "Render Act 0 and preview with ffplay."
+
+[tasks.manim-act1]
+cmd = "manim render -ql --media_dir animations/media animations/lpap_operator.py Act1Fold"
+description = "Render Act 1 (fold into lane grid) at low quality for review."
+
+[tasks.manim-act1-preview]
+cmd = "manim render -pql --preview_command ffplay --media_dir animations/media animations/lpap_operator.py Act1Fold"
+description = "Render Act 1 and preview with ffplay."
+
+[tasks.manim-act2]
+cmd = "manim render -ql --media_dir animations/media animations/lpap_operator.py Act2ProjectK0"
+description = "Render Act 2 (k=0 highlight + amp swap) at low quality for review."
+
+[tasks.manim-act2-preview]
+cmd = "manim render -pql --preview_command ffplay --media_dir animations/media animations/lpap_operator.py Act2ProjectK0"
+description = "Render Act 2 and preview with ffplay."
+
+[tasks.manim-act3]
+cmd = "manim render -ql --media_dir animations/media animations/lpap_operator.py Act3RollK1"
+description = "Render Act 3 (k→1 + twin row-roll) at low quality for review."
+
+[tasks.manim-act3-preview]
+cmd = "manim render -pql --preview_command ffplay --media_dir animations/media animations/lpap_operator.py Act3RollK1"
+description = "Render Act 3 and preview with ffplay."
+
+[tasks.manim-act4]
+cmd = "manim render -ql --media_dir animations/media animations/lpap_operator.py Act4ProjectK1"
+description = "Render Act 4 (k=1 hero swap + dibs_diff) at low quality for review."
+
+[tasks.manim-act4-preview]
+cmd = "manim render -pql --preview_command ffplay --media_dir animations/media animations/lpap_operator.py Act4ProjectK1"
+description = "Render Act 4 and preview with ffplay."
+
+[tasks.manim-act5]
+cmd = "manim render -ql --media_dir animations/media animations/lpap_operator.py Act5RollK2"
+description = "Render Act 5 (k→2 + twin row-roll) at low quality for review."
+
+[tasks.manim-act5-preview]
+cmd = "manim render -pql --preview_command ffplay --media_dir animations/media animations/lpap_operator.py Act5RollK2"
+description = "Render Act 5 and preview with ffplay."
+
+[tasks.manim-act6a]
+cmd = "manim render -ql --media_dir animations/media animations/lpap_operator.py Act6aSelectK2"
+description = "Render Act 6a (k=2 border select) at low quality for review."
+
+[tasks.manim-act6a-preview]
+cmd = "manim render -pql --preview_command ffplay --media_dir animations/media animations/lpap_operator.py Act6aSelectK2"
+description = "Render Act 6a and preview with ffplay."
+
+[tasks.manim-act6b]
+cmd = "manim render -ql --media_dir animations/media animations/lpap_operator.py Act6bFreshB0"
+description = "Render Act 6b (fresh B0 chalk swap) at low quality for review."
+
+[tasks.manim-act6b-preview]
+cmd = "manim render -pql --preview_command ffplay --media_dir animations/media animations/lpap_operator.py Act6bFreshB0"
+description = "Render Act 6b and preview with ffplay."
+
+[tasks.manim-act6c]
+cmd = "manim render -ql --media_dir animations/media animations/lpap_operator.py Act6cReentryB1"
+description = "Render Act 6c (re-entry B1) at low quality for review."
+
+[tasks.manim-act6c-preview]
+cmd = "manim render -pql --preview_command ffplay --media_dir animations/media animations/lpap_operator.py Act6cReentryB1"
+description = "Render Act 6c and preview with ffplay."
+
+[tasks.manim-act6]
+cmd = "manim render -ql --media_dir animations/media animations/lpap_operator.py Act6ProjectK2"
+description = "Render full Act 6 (select + fresh + re-entry)."
+
+[tasks.manim-act6-preview]
+cmd = "manim render -pql --preview_command ffplay --media_dir animations/media animations/lpap_operator.py Act6ProjectK2"
+description = "Render full Act 6 and preview with ffplay."
+
+[tasks.manim-act7]
+cmd = "manim render -ql --media_dir animations/media animations/lpap_operator.py Act7RevealOutput"
+description = "Render Act 7 (fade workspace + gold-flash output)."
+
+[tasks.manim-act7-preview]
+cmd = "manim render -pql --preview_command ffplay --media_dir animations/media animations/lpap_operator.py Act7RevealOutput"
+description = "Render Act 7 and preview with ffplay."
+
+[tasks.manim-full]
+cmd = "manim render -ql --media_dir animations/media animations/lpap_operator.py LpapFullFilm"
+description = "Render the complete Acts 0–7 film once (low quality)."
+
+[tasks.manim-full-hq]
+cmd = "manim render -qh --media_dir animations/media animations/lpap_operator.py LpapFullFilm"
+description = "Render the complete film at 1080p60 (high quality)."
+
+[tasks.manim-full-preview]
+cmd = "manim render -pql --preview_command ffplay --media_dir animations/media animations/lpap_operator.py LpapFullFilm"
+description = "Render the complete film and preview with ffplay."
+
+[tasks.manim-full-play]
+cmd = "ffplay -autoexit animations/media/videos/lpap_operator/480p15/LpapFullFilm.mp4"
+description = "Replay the last low-quality full-film render without re-rendering."
+
+[tasks.manim-full-play-hq]
+cmd = "ffplay -autoexit animations/media/videos/lpap_operator/1080p60/LpapFullFilm.mp4"
+description = "Replay the last 1080p60 full-film render without re-rendering."
+
+# Copy HQ MP4 + build a palette-optimized GIF for README embedding
+# (GitHub README plays GIFs inline; relative MP4 needs a release/CDN URL).
+[tasks.manim-readme]
+cmd = """
+bash -c '
+set -euo pipefail
+SRC=animations/media/videos/lpap_operator/1080p60/LpapFullFilm.mp4
+OUT_DIR=doc/assets
+MP4=$OUT_DIR/lpap-operator.mp4
+GIF=$OUT_DIR/lpap-operator.gif
+PALETTE=$OUT_DIR/.lpap-operator-palette.png
+if [[ ! -f "$SRC" ]]; then
+  echo "Missing $SRC — run: pixi run manim-full-hq" >&2
+  exit 1
+fi
+mkdir -p "$OUT_DIR"
+cp -f "$SRC" "$MP4"
+# README-friendly: ~960px wide, 12fps, two-pass palette (keeps size sane for git).
+ffmpeg -y -i "$MP4" -vf "fps=12,scale=960:-1:flags=lanczos,palettegen=stats_mode=diff" -frames:v 1 -update 1 "$PALETTE"
+ffmpeg -y -i "$MP4" -i "$PALETTE" -lavfi "fps=12,scale=960:-1:flags=lanczos[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=5" -loop 0 "$GIF"
+rm -f "$PALETTE"
+ls -lh "$MP4" "$GIF"
+'
+"""
+description = "Export 1080p MP4 + README GIF into doc/assets/ (needs manim-full-hq first)."
+
 [dependencies]
 pytorch-gpu = ">=2.10.0,<3"
 python = ">=3.14.5,<3.15"
@@ -101,6 +257,7 @@ cuda-nvcc = ">=12.9.86,<13"
 cuda-cudart-dev = ">=12.9.79,<13"
 marimo = ">=0.23.8,<0.24"
 zstandard = ">=0.25.0,<0.26"
+manim = ">=0.20.1,<0.21"
 
 [pypi-dependencies]
 huggingface-hub = ">=1.21.0, <2"

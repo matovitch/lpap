@@ -29,3 +29,8 @@ configs/secrets.toml
 
 # Local reboot archives (checkpoints/logs)
 archive/
+
+# Manim render outputs (mp4/png/partial movie files)
+animations/media/
+media/
+animations/__pycache__/
