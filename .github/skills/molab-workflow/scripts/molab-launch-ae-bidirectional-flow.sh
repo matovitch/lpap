@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Launch multi-pair AE from one bidirectional harmonics flow on molab.
 #
-# Uses image_energy_flow.pt + c128_k16 / c256_k24 teachers.
+# Uses image_energy_flow.pt + c128_k16 / c256_k24 / c512_k32 teachers.
+# Artifacts: image_autoencoder_tri_flow.{pt,sqlite} (separate from the old 2-pair).
 # Requires a prior molab-sync (so lpap + secrets are present). Refuses if the
 # previous bg pid is still alive.
 #

@@ -25,12 +25,14 @@ AE_ENERGY_BANK_LOG = "image_autoencoder_multi_energy_bank.sqlite"
 AE_ENERGY_BANK_BG_STEM = "image_autoencoder_multi_energy_bank_bg"
 AE_ENERGY_BANK_SCRIPT = "train_image_autoencoder_multi_energy_bank_bg.py"
 
-# Multi-pair AE from one bidirectional harmonics flow (c128_k16 + c256_k24).
-AE_BIDIR_FLOW_RUN_ID = "image_autoencoder_multi_flow"
-AE_BIDIR_FLOW_CHECKPOINT = "image_autoencoder_multi_flow.pt"
-AE_BIDIR_FLOW_LOG = "image_autoencoder_multi_flow.sqlite"
-AE_BIDIR_FLOW_BG_STEM = "image_autoencoder_multi_flow_bg"
-AE_BIDIR_FLOW_SCRIPT = "train_image_autoencoder_multi_flow_bg.py"
+# Tri-pair AE from one bidirectional harmonics flow
+# (c128_k16 + c256_k24 + c512_k32). New stem so the prior 2-pair
+# image_autoencoder_multi_flow.* artifacts stay intact on HF.
+AE_BIDIR_FLOW_RUN_ID = "image_autoencoder_tri_flow"
+AE_BIDIR_FLOW_CHECKPOINT = "image_autoencoder_tri_flow.pt"
+AE_BIDIR_FLOW_LOG = "image_autoencoder_tri_flow.sqlite"
+AE_BIDIR_FLOW_BG_STEM = "image_autoencoder_tri_flow_bg"
+AE_BIDIR_FLOW_SCRIPT = "train_image_autoencoder_tri_flow_bg.py"
 
 FlowKind = Literal["image_energy_flow_energy_bank"]
 
@@ -315,7 +317,8 @@ def ae_bidirectional_flow_worker_source(
         raise ValueError("target_steps must be positive")
     root = Path(project_root)
     resolved_comment = comment or (
-        f"multi-pair AE c128_k16+c256_k24 from image_energy_flow; bg to {target_steps}"
+        "tri-pair AE c128_k16+c256_k24+c512_k32 from image_energy_flow; "
+        f"bg to {target_steps}"
     )
     upload = "True" if upload_artifacts_on_checkpoint else "False"
     notify = "True" if notify_on_finished else "False"
@@ -352,6 +355,11 @@ config = replace(
                 surrogate_checkpoint_name="surrogate_c256_k24.pt",
                 decoder_checkpoint_name="decoder_c256_k24.pt",
                 name="c256_k24",
+            ),
+            ImageAutoencoderLpapPairConfig(
+                surrogate_checkpoint_name="surrogate_c512_k32.pt",
+                decoder_checkpoint_name="decoder_c512_k32.pt",
+                name="c512_k32",
             ),
         ),
         flow_checkpoint_name="image_energy_flow.pt",
@@ -394,7 +402,7 @@ print(
 print(session.resume_info.message, flush=True)
 print(f"best_so_far={{session.training_run.best_metric}}", flush=True)
 print(
-    "flow=image_energy_flow.pt pairs=c128_k16,c256_k24",
+    "flow=image_energy_flow.pt pairs=c128_k16,c256_k24,c512_k32",
     flush=True,
 )
 for result in iter_training("image_autoencoder", session):
@@ -405,6 +413,7 @@ for result in iter_training("image_autoencoder", session):
         eng = result.metrics.get("energy_reconstruction_l1", float("nan"))
         img128 = result.metrics.get("image_reconstruction_l2/c128_k16", float("nan"))
         img256 = result.metrics.get("image_reconstruction_l2/c256_k24", float("nan"))
+        img512 = result.metrics.get("image_reconstruction_l2/c512_k32", float("nan"))
         vtxt = "n/a" if vloss is None else f"{{vloss:.5f}}"
         best = "n/a" if result.best_metric is None else f"{{result.best_metric:.5f}}"
         mark = " *" if result.improved else ""
@@ -412,11 +421,11 @@ for result in iter_training("image_autoencoder", session):
         print(
             f"step={{result.step}} loss={{loss:.5f}} val={{vtxt}} "
             f"img_l2={{img:.5f}} energy_l1={{eng:.5f}} "
-            f"img_c128={{img128:.5f}} img_c256={{img256:.5f}} "
+            f"img_c128={{img128:.5f}} img_c256={{img256:.5f}} img_c512={{img512:.5f}} "
             f"best={{best}}{{mark}}{{ck}}",
             flush=True,
         )
-print("AE_MULTI_BIDIR_FLOW_DONE", flush=True)
+print("AE_TRI_BIDIR_FLOW_DONE", flush=True)
 '''
 
 

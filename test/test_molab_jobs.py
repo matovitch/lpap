@@ -51,10 +51,14 @@ class MolabJobsTest(unittest.TestCase):
         self.assertIn('flow_checkpoint_name="image_energy_flow.pt"', source)
         self.assertIn("surrogate_c128_k16.pt", source)
         self.assertIn("decoder_c256_k24.pt", source)
+        self.assertIn("surrogate_c512_k32.pt", source)
+        self.assertIn("decoder_c512_k32.pt", source)
         self.assertIn('name="c128_k16"', source)
         self.assertIn('name="c256_k24"', source)
+        self.assertIn('name="c512_k32"', source)
         self.assertIn("comment='unit-bidir'", source)
-        self.assertIn("AE_MULTI_BIDIR_FLOW_DONE", source)
+        self.assertIn("AE_TRI_BIDIR_FLOW_DONE", source)
+        self.assertIn("image_autoencoder_tri_flow", source)
         compile(source, "<ae_bidir_worker>", "exec")
 
     def test_ae_worker_source_resume(self) -> None:

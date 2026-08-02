@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import re
 import struct
 import zlib
 from collections.abc import Mapping, Sequence
@@ -304,21 +305,35 @@ def _signed_png_img(
         """
 
 
-_AE_GALLERY_PAIR_ORDER = ("c256_k24", "c128_k16", "c256", "c128")
+_AE_GALLERY_PAIR_ORDER = ("c512_k32", "c256_k24", "c128_k16", "c256", "c128")
+
+
+def _ae_gallery_pair_bucket_count(name: str) -> int | None:
+    """Parse ``C`` from names like ``c512_k32`` / ``c128``; ``None`` if unknown."""
+    match = re.fullmatch(r"c(\d+)(?:_.*)?", str(name).strip())
+    if match is None:
+        return None
+    return int(match.group(1))
 
 
 def _ordered_ae_gallery_pairs(pairs: Sequence[Any]) -> list[Any]:
-    by_name = {str(getattr(pair, "name", "")): pair for pair in pairs}
-    ordered: list[Any] = []
-    for name in _AE_GALLERY_PAIR_ORDER:
-        pair = by_name.pop(name, None)
-        if pair is not None:
-            ordered.append(pair)
-    for pair in pairs:
+    """Order pairs C-descending so gallery reads source → fine → coarse."""
+    indexed = list(enumerate(pairs))
+
+    def sort_key(item: tuple[int, Any]) -> tuple[int, int, int]:
+        index, pair = item
         name = str(getattr(pair, "name", ""))
-        if name not in _AE_GALLERY_PAIR_ORDER:
-            ordered.append(pair)
-    return ordered
+        bucket_count = _ae_gallery_pair_bucket_count(name)
+        if bucket_count is not None:
+            # Higher C first; stable by original index.
+            return (0, -bucket_count, index)
+        try:
+            preferred = _AE_GALLERY_PAIR_ORDER.index(name)
+        except ValueError:
+            preferred = len(_AE_GALLERY_PAIR_ORDER)
+        return (1, preferred, index)
+
+    return [pair for _, pair in sorted(indexed, key=sort_key)]
 
 
 def render_signed_triplet_gallery_html(
@@ -746,7 +761,7 @@ def render_image_autoencoder_gallery_html(
             {"".join(panels)}
             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                 <span style="width: 44px; height: 12px; background: linear-gradient(90deg, #004cff, #000, #ff2600); border: 1px solid #30333a;"></span>
-                <span>energy then image: source → c256 → c128 → diffs (signed: − / 0 / +); display γ={gamma:g} (&lt;1 lifts small values)</span>
+                <span>energy then image: source → higher-C → lower-C → diffs (signed: − / 0 / +); display γ={gamma:g} (&lt;1 lifts small values)</span>
             </div>
         </div>
         """

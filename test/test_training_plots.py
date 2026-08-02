@@ -109,7 +109,45 @@ class TrainingPlotsTest(unittest.TestCase):
         self.assertLess(html.index("c128 image"), html.index("Δ image c256"))
         self.assertIn("data:image/png;base64,", html)
         self.assertIn("energy then image", html)
+        self.assertIn("higher-C", html)
         self.assertIn("display γ=1", html)
+
+    def test_autoencoder_gallery_orders_pairs_c_descending(self) -> None:
+        from lpap.image_autoencoder_training import ImageAutoencoderGalleryPairItem
+
+        def _pair(name: str) -> ImageAutoencoderGalleryPairItem:
+            return ImageAutoencoderGalleryPairItem(
+                name=name,
+                decoded_energy=torch.zeros(16),
+                reconstructed_image=torch.zeros(16),
+                energy_error=torch.zeros(16),
+                image_error=torch.zeros(16),
+            )
+
+        # Intentionally reverse of desired C-descending reading order.
+        html = render_image_autoencoder_gallery_html(
+            [
+                ImageAutoencoderGalleryItem(
+                    image=torch.linspace(0.0, 1.0, 16),
+                    encoded_energy=torch.linspace(-1.0, 1.0, 16),
+                    pairs=(
+                        _pair("c128_k16"),
+                        _pair("c256_k24"),
+                        _pair("c512_k32"),
+                    ),
+                )
+            ],
+            size=4,
+        )
+        self.assertLess(html.index("source image"), html.index("c512_k32 image"))
+        self.assertLess(html.index("c512_k32 image"), html.index("c256_k24 image"))
+        self.assertLess(html.index("c256_k24 image"), html.index("c128_k16 image"))
+        self.assertLess(html.index("c128_k16 image"), html.index("Δ image c512_k32"))
+        self.assertLess(html.index("Δ image c512_k32"), html.index("Δ image c256_k24"))
+        self.assertLess(html.index("Δ image c256_k24"), html.index("Δ image c128_k16"))
+        self.assertLess(html.index("source energy"), html.index("c512_k32 energy"))
+        self.assertLess(html.index("c512_k32 energy"), html.index("c256_k24 energy"))
+        self.assertLess(html.index("Δ energy c512_k32"), html.index("Δ energy c128_k16"))
 
     def test_display_gamma_lifts_small_values_and_rejects_nonpositive(self) -> None:
         from lpap.training_plots import _apply_display_gamma
