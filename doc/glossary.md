@@ -21,7 +21,7 @@
 
 - **Image-energy flow (`image_energy_flow`)**: A 1D bidirectional flow: images are at `t=-1`, energy is at `t=0`, and image reconstruction is at `t=+1`. It integrates image→energy over `[-1, 0]` and energy→image over `[0, 1]`.
 - **Student steps**: The number of unrolled Euler midpoint steps used during image-autoencoder training.
-- **Energy bank**: A float tensor of shape `(n, energy_dim)` of empirical energies (typically image→energy encodings). Bidirectional flow training samples bank rows independently of image batches so the learned map targets the energy marginal rather than a paired joint.
+- **Energy bank**: A float tensor of shape `(n, energy_dim)` of empirical energies (typically image→energy encodings). Training iterates bank rows in shuffled epochs (`cycle_energy_bank_batches`), independently of image batches so flows learn the energy marginal rather than a paired joint. One-off iid draws remain available for galleries.
 
 ## Autoencoders
 

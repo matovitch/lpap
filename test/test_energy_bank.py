@@ -10,6 +10,7 @@ from lpap.energy_bank import (
     EnergyBankConfig,
     assert_energies_not_raw_image_like,
     assert_energy_bank_scale,
+    cycle_energy_bank_batches,
     energy_bank_config_from_dict,
     energy_bank_scale_stats,
     load_energy_bank,
@@ -29,6 +30,40 @@ class EnergyBankTest(unittest.TestCase):
             energies_key="energies",
         )
         self.assertEqual(energy_bank_config_from_dict(config.as_dict()), config)
+
+    def test_cycle_energy_bank_batches_covers_epoch_without_replacement(self) -> None:
+        bank = torch.arange(12, dtype=torch.float32).reshape(6, 2)
+        generator = torch.Generator().manual_seed(0)
+        batches = cycle_energy_bank_batches(
+            bank,
+            batch_size=2,
+            generator=generator,
+            device=torch.device("cpu"),
+        )
+        seen: list[int] = []
+        for _ in range(3):  # one epoch = 3 batches of 2 from 6 rows
+            batch = next(batches)
+            self.assertEqual(tuple(batch.shape), (2, 2))
+            seen.extend(int(v) for v in batch[:, 0].tolist())
+        self.assertEqual(sorted(seen), [0, 2, 4, 6, 8, 10])
+        # second epoch reshuffles; still a partition of the bank
+        seen2: list[int] = []
+        for _ in range(3):
+            batch = next(batches)
+            seen2.extend(int(v) for v in batch[:, 0].tolist())
+        self.assertEqual(sorted(seen2), [0, 2, 4, 6, 8, 10])
+
+    def test_cycle_energy_bank_rejects_undersized_bank(self) -> None:
+        bank = torch.zeros(3, 4)
+        with self.assertRaises(ValueError):
+            next(
+                cycle_energy_bank_batches(
+                    bank,
+                    batch_size=8,
+                    generator=torch.Generator().manual_seed(0),
+                    device=torch.device("cpu"),
+                )
+            )
 
     def test_load_dict_payload_and_sample(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

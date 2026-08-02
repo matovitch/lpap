@@ -4,7 +4,7 @@ bucket_count = 128
 probe_count = 8
 
 [data.energy_bank]
-path = "data/encoded_energies_ae_best.pt"
+path = "data/encoded_energies_bank_flow_best.pt"
 energies_key = "energies"
 
 [decoder]

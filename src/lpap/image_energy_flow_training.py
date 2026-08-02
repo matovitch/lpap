@@ -12,6 +12,7 @@ from lpap.data import SyntheticHarmonicConfig, synthetic_harmonic_config_from_di
 from lpap.energy_bank import (
     EnergyBankConfig,
     EnergyPriorKind,
+    cycle_energy_bank_batches,
     energy_bank_config_from_dict,
     load_energy_bank_for_flow,
     resolve_energy_bank_path,
@@ -341,15 +342,25 @@ def train_image_energy_flow_step(
     generator: torch.Generator,
     device: torch.device,
     energy_bank: torch.Tensor | None = None,
+    energy: torch.Tensor | None = None,
 ) -> FlowMatchingMetrics:
     image = prepare_image_sequence(images, side=config.image.side, device=device)
-    energy = _sample_energy(
-        config=config,
-        batch_size=image.shape[0],
-        generator=generator,
-        device=device,
-        energy_bank=energy_bank,
-    )
+    if energy is None:
+        energy = _sample_energy(
+            config=config,
+            batch_size=image.shape[0],
+            generator=generator,
+            device=device,
+            energy_bank=energy_bank,
+        )
+    else:
+        energy = energy.to(device=device, dtype=torch.float32)
+        if energy.ndim == 2:
+            energy = energy.unsqueeze(1)
+        if energy.shape[0] != image.shape[0]:
+            raise ValueError(
+                f"energy batch {energy.shape[0]} != image batch {image.shape[0]}"
+            )
     return train_bidirectional_flow_matching_step(
         model=model,
         optimizer=optimizer,
@@ -369,18 +380,28 @@ def evaluate_image_energy_flow_batch(
     generator: torch.Generator,
     device: torch.device,
     energy_bank: torch.Tensor | None = None,
+    energy: torch.Tensor | None = None,
 ) -> tuple[FlowMatchingMetrics, dict[str, float]]:
     was_training = model.training
     model.eval()
     with torch.no_grad():
         image = prepare_image_sequence(images, side=config.image.side, device=device)
-        energy = _sample_energy(
-            config=config,
-            batch_size=image.shape[0],
-            generator=generator,
-            device=device,
-            energy_bank=energy_bank,
-        )
+        if energy is None:
+            energy = _sample_energy(
+                config=config,
+                batch_size=image.shape[0],
+                generator=generator,
+                device=device,
+                energy_bank=energy_bank,
+            )
+        else:
+            energy = energy.to(device=device, dtype=torch.float32)
+            if energy.ndim == 2:
+                energy = energy.unsqueeze(1)
+            if energy.shape[0] != image.shape[0]:
+                raise ValueError(
+                    f"energy batch {energy.shape[0]} != image batch {image.shape[0]}"
+                )
         metrics = evaluate_bidirectional_flow_matching_batch(
             model=model,
             image=image,
@@ -517,8 +538,24 @@ def iter_image_energy_flow_training(
 
     images_iter = cycle_image_batches(session.image_loader)
     validation_images_iter = cycle_image_batches(session.validation_image_loader)
+    energy_iter = None
+    validation_energy_iter = None
+    if session.energy_bank is not None:
+        energy_iter = cycle_energy_bank_batches(
+            session.energy_bank,
+            batch_size=config.image.batch_size,
+            generator=session.generator,
+            device=session.device,
+        )
+        validation_energy_iter = cycle_energy_bank_batches(
+            session.energy_bank,
+            batch_size=config.validation.batch_size,
+            generator=session.validation_generator,
+            device=session.device,
+        )
     for step in range(session.resume_info.start_step, config.run.steps + 1):
         images = next(images_iter)
+        energy = None if energy_iter is None else next(energy_iter).unsqueeze(1)
         metrics = train_image_energy_flow_step(
             model=session.flow,
             optimizer=session.optimizer,
@@ -527,10 +564,16 @@ def iter_image_energy_flow_training(
             generator=session.generator,
             device=session.device,
             energy_bank=session.energy_bank,
+            energy=energy,
         )
         step_metrics = _metrics_dict(metrics)
         if should_validate_image_energy_flow(step=step, config=config):
             validation_images = next(validation_images_iter)
+            validation_energy = (
+                None
+                if validation_energy_iter is None
+                else next(validation_energy_iter).unsqueeze(1)
+            )
             validation_metrics, diagnostics = evaluate_image_energy_flow_batch(
                 model=session.flow,
                 images=validation_images,
@@ -538,6 +581,7 @@ def iter_image_energy_flow_training(
                 generator=session.validation_generator,
                 device=session.device,
                 energy_bank=session.energy_bank,
+                energy=validation_energy,
             )
             step_metrics.update(
                 {

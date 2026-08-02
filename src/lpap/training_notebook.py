@@ -100,7 +100,7 @@ def default_surrogate_training_config() -> LPAPSurrogateTrainingConfig:
             batch_size=32,
             bucket_count=128,
             probe_count=8,
-            energy_bank=EnergyBankConfig(path="data/encoded_energies_ae_best.pt"),
+            energy_bank=EnergyBankConfig(path="data/encoded_energies_bank_flow_best.pt"),
         ),
         model=LPAPSurrogateModelConfig(
             k_max=4,
@@ -139,7 +139,7 @@ def default_decoder_training_config() -> LPAPDecoderTrainingConfig:
             batch_size=32,
             bucket_count=128,
             probe_count=8,
-            energy_bank=EnergyBankConfig(path="data/encoded_energies_ae_best.pt"),
+            energy_bank=EnergyBankConfig(path="data/encoded_energies_bank_flow_best.pt"),
         ),
         decoder=LPAPDecoderModelConfig(
             frontend_initial_temperature=0.25,

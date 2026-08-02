@@ -82,7 +82,7 @@ flowchart TD
     image_autoencoder_config --> image_autoencoder[Image autoencoder training]
 ```
 
-Surrogate and decoder train on the same empirical energy bank (`[data.energy_bank]` in their TOMLs). Synthetic harmonics remain available as the flow prior for `image_energy_flow` init only. The bidirectional flow can also sample bank rows as its energy marginal at `t=0` (see `configs/training/image_energy_flow_energy_bank.toml` and `lpap.energy_bank`); bank rows are sampled independently of image batches so training learns the energy *marginal*, not a paired joint map.
+Surrogate and decoder train on the same empirical energy bank (`[data.energy_bank]` in their TOMLs). Synthetic harmonics remain available as the flow prior for `image_energy_flow` init only. The bidirectional flow can also iterate bank rows as its energy marginal at `t=0` (see `configs/training/image_energy_flow_energy_bank.toml` and `lpap.energy_bank`); bank rows are shuffled epoch-style independently of image batches so training learns the energy *marginal*, not a paired joint map.
 
 `image_autoencoder` is the total autoencoder. It Hilbert-flattens a grayscale image, rolls an image-to-energy flow forward for a small fixed number of differentiable steps, passes the encoded energy through one or more LPAP surrogate/decoder pairs in parallel (shared flows), then rolls an energy-to-image flow forward to reconstruct the image. Pair-dependent losses (image L2, energy L1, surrogate CE) are averaged over pairs; signed-mass is applied once on the shared encoded energy. Configure pairs with `[[source.lpap_pairs]]` or the legacy flat `surrogate_checkpoint_name` / `decoder_checkpoint_name` (normalized to one pair).
 

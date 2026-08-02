@@ -81,7 +81,7 @@ Extra molab-workflow helpers (same `MOLAB_*` env):
   (ephemeral; prefer commit + `molab-sync` for durable updates)
 - `molab-export-notebook.sh` — backport live cells → `notebooks/molab_lab.py`
 - `molab-train-status.sh` / `molab-launch-ae-energy-bank.sh` / `molab-launch-flow-energy-bank.sh` — long AE / bank-flow runs
-- `molab-notify.sh` — Pushover after agent-side long waits (encode / poll / upload)
+- `molab-notify.sh` — Pushover on job finish / handoff (prefer over agent polling)
 
 ## Capabilities
 
@@ -153,21 +153,27 @@ bash .github/skills/molab-workflow/scripts/molab-train-status.sh
 
 Launcher refuses if the previous bg pid is still alive. Status reports
 checkpoint step, SQLite max step, and bg liveness / last log step.
-Agent-side waits use the harness sleep/poll loop (`AwaitShell` + short
-`molab-train-status`); do not `sleep` in the kernel.
+
+**Prefer Pushover over agent polling for long jobs.** Detached workers should
+run with `notify_on_finished=True` (and upload-on-checkpoint as usual). After
+a successful spawn, confirm notify/secrets briefly, then stop — the human
+wakes the agent when Pushover fires. Do not park in harness `AwaitShell` /
+`molab-train-status` loops waiting for multi-minute or multi-hour runs.
+`molab-train-status.sh` is for on-demand checks, not a completion waiter.
+Never `sleep` in the kernel to wait on bg work.
 
 **Short / shared chunks only:** visible code-mode cells (`hide_code=False`,
 progress bar / `mo.output.replace`) when the human should watch the run.
 Scratchpad is for probes, installs, and artifact sync — not long training.
 
 - Do not start a second `execute-code` while a train cell runs (`MarimoInterrupt`).
-- For cell chunks: status polls **between** chunks; resume with
+- For cell chunks: status checks **between** chunks; resume with
   `resume_from_checkpoint=True`.
 - DAG: do not redefine `mo` / `torch` / `lpap`; use `_` locals; import training
   helpers once in setup.
 - Cadences: e.g. `display_every=50`, `log_every=10`; checkpoint on improvement.
 
-Poll KPIs (local or inside `molab-exec`):
+On-demand KPIs (local or inside `molab-exec`):
 
 ```bash
 bash .github/skills/molab-workflow/scripts/molab-train-status.sh
@@ -230,8 +236,10 @@ Caches `data/images_32x32_gray.pt` (skips if present). Do not confuse with
 
 ## Training order
 
-Bank curriculum: harmonics-prior `image_energy_flow` → encode energy bank →
-bank teachers (`surrogate`/`decoder`) → `image_autoencoder`.
+Bank curriculum (keep the loop): prior energies (harmonics or AE-encoded bank)
+→ unpaired `image_energy_flow_energy_bank` → **re-encode** images via that
+flow’s i2e → bank teachers (`surrogate`/`decoder`) → `image_autoencoder`.
+Teachers train on the post-flow bank, not on the prior energies.
 Teachers sample the energy bank (no image dataset); the AE needs images + flow
 + teacher checkpoints.
 
@@ -239,7 +247,7 @@ Teachers sample the energy bank (no image dataset); the AE needs images + flow
 
 **Human:** open lab notebook → attach GPU → pair → paste URL/token (leave
 `MOLAB_SESSION` unset unless multi-session).  
-**Agent (long AE):** `molab-sync` → `molab-launch-ae-energy-bank` → poll
-`molab-train-status` (Pushover + HF upload-on-checkpoint).  
+**Agent (long AE):** `molab-sync` → `molab-launch-ae-energy-bank` (notify +
+HF) → stop; human wakes agent on Pushover.
 **Agent (short/shared):** visible code-mode cells only.  
 **Local:** `artifacts-download` → viz notebooks.

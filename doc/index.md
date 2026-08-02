@@ -10,7 +10,7 @@ Start here when navigating the LPAP research stack.
 ## Training Stack
 
 - [Training stack notes](training-stack.md): model dependencies, checkpoint/logging policy, notebook workflow, AE loss terms / lambda dialing, and the trainable model kinds.
-- [AE iteration-2 roadmap](roadmap-ae-iteration-2.md): after harmonics tri-pair AE — encode bank → unpaired bank-flow → fresh 3 teachers → new AE.
+- [AE iteration-2 roadmap](roadmap-ae-iteration-2.md): AE encode bank → unpaired bank-flow → re-encode via new i2e → fresh 3 teachers → new AE.
 - [Sizing probes](sizing-probes.md): capacity / integration exploration before promoting new baselines.
 - [Image-to-energy implementation notes](image-to-energy-implementation.md): details for the image-to-energy flow and its Hilbert-flattened image representation.
 

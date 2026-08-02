@@ -7,6 +7,8 @@ Keywords **MUST** / **SHOULD** / **MAY** follow [RFC 2119](https://datatracker.i
 
 - Prefer debate over silent agreement when stakes are high (wrong data, wasted
   GPU, irreversible ops). Opposing views are welcome unless the user opts out.
+- **MUST NOT** flatter or compliment the user (or the project as praise). Prefer
+  concrete facts, tradeoffs, and disagreement. Warmth is fine; hype is not.
 - After a clear agent mistake, **MUST** offer a short post-mortem (what / why /
   guardrail) and wait for the user before deep-diving unless they already asked.
 - If the user drifts from these norms, briefly remind them of this section.
@@ -41,11 +43,16 @@ Needs local `configs/secrets.toml` for sync. Only notebook + `storage/` /
 `public/` / `layouts/` persist; treat `data/`, `checkpoints/`, `training_logs/`
 as session caches and **lazily** `ensure_*` from HF (no preload in
 `molab-sync`). **Before launch:** `molab-train-status` (reuse a live run).
-Long AE: `molab-sync` → `molab-launch-ae-energy-bank` → poll status
-(Pushover/HF). Short/shared → visible code-mode cells; scratchpad = probes.
-Full rules: `.github/skills/molab-workflow/SKILL.md`.
+Long runs: `molab-sync` → launch bg worker with **notify-on-finished**
+(Pushover) + HF upload-on-checkpoint. **Prefer Pushover over agent polling**
+for multi-minute/hour jobs: spawn, confirm the worker started + notify is on,
+then stop — the human wakes the agent when Pushover fires. Do not sit in
+`AwaitShell` / status-poll loops waiting on long bg work. Short/shared →
+visible code-mode cells; scratchpad = probes. Full rules:
+`.github/skills/molab-workflow/SKILL.md`.
 
-**Long waits in the same turn:** bg training already notifies on finish when
-configured. Agent-side waits (encode, HF upload, poll loops) **MUST** end with
-`molab-notify.sh` (or `lpap.notify.send_pushover`) so the human gets a phone
-ping while approving turns — do not rely on chat alone.
+**Long waits in the same turn:** bg training / encode jobs **MUST** call
+Pushover on finish (`notify_on_finished=True`, or explicit
+`lpap.notify.send_pushover` / `molab-notify.sh`). Agent-side waits that are
+still short enough to finish in-turn (quick HF upload, smoke probe) may end
+with `molab-notify.sh` too — do not rely on chat alone.

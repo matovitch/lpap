@@ -17,7 +17,7 @@ from lpap.decoder import (
     reconstruct_lpap_decoder_values,
     train_lpap_decoder_step,
 )
-from lpap.energy_bank import energy_bank_config_from_dict
+from lpap.energy_bank import cycle_energy_bank_batches, energy_bank_config_from_dict
 from lpap.hilbert import hilbert_unflatten_images
 from lpap.surrogate import prepare_lpap_surrogate_batch
 from lpap.permutation import make_grouped_permutation_indices
@@ -522,13 +522,21 @@ def create_lpap_decoder_training_session(
     )
 
 
-def validate_lpap_decoder(session: LPAPDecoderTrainingSession) -> LPAPDecoderMetrics:
+def validate_lpap_decoder(
+    session: LPAPDecoderTrainingSession,
+    *,
+    values: torch.Tensor | None = None,
+) -> LPAPDecoderMetrics:
     config = session.config
-    batch = sample_teacher_energy_batch(
-        session.energy_bank,
-        batch_size=config.validation.batch_size,
-        generator=session.validation_generator,
-        device=session.device,
+    batch = (
+        values
+        if values is not None
+        else sample_teacher_energy_batch(
+            session.energy_bank,
+            batch_size=config.validation.batch_size,
+            generator=session.validation_generator,
+            device=session.device,
+        )
     )
     return evaluate_lpap_decoder_batch(
         decoder=session.decoder,
@@ -560,13 +568,20 @@ def iter_lpap_decoder_training(
         session.training_run.mark_finished()
         return
 
+    train_batches = cycle_energy_bank_batches(
+        session.energy_bank,
+        batch_size=config.data.batch_size,
+        generator=session.generator,
+        device=session.device,
+    )
+    validation_batches = cycle_energy_bank_batches(
+        session.energy_bank,
+        batch_size=config.validation.batch_size,
+        generator=session.validation_generator,
+        device=session.device,
+    )
     for step in range(session.resume_info.start_step, config.run.steps + 1):
-        batch = sample_teacher_energy_batch(
-            session.energy_bank,
-            batch_size=config.data.batch_size,
-            generator=session.generator,
-            device=session.device,
-        )
+        batch = next(train_batches)
         metrics = train_lpap_decoder_step(
             decoder=session.decoder,
             surrogate=session.surrogate,
@@ -591,7 +606,9 @@ def iter_lpap_decoder_training(
             "mean_entropy": metrics.mean_entropy,
         }
         if should_validate_lpap_decoder(step=step, config=config):
-            validation_metrics = validate_lpap_decoder(session)
+            validation_metrics = validate_lpap_decoder(
+                session, values=next(validation_batches)
+            )
             step_metrics.update(
                 {
                     "validation_loss": validation_metrics.loss,

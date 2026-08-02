@@ -9,6 +9,7 @@ import torch
 
 from lpap.energy_bank import (
     EnergyBankConfig,
+    cycle_energy_bank_batches,
     energy_bank_config_from_dict,
     load_energy_bank_for_flow,
     sample_energy_bank_values,
@@ -397,13 +398,19 @@ def create_lpap_surrogate_training_session(
 
 def validate_lpap_surrogate(
     session: LPAPSurrogateTrainingSession,
+    *,
+    values: torch.Tensor | None = None,
 ) -> LPAPSurrogateMetrics:
     config = session.config
-    batch = sample_teacher_energy_batch(
-        session.energy_bank,
-        batch_size=config.validation.batch_size,
-        generator=session.validation_generator,
-        device=session.device,
+    batch = (
+        values
+        if values is not None
+        else sample_teacher_energy_batch(
+            session.energy_bank,
+            batch_size=config.validation.batch_size,
+            generator=session.validation_generator,
+            device=session.device,
+        )
     )
     return evaluate_lpap_surrogate_batch(
         model=session.model,
@@ -431,13 +438,20 @@ def iter_lpap_surrogate_training(
         session.training_run.mark_finished()
         return
 
+    train_batches = cycle_energy_bank_batches(
+        session.energy_bank,
+        batch_size=config.data.batch_size,
+        generator=session.generator,
+        device=session.device,
+    )
+    validation_batches = cycle_energy_bank_batches(
+        session.energy_bank,
+        batch_size=config.validation.batch_size,
+        generator=session.validation_generator,
+        device=session.device,
+    )
     for step in range(session.resume_info.start_step, config.run.steps + 1):
-        batch = sample_teacher_energy_batch(
-            session.energy_bank,
-            batch_size=config.data.batch_size,
-            generator=session.generator,
-            device=session.device,
-        )
+        batch = next(train_batches)
         metrics = train_lpap_surrogate_step(
             model=session.model,
             optimizer=session.optimizer,
@@ -453,7 +467,9 @@ def iter_lpap_surrogate_training(
             "mean_weight": metrics.mean_weight,
         }
         if should_validate_lpap_surrogate(step=step, config=config):
-            validation_metrics = validate_lpap_surrogate(session)
+            validation_metrics = validate_lpap_surrogate(
+                session, values=next(validation_batches)
+            )
             step_metrics.update(
                 {
                     "validation_loss": validation_metrics.loss,

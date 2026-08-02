@@ -1,9 +1,11 @@
 """Empirical energy banks for flow priors (alternative to synthetic harmonics).
 
 Banks are float tensors of shape ``(n, energy_dim)``, typically produced by
-running a trained image-to-energy model over an image dataset. Flow training
-samples bank rows independently of image batches so the learned map targets
-the energy *marginal*, not a paired ``(image, energy)`` joint.
+running a trained image-to-energy model over an image dataset. Training loops
+iterate the bank in shuffled epochs (``cycle_energy_bank_batches``), still
+independently of image batches so flows learn the energy *marginal*, not a
+paired ``(image, energy)`` joint. ``sample_energy_bank_values`` remains for
+one-off draws (galleries, probes).
 
 Encode with ``lpap.energy_bank_encode.encode_image_dataset_to_energy_bank`` (or
 ``ImageTensorDataset.float_batch``) — never feed raw ``dataset.images`` (uint8)
@@ -12,6 +14,7 @@ into i2e when training used ``normalize=True``.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -300,7 +303,10 @@ def sample_energy_bank_values(
     generator: torch.Generator,
     device: torch.device,
 ) -> Float[torch.Tensor, "batch energy"]:
-    """Sample ``batch_size`` rows uniformly (with replacement) from the bank."""
+    """Sample ``batch_size`` rows uniformly (with replacement) from the bank.
+
+    Prefer ``cycle_energy_bank_batches`` for training loops (shuffled epochs).
+    """
     if batch_size <= 0:
         raise ValueError("batch_size must be positive")
     n = int(energies.shape[0])
@@ -312,6 +318,44 @@ def sample_energy_bank_values(
     if indices.device.type != "cpu":
         indices = indices.cpu()
     return energies[indices].to(device=device, dtype=torch.float32)
+
+
+def cycle_energy_bank_batches(
+    energies: Float[torch.Tensor, "n energy"],
+    *,
+    batch_size: int,
+    generator: torch.Generator,
+    device: torch.device,
+    drop_last: bool = True,
+) -> Iterator[Float[torch.Tensor, "batch energy"]]:
+    """Yield shuffled bank batches forever (epoch-style, optional drop_last).
+
+    Each epoch reshuffles with ``generator``. Bank rows stay unpaired from any
+    image loader — only the iteration style matches a DataLoader epoch.
+    """
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive")
+    n = int(energies.shape[0])
+    if n < batch_size:
+        raise ValueError(
+            f"energy bank has {n} rows but batch_size={batch_size} "
+            "(need at least one full batch)"
+        )
+    while True:
+        order = torch.randperm(n, device=generator.device, generator=generator)
+        if order.device.type != "cpu":
+            order = order.cpu()
+        if drop_last:
+            usable = (n // batch_size) * batch_size
+            order = order[:usable]
+        elif n % batch_size != 0:
+            raise ValueError(
+                "drop_last=False is unsupported for energy-bank cycling "
+                "(teachers/flows expect fixed batch sizes)"
+            )
+        for start in range(0, int(order.numel()), batch_size):
+            indices = order[start : start + batch_size]
+            yield energies[indices].to(device=device, dtype=torch.float32)
 
 
 def sample_energy_prior_values(
@@ -361,6 +405,7 @@ __all__ = [
     "assert_energy_bank_scale",
     "energy_bank_config_from_dict",
     "energy_bank_scale_stats",
+    "cycle_energy_bank_batches",
     "load_energy_bank",
     "load_energy_bank_for_flow",
     "mean_row_correlation",

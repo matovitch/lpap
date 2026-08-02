@@ -171,7 +171,7 @@ class TrainingNotebookConfigTest(unittest.TestCase):
         text = training_config_to_toml(config)
 
         self.assertIn("[data.energy_bank]", text)
-        self.assertIn("encoded_energies_ae_best.pt", text)
+        self.assertIn("encoded_energies_bank_flow_best.pt", text)
         self.assertIn("surrogate_c128_k4.pt", text)
 
     def test_decoder_toml_serializes_energy_bank(self) -> None:
