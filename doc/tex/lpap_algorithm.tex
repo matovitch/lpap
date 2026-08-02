@@ -23,7 +23,7 @@ $P = N/C$
 
 \begin{algorithmic}[1]
 \Require $x \in \mathbb{R}^{N}$,\; $C$,\; $K$ \Comment{$N \bmod C = 0$}
-\Ensure $a \in \mathbb{R}^{C}$,\; $d \in \mathbb{Z}^{C}$,\; $x' \in \mathbb{R}^{N}$
+\Ensure $a \in \mathbb{R}^{C}$,\; $d \in \mathbb{Z}^{C}$
 \State $V \gets \mathrm{reshape}(x,\, C \times P)$
 \State $\Delta \gets 0_{C \times P}$;\;
        $a \gets 0_{C}$;\;
@@ -42,7 +42,24 @@ $P = N/C$
     \State $d \gets \hat{d}$
   \EndWhere
 \EndFor
-\State \Return $a$,\; $d$,\; $\mathrm{flatten}(V)$
+\State \Return $a$,\; $d$
 \end{algorithmic}
+
+\vspace{0.55em}
+{\footnotesize
+\textbf{Notes.}
+\begin{enumerate}
+  \itemsep0.25em
+  \item The reference implementation also returns $\mathrm{flatten}(V)$, the
+        residual work array after in-place swap-backs. It is scratch state,
+        not part of the pooled representation $(a,d)$; $\Delta$ likewise.
+  \item In the full stack, a fixed \emph{grouped permutation} is applied to
+        $x$ before this procedure and inverted afterward. Contiguous source
+        groups are scattered across bucket lanes so structure in the input
+        cannot concentrate large amplitudes in a few lanes. With large enough
+        $K$, the $C$ largest-magnitude values then have a fair chance to enter
+        the table.
+\end{enumerate}
+}
 \end{minipage}
 \end{document}

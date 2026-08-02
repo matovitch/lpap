@@ -1,6 +1,6 @@
 # LPAP — pseudocode draft (plain / markdown)
 
-Working draft toward a LaTeX algorithm frame for the README.
+Working draft for the LaTeX algorithm frame in the README.
 Matches `lpap.ops.lpap_torch` (real signs). The Manim film flips chalk signs
 for pedagogy; do **not** copy those here.
 
@@ -10,6 +10,7 @@ for pedagogy; do **not** copy those here.
 - Lane remap `(i − k) mod C` instead of an explicit `roll` (more concise;
   same probing process).
 - Python-like `where m:` for the masked swap / write.
+- Conceptual return is $(a,d)$; residual work / permutation live in notes.
 
 ## Notation
 
@@ -35,8 +36,8 @@ Batch axis omitted (`vmap`).
 ## Algorithm
 
 ```text
-LPAP(x ∈ ℝᴺ; C, K) → (a ∈ ℝᶜ, d ∈ ℤᶜ, x' ∈ ℝᴺ)
-──────────────────────────────────────────────────
+LPAP(x ∈ ℝᴺ; C, K) → (a ∈ ℝᶜ, d ∈ ℤᶜ)
+────────────────────────────────────────
 require  N mod C = 0
 P ← N / C
 V ← reshape(x, C × P)
@@ -57,7 +58,7 @@ for k = 0 … K−1 do
         a       ← c
         d       ← d̂
 
-return a, d, flatten(V)
+return a, d
 ```
 
 Only the `for k` loop is serial. Over buckets $i$, the map $i \mapsto \ell_i$
@@ -65,15 +66,26 @@ is a bijection, so the body is one vectorized step.
 
 ---
 
-## Notes for LaTeX later
+## Notes (on the figure)
 
-1. Title: Linear Probing Amplitude Pooling (LPAP).
-2. Typeset `where m:` like a Python block under the gate line.
-3. Optional footnote: film chalk uses $k - d$; code uses $d - k$.
+1. **Residual work.** The reference implementation also returns
+   $\mathrm{flatten}(V)$, the residual work array after in-place swap-backs. It
+   is scratch state, not part of the pooled representation $(a,d)$; $\Delta$
+   likewise.
+
+2. **Grouped permutation.** In the full stack, a fixed grouped permutation is
+   applied to $x$ before this procedure and inverted afterward. Contiguous
+   source groups are scattered across bucket lanes so structure in the input
+   cannot concentrate large amplitudes in a few lanes. With large enough $K$,
+   the $C$ largest-magnitude values then have a fair chance to enter the table.
+
+Keep the “preference for random algorithms” motivation out of user-facing text;
+the figure states the operational reason (decorrelation / coverage under bounded
+$K$).
+
+---
 
 ## TeX → README image (Pixi)
-
-No system TeX needed. Project deps: `tectonic` + `poppler` (via Pixi).
 
 ```bash
 pixi run tex-lpap-algo       # PDF + doc/assets/lpap-algorithm.png
@@ -81,4 +93,3 @@ pixi run tex-lpap-algo-pdf   # PDF only under doc/tex/build/
 ```
 
 Source: [`doc/tex/lpap_algorithm.tex`](tex/lpap_algorithm.tex).
-Build intermediates are gitignored; commit the PNG when you want it in the README.
