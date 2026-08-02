@@ -828,111 +828,6 @@ def play_act6c_reentry_b1(
     )
 
 
-class Act0Arrive(Scene):
-    """Act 0: flat integers appear left → right with a light dealt feel."""
-
-    def construct(self) -> None:
-        play_act0_arrive(self, hold=1.6)
-
-
-class Act1Fold(Scene):
-    """Act 1: fold into 4×3 work grid and place amp|dib + dibs_diff + k."""
-
-    def construct(self) -> None:
-        play_act1_stage(self, hold_end=1.6)
-
-
-class Act2ProjectK0(Scene):
-    """Act 2: k=0 max-|·| highlight, slide into amp, swap-back."""
-
-    def construct(self) -> None:
-        stage = play_act1_stage(self, hold_end=0.5)
-        play_act2_project_k0(self, stage, hold_end=1.4)
-
-
-class Act3RollK1(Scene):
-    """Act 3: k→1 flash, then twin row-roll on input and dibs_diff."""
-
-    def construct(self) -> None:
-        stage = play_act1_stage(self, hold_end=0.35)
-        play_act2_project_k0(self, stage, hold_end=0.45)
-        play_act3_roll_k1(self, stage, hold_end=1.2)
-
-
-class Act4ProjectK1(Scene):
-    """Act 4: serial hero swap at k=1 + first nonzero dibs_diff."""
-
-    def construct(self) -> None:
-        stage = play_act1_stage(self, hold_end=0.3)
-        play_act2_project_k0(self, stage, hold_end=0.35)
-        play_act3_roll_k1(self, stage, hold_end=0.4)
-        play_act4_project_k1(self, stage, hold_end=1.5)
-
-
-class Act5RollK2(Scene):
-    """Act 5: k→2 + twin row-roll; +1 rides with parked 6."""
-
-    def construct(self) -> None:
-        stage = play_act1_stage(self, hold_end=0.25)
-        play_act2_project_k0(self, stage, hold_end=0.3)
-        play_act3_roll_k1(self, stage, hold_end=0.35)
-        play_act4_project_k1(self, stage, hold_end=0.4)
-        play_act5_roll_k2(self, stage, hold_end=1.4)
-
-
-class Act6aSelectK2(Scene):
-    """Act 6a: at k=2, green/red border select (fresh 7 + re-entry 6)."""
-
-    def construct(self) -> None:
-        stage = play_act1_stage(self, hold_end=0.2)
-        play_act2_project_k0(self, stage, hold_end=0.25)
-        play_act3_roll_k1(self, stage, hold_end=0.3)
-        play_act4_project_k1(self, stage, hold_end=0.3)
-        play_act5_roll_k2(self, stage, hold_end=0.35)
-        play_act6a_select_k2(self, stage, hold_end=1.8)
-
-
-class Act6bFreshB0(Scene):
-    """Act 6b: fresh B0 chalk swap (7 in, dib←2, twin←1); B1 stays green."""
-
-    def construct(self) -> None:
-        stage = play_act1_stage(self, hold_end=0.15)
-        play_act2_project_k0(self, stage, hold_end=0.2)
-        play_act3_roll_k1(self, stage, hold_end=0.25)
-        play_act4_project_k1(self, stage, hold_end=0.25)
-        play_act5_roll_k2(self, stage, hold_end=0.3)
-        selected = play_act6a_select_k2(self, stage, hold_end=0.35)
-        play_act6b_fresh_b0(self, stage, selected, hold_end=1.6)
-
-
-class Act6cReentryB1(Scene):
-    """Act 6c: re-entry B1 — consume twin +1 into dib via k−diff chalk."""
-
-    def construct(self) -> None:
-        stage = play_act1_stage(self, hold_end=0.12)
-        play_act2_project_k0(self, stage, hold_end=0.18)
-        play_act3_roll_k1(self, stage, hold_end=0.2)
-        play_act4_project_k1(self, stage, hold_end=0.2)
-        play_act5_roll_k2(self, stage, hold_end=0.25)
-        selected = play_act6a_select_k2(self, stage, hold_end=0.25)
-        play_act6b_fresh_b0(self, stage, selected, hold_end=0.3)
-        play_act6c_reentry_b1(self, stage, selected, hold_end=1.6)
-
-
-class Act6ProjectK2(Scene):
-    """Full Act 6: select, fresh B0, re-entry B1."""
-
-    def construct(self) -> None:
-        stage = play_act1_stage(self, hold_end=0.12)
-        play_act2_project_k0(self, stage, hold_end=0.18)
-        play_act3_roll_k1(self, stage, hold_end=0.2)
-        play_act4_project_k1(self, stage, hold_end=0.2)
-        play_act5_roll_k2(self, stage, hold_end=0.25)
-        selected = play_act6a_select_k2(self, stage, hold_end=0.25)
-        play_act6b_fresh_b0(self, stage, selected, hold_end=0.25)
-        play_act6c_reentry_b1(self, stage, selected, hold_end=1.4)
-
-
 def play_act7_reveal_output(
     scene: Scene, stage: StageState, *, hold_end: float = 1.8
 ) -> None:
@@ -981,21 +876,6 @@ def play_full_film(scene: Scene) -> None:
     play_act6b_fresh_b0(scene, stage, selected, hold_end=0.9)
     play_act6c_reentry_b1(scene, stage, selected, hold_end=1.0)
     play_act7_reveal_output(scene, stage, hold_end=1.8)
-
-
-class Act7RevealOutput(Scene):
-    """Act 7: fade input / dib_diffs / k; gold-flash center output."""
-
-    def construct(self) -> None:
-        stage = play_act1_stage(self, hold_end=0.1)
-        play_act2_project_k0(self, stage, hold_end=0.15)
-        play_act3_roll_k1(self, stage, hold_end=0.18)
-        play_act4_project_k1(self, stage, hold_end=0.18)
-        play_act5_roll_k2(self, stage, hold_end=0.2)
-        selected = play_act6a_select_k2(self, stage, hold_end=0.2)
-        play_act6b_fresh_b0(self, stage, selected, hold_end=0.2)
-        play_act6c_reentry_b1(self, stage, selected, hold_end=0.35)
-        play_act7_reveal_output(self, stage, hold_end=1.8)
 
 
 class LpapFullFilm(Scene):
