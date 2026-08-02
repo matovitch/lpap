@@ -246,6 +246,35 @@ ls -lh "$MP4" "$GIF"
 """
 description = "Export 1080p MP4 + README GIF into doc/assets/ (needs manim-full-hq first)."
 
+[tasks.tex-lpap-algo]
+cmd = """
+bash -c '
+set -euo pipefail
+SRC=doc/tex/lpap_algorithm.tex
+BUILD=doc/tex/build
+mkdir -p "$BUILD" doc/assets
+tectonic -o "$BUILD" --keep-logs "$SRC"
+PDF="$BUILD/lpap_algorithm.pdf"
+test -f "$PDF"
+# High-DPI PNG for README (crisp on retina).
+pdftoppm -png -r 300 "$PDF" "$BUILD/lpap_algorithm"
+cp -f "$BUILD/lpap_algorithm-1.png" doc/assets/lpap-algorithm.png
+ls -lh "$PDF" doc/assets/lpap-algorithm.png
+'
+"""
+description = "Compile LPAP algorithm TeX → PDF + README PNG in doc/assets/."
+
+[tasks.tex-lpap-algo-pdf]
+cmd = """
+bash -c '
+set -euo pipefail
+mkdir -p doc/tex/build
+tectonic -o doc/tex/build --keep-logs doc/tex/lpap_algorithm.tex
+ls -lh doc/tex/build/lpap_algorithm.pdf
+'
+"""
+description = "Compile LPAP algorithm TeX to PDF only (doc/tex/build/)."
+
 [dependencies]
 pytorch-gpu = ">=2.10.0,<3"
 python = ">=3.14.5,<3.15"
@@ -258,6 +287,8 @@ cuda-cudart-dev = ">=12.9.79,<13"
 marimo = ">=0.23.8,<0.24"
 zstandard = ">=0.25.0,<0.26"
 manim = ">=0.20.1,<0.21"
+tectonic = ">=0.17.0,<0.18"
+poppler = ">=26.7.0,<27"
 
 [pypi-dependencies]
 huggingface-hub = ">=1.21.0, <2"

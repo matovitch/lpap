@@ -7,6 +7,10 @@ LPAP stands for Linear Probing Amplitude Pooling.
 *[Higher-quality 1080p MP4](doc/assets/lpap-operator.mp4)* · regenerate with
 `pixi run manim-full-hq && pixi run manim-readme`
 
+![LPAP algorithm](doc/assets/lpap-algorithm.png)
+
+*[Source TeX](doc/tex/lpap_algorithm.tex)* · regenerate with `pixi run tex-lpap-algo`
+
 Research scaffold around a pooling operator and a small training stack for
 probing whether LPAP-like sparse energy representations can be learned, decoded,
 and connected to images through flow matching.
@@ -59,6 +63,7 @@ transformers, `lpap.DilatedConvFlow1d`, `lpap.image_autoencoder_training`,
 - [Glossary](doc/glossary.md)
 - [LPAP operator](doc/lpap.md)
 - [Manim operator film](doc/lpap-manim-script.md)
+- [LPAP pseudocode draft](doc/lpap-pseudocode.md)
 - [Training stack](doc/training-stack.md)
 - [Dataset / storage](doc/data-storage.md)
 - [Molab remote GPU](doc/molab-workflow.md)

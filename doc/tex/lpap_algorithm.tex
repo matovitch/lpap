@@ -1,0 +1,48 @@
+% LPAP algorithm frame — compile with: pixi run tex-lpap-algo
+% Standalone crop for README embedding (PNG via pdftoppm).
+\documentclass[preview,border=8pt]{standalone}
+\usepackage{amsmath,amssymb}
+\usepackage{algpseudocode}
+
+% Python-like masked block (no visible "end where" line).
+\algblockdefx{Where}{EndWhere}
+  [1]{\textbf{where} #1:}
+  {}
+\algnotext{EndWhere}
+
+\begin{document}
+\begin{minipage}{0.92\linewidth}
+{\large\bfseries Linear Probing Amplitude Pooling}\\[0.35em]
+{\small
+$V \in \mathbb{R}^{C \times P}$,
+$\Delta \in \mathbb{Z}^{C \times P}$,
+$a \in \mathbb{R}^{C}$,
+$d \in \mathbb{Z}^{C}$,
+$P = N/C$
+}
+
+\begin{algorithmic}[1]
+\Require $x \in \mathbb{R}^{N}$,\; $C$,\; $K$ \Comment{$N \bmod C = 0$}
+\Ensure $a \in \mathbb{R}^{C}$,\; $d \in \mathbb{Z}^{C}$,\; $x' \in \mathbb{R}^{N}$
+\State $V \gets \mathrm{reshape}(x,\, C \times P)$
+\State $\Delta \gets 0_{C \times P}$;\;
+       $a \gets 0_{C}$;\;
+       $d \gets 0_{C}$
+\For{$k = 0,\ldots,K-1$}
+  \State $\ell_i \gets (i - k) \bmod C$
+         \Comment{$\forall\, i \in \{0,\ldots,C-1\}$}
+  \State $j_i \gets \arg\max_{p}\, |V[\ell_i,\, p]|$
+  \State $c_i \gets V[\ell_i,\, j_i]$
+  \State $\hat{d}_i \gets \Delta[\ell_i,\, j_i] + k$
+  \State $m_i \gets \bigl(|c_i| \ge |a_i|\bigr)$
+  \Where{$m$}
+    \State $V[\ell,\, j] \gets a$
+    \State $\Delta[\ell,\, j] \gets d - k$
+    \State $a \gets c$
+    \State $d \gets \hat{d}$
+  \EndWhere
+\EndFor
+\State \Return $a$,\; $d$,\; $\mathrm{flatten}(V)$
+\end{algorithmic}
+\end{minipage}
+\end{document}

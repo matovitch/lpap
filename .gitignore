@@ -34,3 +34,6 @@ archive/
 animations/media/
 media/
 animations/__pycache__/
+
+# Tectonic / TeX build intermediates (keep committed PNG in doc/assets/)
+doc/tex/build/
