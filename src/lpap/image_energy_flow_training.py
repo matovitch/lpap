@@ -58,7 +58,7 @@ class ImageEnergyFlowPriorConfig:
     """
 
     sigma: float = 2.0
-    scale: float = 1.0e-3
+    scale: float = 2.0e-3
 
     @property
     def mu(self) -> float:
@@ -169,7 +169,7 @@ def image_energy_flow_prior_config_from_dict(
 ) -> ImageEnergyFlowPriorConfig:
     return ImageEnergyFlowPriorConfig(
         sigma=float(data.get("sigma", 2.0)),
-        scale=float(data.get("scale", 1.0e-3)),
+        scale=float(data.get("scale", 2.0e-3)),
     )
 
 

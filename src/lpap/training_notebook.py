@@ -186,7 +186,7 @@ def default_image_energy_flow_training_config() -> ImageEnergyFlowTrainingConfig
             shuffle=True,
             num_workers=0,
         ),
-        prior=ImageEnergyFlowPriorConfig(sigma=2.0, scale=1.0e-3),
+        prior=ImageEnergyFlowPriorConfig(sigma=2.0, scale=2.0e-3),
         flow=FlowModelConfig(
             sequence_length=1024,
             width=128,
