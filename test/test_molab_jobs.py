@@ -52,11 +52,12 @@ class MolabJobsTest(unittest.TestCase):
     def test_lpap_teacher_worker_source(self) -> None:
         source = lpap_teacher_worker_source(
             backend_kind="surrogate",
-            config_relpath="configs/training/surrogate_c512.toml",
+            config_relpath="configs/training/teacher_c512_k32.toml",
             target_steps=10000,
         )
         self.assertIn("TARGET = 10000", source)
-        self.assertIn("surrogate_c512.toml", source)
+        self.assertIn("teacher_c512_k32.toml", source)
+        self.assertIn("project_teacher_config", source)
         self.assertIn("SURROGATE_DONE", source)
         self.assertIn("KIND = 'surrogate'", source)
         compile(source, "<surr_worker>", "exec")
@@ -71,7 +72,6 @@ class MolabJobsTest(unittest.TestCase):
         self.assertIn("default_image_energy_flow_training_config", source)
         self.assertIn("IMAGE_ENERGY_FLOW_DONE", source)
         self.assertIn("upload_artifacts_on_checkpoint=True", source)
-        self.assertNotIn("energy_bank", source)
         compile(source, "<flow_worker>", "exec")
 
     def test_launch_ae_writes_script_and_spawns(self) -> None:

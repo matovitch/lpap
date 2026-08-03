@@ -151,12 +151,6 @@ class ImageEnergyFlowTrainingConfig:
 def image_energy_flow_prior_config_from_dict(
     data: dict[str, Any],
 ) -> ImageEnergyFlowPriorConfig:
-    legacy = {"kind", "harmonics", "energy_bank"} & set(data)
-    if legacy:
-        raise ValueError(
-            "unsupported legacy flow prior keys "
-            f"{sorted(legacy)}; expected only 'sigma'"
-        )
     return ImageEnergyFlowPriorConfig(sigma=float(data.get("sigma", 1.0)))
 
 

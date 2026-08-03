@@ -7,9 +7,6 @@ __pycache__/
 *.py[cod]
 .ruff_cache/
 
-# marimo local session state
-notebooks/__marimo__/
-
 # large local datasets and generated archives
 data/*.tar
 data/*.tar.*

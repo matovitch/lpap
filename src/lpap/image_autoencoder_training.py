@@ -155,7 +155,7 @@ def lpap_pairs_from_source_dict(
             ),
         )
     raise ValueError(
-        "source must define lpap_pairs or legacy surrogate/decoder_checkpoint_name"
+        "source must define lpap_pairs or surrogate/decoder_checkpoint_name"
     )
 
 

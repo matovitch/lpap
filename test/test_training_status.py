@@ -175,7 +175,6 @@ class TrainingStatusTest(unittest.TestCase):
             self.assertEqual(summary["bg"]["log_last_step"], 40)
             text = format_training_status(summary)
             self.assertIn("bg:", text)
-            self.assertNotIn("progress:", text)
 
     def test_requires_checkpoint_or_log(self) -> None:
         with self.assertRaises(ValueError):

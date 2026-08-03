@@ -36,6 +36,7 @@ from lpap.flow_training import (
     FlowOptimizerConfig,
     FlowValidationConfig,
 )
+from lpap.permutation import make_grouped_permutation_indices
 from lpap.surrogate import LPAPSurrogateTransformer
 from lpap.surrogate_training import LPAPSurrogateDataConfig
 
@@ -57,6 +58,12 @@ def _save_tiny_teacher_pair(
         hidden_dim=16,
         layer_count=1,
         head_count=4,
+    )
+    permutation = make_grouped_permutation_indices(
+        value_count=value_count,
+        bucket_count=bucket_count,
+        seed=permutation_seed,
+        device=torch.device("cpu"),
     )
     save_training_checkpoint(
         checkpoint_dir / surrogate_name,
@@ -81,6 +88,7 @@ def _save_tiny_teacher_pair(
                 "head_count": 4,
                 "permutation_seed": permutation_seed,
             },
+            "permutation": permutation,
         },
     )
     decoder = LPAPDecoderTransformer(
@@ -462,7 +470,7 @@ class ImageAutoencoderTrainingTest(unittest.TestCase):
                     "seed": 1,
                     "display_every": 1,
                     "log_every": 1,
-                    "run_id": "legacy",
+                    "run_id": "flat-source",
                     "checkpoint_name": "image_autoencoder.pt",
                     "log_name": "image_autoencoder.sqlite",
                 },

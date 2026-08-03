@@ -404,7 +404,11 @@ def restore_training_config_from_log(
     run_id: str,
     resume_from_checkpoint: bool = False,
 ) -> Path:
-    base_config = training_config_from_project_file(project_root, model_kind)
+    try:
+        base_config = training_config_from_project_file(project_root, model_kind)
+    except FileNotFoundError:
+        # Kind-named TOMLs are optional (teachers use teacher_*.toml on molab).
+        base_config = default_training_config(model_kind)
     config = training_config_from_log(
         model_kind,
         project_root=project_root,

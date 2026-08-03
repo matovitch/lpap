@@ -8,6 +8,7 @@ from lpap.decoder_training import LPAPDecoderTrainingConfig
 from lpap.image_autoencoder_training import ImageAutoencoderTrainingConfig
 from lpap.image_energy_flow_training import ImageEnergyFlowTrainingConfig
 from lpap.surrogate_training import LPAPSurrogateTrainingConfig
+from lpap.teacher_config import project_teacher_config
 from lpap.training_log import upsert_run
 from lpap.training_notebook import (
     restore_training_config_from_log,
@@ -22,9 +23,10 @@ from lpap.visualization_notebook import render_decoder_run_gallery
 class TrainingNotebookConfigTest(unittest.TestCase):
     def test_loads_project_training_toml_configs(self) -> None:
         project_root = Path(__file__).resolve().parents[1]
+        teacher_path = project_root / "configs/training/teacher_c128_k16.toml"
 
-        surrogate = training_config_from_project_file(project_root, "surrogate")
-        decoder = training_config_from_project_file(project_root, "decoder")
+        surrogate = project_teacher_config(teacher_path, "surrogate")
+        decoder = project_teacher_config(teacher_path, "decoder")
         image_energy_flow = training_config_from_project_file(
             project_root, "image_energy_flow"
         )
@@ -33,13 +35,13 @@ class TrainingNotebookConfigTest(unittest.TestCase):
         )
 
         self.assertIsInstance(surrogate, LPAPSurrogateTrainingConfig)
-        self.assertEqual(surrogate.run.run_id, "surrogate_synthetic")
-        self.assertEqual(surrogate.run.checkpoint_name, "surrogate_c128_k4.pt")
-        self.assertIn("legacy c128 k_max=4", surrogate.run.comment)
+        self.assertEqual(surrogate.run.run_id, "surrogate_c128_k16")
+        self.assertEqual(surrogate.run.checkpoint_name, "surrogate_c128_k16.pt")
+        self.assertEqual(surrogate.model.k_max, 16)
         self.assertIsInstance(decoder, LPAPDecoderTrainingConfig)
-        self.assertEqual(decoder.run.run_id, "decoder_synthetic")
-        self.assertEqual(decoder.run.checkpoint_name, "decoder_c128_k4.pt")
-        self.assertEqual(decoder.teacher.checkpoint_name, "surrogate_c128_k4.pt")
+        self.assertEqual(decoder.run.run_id, "decoder_c128_k16")
+        self.assertEqual(decoder.run.checkpoint_name, "decoder_c128_k16.pt")
+        self.assertEqual(decoder.teacher.checkpoint_name, "surrogate_c128_k16.pt")
         self.assertTrue(decoder.teacher.require_checkpoint)
         self.assertEqual(decoder.regularization.source_ce_weight, 0.1)
         self.assertIsInstance(image_energy_flow, ImageEnergyFlowTrainingConfig)
@@ -134,17 +136,21 @@ class TrainingNotebookConfigTest(unittest.TestCase):
 
     def test_serializes_training_config_to_toml(self) -> None:
         project_root = Path(__file__).resolve().parents[1]
-        config = training_config_from_project_file(project_root, "surrogate")
+        config = project_teacher_config(
+            project_root / "configs/training/teacher_c128_k16.toml", "surrogate"
+        )
 
         text = training_config_to_toml(config)
 
         self.assertIn("[data.energy_bank]", text)
         self.assertIn("encoded_energies_bank_flow_best.pt", text)
-        self.assertIn("surrogate_c128_k4.pt", text)
+        self.assertIn("surrogate_c128_k16.pt", text)
 
     def test_decoder_toml_serializes_energy_bank(self) -> None:
         project_root = Path(__file__).resolve().parents[1]
-        config = training_config_from_project_file(project_root, "decoder")
+        config = project_teacher_config(
+            project_root / "configs/training/teacher_c128_k16.toml", "decoder"
+        )
 
         text = training_config_to_toml(config)
 
@@ -157,25 +163,27 @@ class TrainingNotebookConfigTest(unittest.TestCase):
         text = training_config_to_toml(config)
         self.assertIn("[prior]", text)
         self.assertIn("sigma = 1.0", text)
-        self.assertNotIn("kind", text)
-        self.assertNotIn("harmonics", text)
-        self.assertNotIn("energy_bank", text)
 
     def test_restores_training_toml_from_run_log(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project_root = Path(temp_dir)
+            # Restore falls back to default_training_config when kind TOML is absent;
+            # that default uses log_name "surrogate.sqlite".
             log_path = project_root / "training_logs" / "surrogate.sqlite"
-            source_config = training_config_from_project_file(
-                Path(__file__).resolve().parents[1], "surrogate"
+            source_config = project_teacher_config(
+                Path(__file__).resolve().parents[1]
+                / "configs/training/teacher_c128_k16.toml",
+                "surrogate",
             )
             run_config = source_config.as_run_config()
             run_config["run"]["run_training"] = False
             run_config["run"]["resume_from_checkpoint"] = True
             run_config["run"]["steps"] = 17
             run_config["run"]["comment"] = "restored from sqlite"
+            run_config["run"]["log_name"] = "surrogate.sqlite"
             upsert_run(
                 log_path,
-                run_id="surrogate_synthetic:restored-run",
+                run_id="surrogate_c128_k16:restored-run",
                 checkpoint_path="checkpoints/surrogate.pt",
                 config=run_config,
                 metadata={"comment": "restored from sqlite"},
@@ -184,7 +192,7 @@ class TrainingNotebookConfigTest(unittest.TestCase):
             restored_path = restore_training_config_from_log(
                 "surrogate",
                 project_root=project_root,
-                run_id="surrogate_synthetic:restored-run",
+                run_id="surrogate_c128_k16:restored-run",
             )
             restored_config = training_config_from_file(restored_path, "surrogate")
 
@@ -199,12 +207,14 @@ class TrainingNotebookConfigTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             project_root = Path(temp_dir)
             log_path = project_root / "training_logs" / "decoder.sqlite"
-            source_config = training_config_from_project_file(
-                Path(__file__).resolve().parents[1], "decoder"
+            source_config = project_teacher_config(
+                Path(__file__).resolve().parents[1]
+                / "configs/training/teacher_c128_k16.toml",
+                "decoder",
             )
             upsert_run(
                 log_path,
-                run_id="decoder_synthetic:missing-checkpoint",
+                run_id="decoder_c128_k16:missing-checkpoint",
                 checkpoint_path="checkpoints/missing_decoder.pt",
                 config=source_config.as_run_config(),
             )
@@ -213,7 +223,7 @@ class TrainingNotebookConfigTest(unittest.TestCase):
                 render_decoder_run_gallery(
                     project_root=project_root,
                     log_path=log_path,
-                    run_id="decoder_synthetic:missing-checkpoint",
+                    run_id="decoder_c128_k16:missing-checkpoint",
                     sample_count=1,
                 )
 

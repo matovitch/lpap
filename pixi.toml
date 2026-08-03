@@ -15,11 +15,11 @@ cmd = "PYTHONPATH=src:. python -m unittest discover -s test"
 description = "Run the project test suite."
 
 [tasks.lint]
-cmd = "ruff check src/lpap molab test notebooks bench animations"
+cmd = "ruff check src/lpap molab test bench animations"
 description = "Run Ruff lint checks."
 
 [tasks.format]
-cmd = "ruff format src/lpap molab test notebooks bench animations"
+cmd = "ruff format src/lpap molab test bench animations"
 description = "Format Python source with Ruff."
 
 [tasks.bench-lpap]
@@ -34,38 +34,13 @@ args = [
 ]
 description = "Benchmark PyTorch and Triton LPAP implementations."
 
-
-[tasks.notebook-surrogate]
-cmd = "PYTHONPATH=src marimo edit notebooks/visualize_surrogate.py --no-token"
-description = "Open the LPAP surrogate visualization marimo notebook."
-
-[tasks.notebook-decoder]
-cmd = "PYTHONPATH=src marimo edit notebooks/visualize_decoder.py --no-token"
-description = "Open the LPAP decoder visualization marimo notebook."
-
-[tasks.notebook-image-to-energy]
-cmd = "PYTHONPATH=src marimo edit notebooks/visualize_image_to_energy.py --no-token"
-description = "Open the image-to-energy flow visualization marimo notebook."
-
-[tasks.notebook-energy-to-image]
-cmd = "PYTHONPATH=src marimo edit notebooks/visualize_energy_to_image.py --no-token"
-description = "Open the energy-to-image flow visualization marimo notebook."
-
-[tasks.notebook-image-autoencoder]
-cmd = "PYTHONPATH=src marimo edit notebooks/visualize_image_autoencoder.py --no-token"
-description = "Open the image autoencoder visualization marimo notebook."
-
 [tasks.ae-loss-probe]
 cmd = "PYTHONPATH=src python -m lpap.image_autoencoder_loss --project-root . --suggest"
 description = "Probe AE loss-component magnitudes and suggest lambda dials."
 
-[tasks.notebook-train]
-cmd = "PYTHONPATH=src marimo edit notebooks/train.py --no-token"
-description = "Open the shared LPAP model training marimo notebook."
-
-[tasks.notebook-molab-lab]
-cmd = "PYTHONPATH=src marimo edit notebooks/molab_lab.py --no-token"
-description = "Open the molab remote-GPU lab marimo notebook (local preview)."
+[tasks.notebook-lab]
+cmd = "PYTHONPATH=src:. marimo edit molab/lab.py --no-token"
+description = "Open the molab lab marimo notebook (local preview)."
 
 [tasks.artifacts-download]
 cmd = "PYTHONPATH=src python -m lpap.artifact_sync download --project-root ."

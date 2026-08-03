@@ -9,7 +9,7 @@ Start here when navigating the LPAP research stack.
 
 ## Training Stack
 
-- [Training stack notes](training-stack.md): model dependencies, checkpoint/logging policy, notebook workflow, AE loss terms / lambda dialing, and the trainable model kinds.
+- [Training stack notes](training-stack.md): model dependencies, checkpoint/logging policy, molab lab workflow, AE loss terms / lambda dialing, and the trainable model kinds.
 - [Sizing probes](sizing-probes.md): capacity / integration exploration before promoting new baselines.
 - [Image-to-energy implementation notes](image-to-energy-implementation.md): bidirectional image↔energy flow with Gaussian prior at `t=0`.
 
@@ -25,17 +25,11 @@ pixi run test
 pixi run ae-loss-probe
 pixi run data-download
 pixi run artifacts-download
-pixi run notebook-train
-pixi run notebook-surrogate
-pixi run notebook-decoder
-pixi run notebook-image-to-energy
-pixi run notebook-energy-to-image
-pixi run notebook-image-autoencoder
+pixi run notebook-lab
 ```
 
 Remote GPU (`lpap-molab` on `main`): [molab workflow](molab-workflow.md)
 (`molab-sync` → launch → `molab-train-status`).
-
 ## Model Order
 
 Train the pieces in dependency order; they are then frozen or fine-tuned inside

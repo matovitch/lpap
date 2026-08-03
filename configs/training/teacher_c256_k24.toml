@@ -1,0 +1,68 @@
+# Shared LPAP teacher pair C=256, k_max=24 (N=1024).
+# Launch: --config configs/training/teacher_c256_k24.toml --backend surrogate|decoder
+
+[pair]
+name = "c256_k24"
+bucket_count = 256
+probe_count = 4
+k_max = 24
+permutation_seed = 256
+
+[pair.energy_bank]
+path = "data/encoded_energies_bank_flow_best.pt"
+energies_key = "energies"
+
+[data]
+batch_size = 32
+
+[surrogate]
+hidden_dim = 256
+layer_count = 12
+head_count = 8
+learning_rate = 1.0e-3
+
+[surrogate.validation]
+enabled = true
+every = 100
+batch_size = 256
+seed = 10123
+validate_at_end = true
+
+[surrogate.run]
+run_training = true
+resume_from_checkpoint = true
+steps = 15000
+seed = 123
+display_every = 5
+log_every = 1
+comment = "C=256 energy-bank surrogate; k_max=24; N=1024"
+pinned = false
+
+[decoder]
+frontend_initial_temperature = 0.25
+hidden_dim = 256
+layer_count = 8
+head_count = 8
+learning_rate = 1.0e-3
+source_ce_weight = 0.1
+source_ce_l1_reference = 0.05
+source_ce_power = 2.0
+load_best = true
+require_checkpoint = true
+
+[decoder.validation]
+enabled = true
+every = 100
+batch_size = 256
+seed = 20123
+validate_at_end = true
+
+[decoder.run]
+run_training = true
+resume_from_checkpoint = true
+steps = 15000
+seed = 456
+display_every = 5
+log_every = 1
+comment = "C=256 energy-bank decoder; teacher k_max=24; N=1024"
+pinned = false

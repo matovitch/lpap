@@ -158,24 +158,6 @@ class ImageEnergyFlowTrainingTest(unittest.TestCase):
         config = image_energy_flow_training_config_from_dict(raw)
         self.assertEqual(config.prior.sigma, 0.5)
 
-    def test_legacy_prior_keys_rejected(self) -> None:
-        with self.assertRaises(ValueError):
-            image_energy_flow_training_config_from_dict(
-                {
-                    "image": FlowImageConfig(
-                        dataset_path="data/images.pt", side=4
-                    ).as_dict(),
-                    "prior": {"kind": "harmonics", "sigma": 1.0},
-                    "flow": FlowModelConfig(
-                        sequence_length=16, width=8, time_dim=8
-                    ).as_dict(),
-                    "time": FlowTimeConfig().as_dict(),
-                    "optimizer": {"learning_rate": 1e-4, "max_grad_norm": 1.0},
-                    "validation": FlowValidationConfig(euler_steps=(1,)).as_dict(),
-                    "run": ImageEnergyFlowRunConfig(steps=3).as_dict(),
-                }
-            )
-
 
 if __name__ == "__main__":
     unittest.main()

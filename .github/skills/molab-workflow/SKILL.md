@@ -54,7 +54,7 @@ All under `.github/skills/molab-workflow/scripts/` (require `MOLAB_URL` +
 | `molab-launch-image-energy-flow.sh` | Detached Gaussian-prior bidirectional flow |
 | `molab-launch-lpap-teacher.sh` | Detached surrogate or decoder teacher |
 | `molab-push-package-file.sh` | Hot-patch one local `src/lpap/*.py` into site-packages + reload |
-| `molab-export-notebook.sh` | Backport live cells → `notebooks/molab_lab.py` |
+| `molab-export-notebook.sh` | Backport live cells → `molab/lab.py` |
 
 **Hot-patch vs sync:** use `molab-push-package-file.sh` for short try-before-commit
 probes (e.g. gallery γ). It is **ephemeral** — `molab-sync` / pip reinstall
@@ -63,7 +63,7 @@ owning cell is re-run. Durable path: commit + push + `molab-sync.sh`.
 
 **Backport:** while paired, live kernel is source of truth. When the lab cells
 stabilize, run `molab-export-notebook.sh` (or `--dry-run`) before committing
-`notebooks/molab_lab.py`. Prefer named cells first (see below).
+`molab/lab.py`. Prefer named cells first (see below).
 
 - **After push / kernel restart — one-shot sync:**
 
@@ -128,7 +128,7 @@ Current AE lab roles (rename/extend as the notebook evolves):
 
 ## Hard rules
 
-1. **One paired notebook** (`notebooks/molab_lab.py` as the durable surface).
+1. **One paired notebook** (`molab/lab.py` as the durable surface).
 2. **Default long-train path = detached bg worker** (`molab-launch-ae-bidirectional-flow.sh`
    + pid/log + Pushover/HF). Use **visible code-mode cells** only for short /
    shared chunks the human should watch. Scratchpad = probes / installs / sync.
@@ -202,4 +202,5 @@ Reports ckpt step, SQLite max step, and bg alive / last log step.
 Gaussian-prior `image_energy_flow` → encode images via i2e into an empirical
 energy bank → bank teachers (`surrogate` → `decoder`) → `image_autoencoder`
 (clones the flow). Teachers use the bank; the AE needs images + flow + teacher
-checkpoints.
+checkpoints. Launch teachers from a shared `configs/training/teacher_*.toml`
+with `--backend surrogate|decoder` (same file for both jobs).

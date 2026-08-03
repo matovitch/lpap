@@ -2,8 +2,8 @@
 
 See the [documentation index](index.md) for the full documentation map and the [glossary](glossary.md) for project terminology.
 
-LPAP currently wires these trainable model kinds into the shared marimo training
-notebook:
+LPAP trains these model kinds via `lpap.training_notebook` helpers (molab workers
+and [`molab/lab.py`](../molab/lab.py)):
 
 - `surrogate`: learns full-`N` source-index logits for LPAP bucket selections on empirical i2e energy-bank rows.
 - `decoder`: reconstructs source energy values from frozen surrogate logits (same energy bank).
@@ -14,8 +14,8 @@ notebook:
 
 ```mermaid
 flowchart TD
-    config[Training TOML] --> train_notebook[notebooks/train.py]
-    train_notebook --> dispatch[lpap.training_notebook]
+    config[Training TOML] --> molab_jobs[molab workers / lab]
+    molab_jobs --> dispatch[lpap.training_notebook]
     dispatch --> kinds{{Model kind}}
     kinds --> surrogate[surrogate]
     kinds --> decoder[decoder]
@@ -26,8 +26,10 @@ flowchart TD
     session --> sqlite[(SQLite logs)]
 ```
 
-The shared notebook handles configuration loading, previous-run discovery, rerun restoration, progress display, and loss plotting. Model-specific galleries live in the visualization notebooks. The model-specific training modules keep the parts that differ by model kind.
-
+Configuration loading, session creation, and step loops live in
+`lpap.training_notebook` plus model-specific training modules. Interactive work
+happens on molab ([workflow](molab-workflow.md)); gallery helpers remain in
+`lpap.visualization_notebook` for probes.
 ## Checkpoints And Logs
 
 `TrainingRun` owns checkpoint and SQLite log updates for all model kinds.
@@ -57,7 +59,9 @@ Checkpoint payloads include:
 - `training_state.model_config`
 - lightweight metadata such as run id and display name
 
-SQLite logs include run configuration, metadata, attempts, scalar KPIs, and checkpoint paths. SQLite is informational and ergonomic; checkpoints are authoritative for model-dependent configuration (including the concrete LPAP `permutation` tensor — regenerate from `permutation_seed` only for fresh runs; that seed is always drawn on CPU for device stability).
+SQLite logs include run configuration, metadata, attempts, scalar KPIs, and checkpoint paths. SQLite is informational and ergonomic; checkpoints are authoritative for model-dependent configuration (including the concrete LPAP `permutation` tensor — regenerate from `permutation_seed` only for fresh runs; that seed is always drawn on CPU for device stability). Decoder and AE loads that require a surrogate checkpoint also require the saved `training_state.permutation` tensor.
+
+Teacher pairs use one shared file per pair under `configs/training/teacher_*.toml` (layout, bank, `k_max`, and `permutation_seed` live under `[pair]`). Launch with `--backend surrogate|decoder` against the same file; checkpoint stems remain `surrogate_{name}.pt` / `decoder_{name}.pt`.
 
 This is a research repository. Local checkpoint and SQLite schemas are allowed to change, and stale artifacts should be regenerated instead of migrated unless migration is explicitly useful.
 
@@ -173,26 +177,18 @@ flowchart TD
 flow-matching objective, and the `[-1, 0]` / `[0, +1]` integration ranges.
 The energy endpoint is i.i.d. Gaussian with configurable `sigma`.
 
-## Notebooks
+## Lab notebook
 
-Use Pixi tasks from the repository root:
+Local preview of the durable molab lab:
 
 ```sh
-pixi run notebook-train
-pixi run notebook-surrogate
-pixi run notebook-decoder
-pixi run notebook-image-to-energy
-pixi run notebook-energy-to-image
-pixi run notebook-image-autoencoder
+pixi run notebook-lab
 ```
 
-The visualization notebooks select logged runs from SQLite, load the corresponding checkpoint, and render model-specific galleries. The flow visualizers show integration results at multiple Euler midpoint step counts. The image autoencoder visualizer compares grayscale input/reconstruction/error and encoded/decoded energy/error.
-
-For multi-hour AE runs on remote GPUs, prefer the detached molab launcher rather
-than long local notebook cells — see [molab workflow](molab-workflow.md).
+For multi-hour AE / teacher runs on remote GPUs, prefer the detached molab
+launchers rather than long lab cells — see [molab workflow](molab-workflow.md).
 `TrainingRun` supports `upload_artifacts_on_checkpoint` and `notify_on_finished`
 (Pushover via env / secrets inject).
-
 ## Testing
 
 The suite covers the LPAP operator, surrogate/decoder behavior, logging/checkpoints, Hilbert ordering, flow matching, energy-bank teachers, notebook dispatch, galleries, small CPU flow/AE loops, storage config, artifact sync helpers, and notify. Repo-top `molab/` helpers have their own unit tests (`PYTHONPATH=src:.`).

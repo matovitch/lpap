@@ -139,8 +139,8 @@ probes). Log: `surrogate_size_confirm.sqlite`; checkpoints
 surrogate default. Cost is modest (~1.3× step time, still ≪ Pro 6000
 budget).
 
-**Promoted (2026-07-22):** `configs/training/surrogate.toml` and
-`default_surrogate_training_config()` use `layer_count=12`. On molab, baseline
+**Promoted (2026-07-22):** `default_surrogate_training_config()` and later
+teacher pair TOMLs use `layer_count=12`. On molab, baseline
 `surrogate_synthetic.pt` was replaced by `surrogate_confirm_h256_l12.pt`
 (best val ≈ 0.293, WA ≈ 0.921). Old 8-layer baseline kept only if still present
 under a non-baseline name; decoder must be retrained against the new teacher.

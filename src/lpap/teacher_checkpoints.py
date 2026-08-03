@@ -53,11 +53,15 @@ def load_surrogate_source(
     surrogate.eval()
     for parameter in surrogate.parameters():
         parameter.requires_grad_(False)
-    saved_permutation: torch.Tensor | None = None
     raw_perm = (payload.get("training_state") or {}).get("permutation")
-    if raw_perm is not None:
-        saved_permutation = torch.as_tensor(raw_perm).long()
-    return surrogate, model_config, saved_permutation
+    if raw_perm is None:
+        if require_checkpoint:
+            raise ValueError(
+                "surrogate checkpoint is missing training_state.permutation: "
+                f"{path}"
+            )
+        return surrogate, model_config, None
+    return surrogate, model_config, torch.as_tensor(raw_perm).long()
 
 
 def _decoder_model_config_from_checkpoint(

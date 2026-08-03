@@ -365,7 +365,7 @@ def lpap_teacher_worker_source(
     comment: str | None = None,
     resume_from_checkpoint: bool = False,
 ) -> str:
-    """Return Python source for a surrogate/decoder worker from a TOML config."""
+    """Return Python source for a surrogate/decoder worker from a teacher TOML."""
     if target_steps <= 0:
         raise ValueError("target_steps must be positive")
     if backend_kind not in ("surrogate", "decoder"):
@@ -386,17 +386,14 @@ def lpap_teacher_worker_source(
 from dataclasses import replace
 from pathlib import Path
 
-from lpap.training_notebook import (
-    create_training_session,
-    iter_training,
-    training_config_from_file,
-)
+from lpap.teacher_config import project_teacher_config
+from lpap.training_notebook import create_training_session, iter_training
 
 project_root = Path({str(root)!r})
 TARGET = {int(target_steps)}
 KIND = {backend_kind!r}
 config_path = project_root / {config_relpath!r}
-base = training_config_from_file(config_path, KIND)
+base = project_teacher_config(config_path, KIND)
 config = replace(
     base,
     run=replace(
@@ -420,7 +417,8 @@ print(
     f"device={{session.device}} kind={{KIND}} config={{config_path.name}} "
     f"start={{session.resume_info.start_step}} target={{config.run.steps}} "
     f"C={{config.data.bucket_count}} probes={{config.data.probe_count}} "
-    f"N={{config.value_count}} upload={{session.training_run.config.upload_artifacts_on_checkpoint}} "
+    f"N={{config.value_count}} perm_seed={{config.run.permutation_seed}} "
+    f"upload={{session.training_run.config.upload_artifacts_on_checkpoint}} "
     f"notify={{session.training_run.config.notify_on_finished}}",
     flush=True,
 )
@@ -457,15 +455,15 @@ def launch_lpap_teacher_bg(
     require_secrets: bool = True,
     resume_from_checkpoint: bool = False,
 ) -> dict[str, Any]:
-    """Write + spawn a surrogate or decoder worker from a training TOML."""
+    """Write + spawn a surrogate or decoder worker from a teacher_*.toml."""
     root = Path(project_root)
     config_path = root / config_relpath
     if not config_path.is_file():
         raise BackgroundWorkerError(f"missing training config: {config_path}")
-    # Derive artifact names from the TOML so pid/log stems stay stable.
-    from lpap.training_notebook import training_config_from_file
+    # Derive artifact names from the shared pair TOML so pid/log stems stay stable.
+    from lpap.teacher_config import project_teacher_config
 
-    cfg = training_config_from_file(config_path, backend_kind)
+    cfg = project_teacher_config(config_path, backend_kind)
     bg_stem = f"{cfg.run.run_id}_bg"
     return _spawn_job(
         project_root=root,
@@ -523,7 +521,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
     teacher = sub.add_parser(
         "launch-lpap-teacher",
-        help="spawn surrogate or decoder from a configs/training/*.toml",
+        help="spawn surrogate or decoder from a configs/training/teacher_*.toml",
     )
     teacher.add_argument(
         "--backend",
@@ -533,7 +531,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     teacher.add_argument(
         "--config",
         required=True,
-        help="repo-relative TOML path, e.g. configs/training/surrogate_c512.toml",
+        help="repo-relative teacher TOML, e.g. configs/training/teacher_c512_k32.toml",
     )
     teacher.add_argument("--resume", action="store_true")
     add_common(teacher)

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Export the live paired molab notebook into notebooks/molab_lab.py (backport).
+# Export the live paired molab notebook into molab/lab.py (backport).
 #
 # Pulls named cells via marimo._code_mode and rewrites the durable lab file with
 # marimo's codegen (correct signatures / returns). Prefer named cells
@@ -19,7 +19,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 molab_exec="$script_dir/molab-exec.sh"
 lib_py="$script_dir/molab_lib.py"
 repo_root="$(cd "$script_dir/../../../.." && pwd)"
-output_path="$repo_root/notebooks/molab_lab.py"
+output_path="$repo_root/molab/lab.py"
 dry_run=0
 to_stdout=0
 

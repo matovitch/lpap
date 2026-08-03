@@ -349,11 +349,12 @@ def _validate_teacher_matches_decoder(
     teacher_model_config: dict[str, int],
     config: LPAPDecoderTrainingConfig,
 ) -> None:
+    # Layout only — permutation comes from the surrogate checkpoint tensor,
+    # not from comparing decoder TOML permutation_seed to the checkpoint seed.
     expected = {
         "value_count": config.value_count,
         "bucket_count": config.data.bucket_count,
         "probe_count": config.data.probe_count,
-        "permutation_seed": config.run.permutation_seed,
     }
     mismatches = [
         f"{name} checkpoint={teacher_model_config[name]} decoder={value}"
@@ -365,6 +366,27 @@ def _validate_teacher_matches_decoder(
             "surrogate checkpoint does not match decoder configuration: "
             + "; ".join(mismatches)
         )
+
+
+def _permutation_from_surrogate_payload(
+    payload: dict[str, object] | None,
+    *,
+    require: bool,
+    path: Path,
+) -> torch.Tensor | None:
+    if payload is None:
+        if require:
+            raise ValueError(f"surrogate checkpoint missing payload: {path}")
+        return None
+    raw_perm = (payload.get("training_state") or {}).get("permutation")
+    if raw_perm is None:
+        if require:
+            raise ValueError(
+                "surrogate checkpoint is missing training_state.permutation: "
+                f"{path}"
+            )
+        return None
+    return torch.as_tensor(raw_perm).long()
 
 
 def _create_surrogate_teacher(
@@ -396,13 +418,12 @@ def _create_surrogate_teacher(
         layer_count=model_config["layer_count"],
         head_count=model_config["head_count"],
     ).to(device)
-    saved_permutation: torch.Tensor | None = None
+    saved_permutation = _permutation_from_surrogate_payload(
+        payload, require=require_checkpoint, path=path
+    )
     if payload is not None:
         state_key = "best_model_state" if load_best else "model_state"
         surrogate.load_state_dict(payload[state_key])
-        raw_perm = (payload.get("training_state") or {}).get("permutation")
-        if raw_perm is not None:
-            saved_permutation = torch.as_tensor(raw_perm).long()
     return surrogate, loaded, model_config, saved_permutation
 
 

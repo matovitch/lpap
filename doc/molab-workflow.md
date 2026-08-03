@@ -79,7 +79,7 @@ Extra molab-workflow helpers (same `MOLAB_*` env):
 
 - `molab-push-package-file.sh` — hot-patch one `src/lpap/*.py` into the kernel
   (ephemeral; prefer commit + `molab-sync` for durable updates)
-- `molab-export-notebook.sh` — backport live cells → `notebooks/molab_lab.py`
+- `molab-export-notebook.sh` — backport live cells → `molab/lab.py`
 - `molab-train-status.sh` / `molab-launch-ae-bidirectional-flow.sh` / `molab-launch-image-energy-flow.sh` — long AE / Gaussian flow runs
 - `molab-notify.sh` — Pushover on job finish / handoff (prefer over agent polling)
 
@@ -98,16 +98,15 @@ URL + token. Prefer reusing the same molab notebook URL across sessions.
 
 | Notebook | Purpose |
 | --- | --- |
-| `notebooks/molab_lab.py` | Primary remote lab: install, CUDA smoke, short shared trains by `model_kind` |
-| Local `notebooks/train.py` | Pixi training UI on `main` |
-| Local `notebooks/visualize_*.py` | Curves/galleries after `pixi run artifacts-download` |
+| `molab/lab.py` | Durable lab: install, CUDA smoke, short shared trains; export target for paired molab sessions |
 
 Controls on the lab notebook: model kind, target steps, chunk steps,
 `display_every`, `log_every`. For multi-hour AE prefer the detached launcher
-instead of long lab cells. Train logic stays in `src/lpap/`.
+instead of long lab cells. Train logic stays in `src/lpap/`. Teacher pairs use
+`configs/training/teacher_*.toml` via `--backend surrogate|decoder`.
 
 While paired, mutate the **live** notebook with `cm` (not the `.py` on disk).
-Backport stable cell structure to `molab_lab.py` on `main` when useful.
+Backport stable cell structure to `molab/lab.py` on `main` when useful.
 
 **Cell naming:** durable lab cells get a marimo name + `# cell: <name>` first
 line (`ae_setup`, `status`, `gallery_cache`, …). Talk about cells by name, not

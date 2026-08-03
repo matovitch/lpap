@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Launch a surrogate or decoder bg worker from a configs/training/*.toml on molab.
+# Launch a surrogate or decoder bg worker from a shared teacher_*.toml on molab.
 #
 # Required env: MOLAB_URL, MOLAB_TOKEN or MARIMO_TOKEN
 # Optional: MOLAB_SESSION
 #
 # Usage:
-#   bash …/molab-launch-lpap-teacher.sh --backend surrogate --config configs/training/surrogate_c512.toml --target-steps 10000
-#   bash …/molab-launch-lpap-teacher.sh --backend decoder --config configs/training/decoder_c512.toml --target-steps 10000
+#   bash …/molab-launch-lpap-teacher.sh --backend surrogate --config configs/training/teacher_c512_k32.toml --target-steps 10000
+#   bash …/molab-launch-lpap-teacher.sh --backend decoder --config configs/training/teacher_c512_k32.toml --target-steps 10000
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
