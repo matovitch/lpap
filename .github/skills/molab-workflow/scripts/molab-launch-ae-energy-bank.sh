@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Launch the versioned AE energy-bank detached worker on molab.
 #
+# Tri-pair AE (c128_k16/c256_k24/c512_k32) from image_energy_flow_energy_bank.pt.
+# Artifacts: image_autoencoder_tri_bank_flow.{pt,sqlite}
+#
 # Requires a prior molab-sync (so lpap + secrets are present). Refuses if the
 # previous bg pid is still alive.
 #
@@ -8,9 +11,9 @@
 # Optional: MOLAB_SESSION (prefer unset unless multi-session)
 #
 # Usage:
-#   bash .github/skills/molab-workflow/scripts/molab-launch-ae-energy-bank.sh --target-steps 58200
-#   bash .github/skills/molab-workflow/scripts/molab-launch-ae-energy-bank.sh --target-steps 40000 --resume
-#   bash .github/skills/molab-workflow/scripts/molab-launch-ae-energy-bank.sh --target-steps 58200 --json
+#   bash .github/skills/molab-workflow/scripts/molab-launch-ae-energy-bank.sh --target-steps 70000
+#   bash .github/skills/molab-workflow/scripts/molab-launch-ae-energy-bank.sh --target-steps 70000 --resume
+#   bash .github/skills/molab-workflow/scripts/molab-launch-ae-energy-bank.sh --target-steps 70000 --json
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

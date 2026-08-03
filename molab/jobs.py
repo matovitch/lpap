@@ -18,12 +18,14 @@ from molab.bg_worker import (
     spawn_detached_python,
 )
 
-# Fresh multi-pair AE initialized from bank-pretrained flows (c128+c256 teachers).
-AE_ENERGY_BANK_RUN_ID = "image_autoencoder_multi_energy_bank"
-AE_ENERGY_BANK_CHECKPOINT = "image_autoencoder_multi_energy_bank.pt"
-AE_ENERGY_BANK_LOG = "image_autoencoder_multi_energy_bank.sqlite"
-AE_ENERGY_BANK_BG_STEM = "image_autoencoder_multi_energy_bank_bg"
-AE_ENERGY_BANK_SCRIPT = "train_image_autoencoder_multi_energy_bank_bg.py"
+# Fresh tri-pair AE initialized from bank-pretrained bidirectional flow
+# (c128_k16 + c256_k24 + c512_k32). Distinct from harmonics-init
+# image_autoencoder_tri_flow.* artifacts.
+AE_ENERGY_BANK_RUN_ID = "image_autoencoder_tri_bank_flow"
+AE_ENERGY_BANK_CHECKPOINT = "image_autoencoder_tri_bank_flow.pt"
+AE_ENERGY_BANK_LOG = "image_autoencoder_tri_bank_flow.sqlite"
+AE_ENERGY_BANK_BG_STEM = "image_autoencoder_tri_bank_flow_bg"
+AE_ENERGY_BANK_SCRIPT = "train_image_autoencoder_tri_bank_flow_bg.py"
 
 # Tri-pair AE from one bidirectional harmonics flow
 # (c128_k16 + c256_k24 + c512_k32). New stem so the prior 2-pair
@@ -59,12 +61,14 @@ def ae_energy_bank_worker_source(
     energy_bank_path: str = "data/encoded_energies_ae_best.pt",
     resume_from_checkpoint: bool = False,
 ) -> str:
-    """Return Python source for the multi-pair AE worker (bank-pretrained flows)."""
+    """Return Python source for the tri-pair AE worker (bank-pretrained flow)."""
+    del energy_bank_path  # kept for launcher API compatibility
     if target_steps <= 0:
         raise ValueError("target_steps must be positive")
     root = Path(project_root)
     resolved_comment = comment or (
-        f"multi-pair AE c128+c256 from bank flows; bg to {target_steps}; "
+        "tri-pair AE c128_k16+c256_k24+c512_k32 from "
+        f"image_energy_flow_energy_bank; bg to {target_steps}; "
         "HF upload + notify"
     )
     upload = "True" if upload_artifacts_on_checkpoint else "False"
@@ -94,14 +98,19 @@ config = replace(
     source=ImageAutoencoderSourceConfig(
         lpap_pairs=(
             ImageAutoencoderLpapPairConfig(
-                surrogate_checkpoint_name="surrogate_c128_k4.pt",
-                decoder_checkpoint_name="decoder_c128_k4.pt",
-                name="c128",
+                surrogate_checkpoint_name="surrogate_c128_k16.pt",
+                decoder_checkpoint_name="decoder_c128_k16.pt",
+                name="c128_k16",
             ),
             ImageAutoencoderLpapPairConfig(
-                surrogate_checkpoint_name="surrogate_c256_k4.pt",
-                decoder_checkpoint_name="decoder_c256_k4.pt",
-                name="c256",
+                surrogate_checkpoint_name="surrogate_c256_k24.pt",
+                decoder_checkpoint_name="decoder_c256_k24.pt",
+                name="c256_k24",
+            ),
+            ImageAutoencoderLpapPairConfig(
+                surrogate_checkpoint_name="surrogate_c512_k32.pt",
+                decoder_checkpoint_name="decoder_c512_k32.pt",
+                name="c512_k32",
             ),
         ),
         flow_checkpoint_name="image_energy_flow_energy_bank.pt",
@@ -144,8 +153,7 @@ print(
 print(session.resume_info.message, flush=True)
 print(f"best_so_far={{session.training_run.best_metric}}", flush=True)
 print(
-    "flow=image_energy_flow_energy_bank.pt "
-    "pairs=c128,c256 bank={energy_bank_path!r}",
+    "flow=image_energy_flow_energy_bank.pt pairs=c128_k16,c256_k24,c512_k32",
     flush=True,
 )
 for result in iter_training("image_autoencoder", session):
@@ -154,8 +162,9 @@ for result in iter_training("image_autoencoder", session):
         vloss = result.metrics.get("validation_loss")
         img = result.metrics.get("image_reconstruction_l2", float("nan"))
         eng = result.metrics.get("energy_reconstruction_l1", float("nan"))
-        img128 = result.metrics.get("image_reconstruction_l2/c128", float("nan"))
-        img256 = result.metrics.get("image_reconstruction_l2/c256", float("nan"))
+        img128 = result.metrics.get("image_reconstruction_l2/c128_k16", float("nan"))
+        img256 = result.metrics.get("image_reconstruction_l2/c256_k24", float("nan"))
+        img512 = result.metrics.get("image_reconstruction_l2/c512_k32", float("nan"))
         vtxt = "n/a" if vloss is None else f"{{vloss:.5f}}"
         best = "n/a" if result.best_metric is None else f"{{result.best_metric:.5f}}"
         mark = " *" if result.improved else ""
@@ -163,12 +172,13 @@ for result in iter_training("image_autoencoder", session):
         print(
             f"step={{result.step}} loss={{loss:.5f}} val={{vtxt}} "
             f"img_l2={{img:.5f}} energy_l1={{eng:.5f}} "
-            f"img_c128={{img128:.5f}} img_c256={{img256:.5f}} "
+            f"img_c128={{img128:.5f}} img_c256={{img256:.5f}} img_c512={{img512:.5f}} "
             f"best={{best}}{{mark}}{{ck}}",
             flush=True,
         )
-print("AE_MULTI_ENERGY_BANK_DONE", flush=True)
+print("AE_TRI_BANK_FLOW_DONE", flush=True)
 '''
+
 
 
 def flow_energy_bank_worker_source(

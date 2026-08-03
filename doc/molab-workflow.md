@@ -206,6 +206,8 @@ clobber the last good weights:
 
 Local code and configs still use `checkpoints/<stem>.pt`. `ensure_checkpoint` /
 resume **require** the pointer (missing pointer raises; no bare-`.pt` fallback).
+Downloads use `download_bucket_files` / `get_bucket_paths_info` —
+`HfFileSystem.exists`/`open` can stay stale for freshly written dual-slot keys.
 SQLite under `training_logs/` remains a single best-effort key after the
 checkpoint promote.
 
