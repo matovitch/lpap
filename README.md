@@ -12,25 +12,28 @@ LPAP stands for **Linear Probing Amplitude Pooling**.
 *[Source TeX](doc/tex/lpap_algorithm.tex)* · regenerate with `pixi run tex-lpap-algo`
 
 LPAP selects the largest-amplitude entries of a length-`N` tensor into `C`
-buckets (`N` multiple of `C`), recording a **DIB** (bucket-modulo position) for
-each pick. Probing advances at most **`K`** rolls (the roll budget; `k_max` in
+buckets (`N` multiple of `C`), recording a DIB (bucket-modulo position) for
+each pick. Probing advances at most `K` rolls (the roll budget; `k_max` in
 code).
 
-On an **autoencoder** latent, think **wavelets**: largest-amplitude coeffs
-usually carry the global picture; finer scales add detail. A small `C` is meant
-to keep near the **top-`C` magnitudes**; larger `C` adds the next tiers (soft
-inclusion by size, not a nested basis). Several `C`s in parallel push toward a
+On an autoencoder latent, think wavelets: largest-amplitude coeffs usually
+carry the global picture; finer scales add detail. A small `C` is meant to keep
+near the top-`C` magnitudes; larger `C` adds the next tiers (soft inclusion by
+size, not a nested basis). Several `C`s in parallel push toward a
 **progressively compressible** representation.
 
-LPAP is built so the table is **jointly invertible**: DIB ⇒ position only up to
-a collision set; attention across buckets can disambiguate and rebuild energy.
-Learned path: surrogate (emulate LPAP) → `(amp, DIB, entropy)` frontend →
-decoder. Longer note: [lpap.md](doc/lpap.md#why-amplitude-and-dib-inverting-the-table).
+Each DIB only locates a peak up to a collision set, so a single bucket does not
+pin an exact source index — the pooled table is not strictly invertible on its
+own. In practice the autoencoder can learn a latent geometry where those
+ambiguities rarely bite: attention across buckets usually resolves the source,
+which matches the strong reconstructions we see. Learned path: surrogate
+(emulate LPAP) → `(amp, DIB, entropy)` frontend → decoder. Longer note:
+[lpap.md](doc/lpap.md#why-amplitude-and-dib-inverting-the-table).
 
 ## Training procedure
 
-How artifacts depend on each other. **`Cᵢ`** means one teacher width (and later
-one AE path); several widths are trained the same way on the shared bank / flow.
+How artifacts depend on each other. `Cᵢ` means one teacher width (and later one
+AE path); several widths are trained the same way on the shared bank / flow.
 
 ```mermaid
 flowchart TB
@@ -52,9 +55,9 @@ flowchart TB
 
 ## Autoencoder
 
-Shared **flow** both ways; the latent is read by several **LPAP · `Cᵢ`** paths
-in parallel (each = surrogate → decoder). Pair losses are averaged over `Cᵢ`;
-λ’s live in TOML — [training stack](doc/training-stack.md).
+Shared flow both ways; the latent is read by several LPAP · `Cᵢ` paths in
+parallel (each = surrogate → decoder). Pair losses are averaged over `Cᵢ`; λ’s
+live in TOML — [training stack](doc/training-stack.md).
 
 ```mermaid
 flowchart LR

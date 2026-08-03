@@ -53,8 +53,10 @@ In the learned stack this splits cleanly:
 - **Decoder** then rebuilds energy from that compact table — the collision-set
   disambiguation story above — with an optional source-CE regularizer.
 
-So amplitude + DIB are not bookkeeping extras: they are the minimal pooled
-code that is meant to be **jointly invertible** by attention.
+So amplitude + DIB are not bookkeeping extras: they are a compact pooled code
+that is not strictly invertible alone, but that an autoencoder can often make
+*effectively* invertible by shaping the latent so collision-set ambiguities
+rarely remain after cross-bucket attention.
 
 ## Current Model Context
 
