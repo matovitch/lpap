@@ -29,8 +29,8 @@ class TeacherConfigProjectionTest(unittest.TestCase):
         decoder = project_teacher_config(path, "decoder")
         self.assertEqual(surrogate.run.run_id, "surrogate_c128_k16")
         self.assertEqual(decoder.run.run_id, "decoder_c128_k16")
-        self.assertEqual(surrogate.run.permutation_seed, 128)
-        self.assertEqual(decoder.run.permutation_seed, 128)
+        self.assertEqual(surrogate.run.permutation_seed, 123)
+        self.assertEqual(decoder.run.permutation_seed, 123)
         self.assertTrue(decoder.teacher.require_checkpoint)
 
 
