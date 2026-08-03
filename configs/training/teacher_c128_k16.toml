@@ -6,7 +6,7 @@ name = "c128_k16"
 bucket_count = 128
 probe_count = 8
 k_max = 16
-permutation_seed = 128
+permutation_seed = 123
 
 [pair.energy_bank]
 path = "data/encoded_energies_bank_flow_best.pt"
