@@ -469,6 +469,33 @@ def load_recent_metrics(
     return [by_step[step] for step in steps]
 
 
+def run_id_with_most_logged_steps(
+    path: str | Path,
+    *,
+    base_run_id: str,
+) -> str | None:
+    """Return the run instance under ``base_run_id`` with the highest logged step.
+
+    Ignores empty sibling run rows created by unpinned session opens.
+    """
+    initialize_training_log(path)
+    with closing(_connect(path)) as connection:
+        row = connection.execute(
+            """
+            SELECT run_id, MAX(step) AS max_step
+            FROM step_metrics
+            WHERE run_id = ? OR run_id LIKE ?
+            GROUP BY run_id
+            ORDER BY max_step DESC, run_id DESC
+            LIMIT 1
+            """,
+            (base_run_id, f"{base_run_id}:%"),
+        ).fetchone()
+    if row is None or row[0] is None:
+        return None
+    return str(row[0])
+
+
 def load_metric_history(
     path: str | Path,
     *,

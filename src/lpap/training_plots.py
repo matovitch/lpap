@@ -192,6 +192,97 @@ def render_loss_history_svg(
     """
 
 
+def render_loss_history_comparison_svg(
+    series: Sequence[tuple[str, Sequence[Mapping[str, Any]]]],
+    *,
+    metric_name: str = "validation_loss",
+    width: int = 720,
+    height: int = 300,
+) -> str:
+    """Overlay one metric across labeled run histories (shared axes)."""
+    colors = ("#2563eb", "#dc2626", "#059669", "#7c3aed", "#92400e")
+    prepared: list[tuple[str, str, list[tuple[float, float]]]] = []
+    for index, (label, rows) in enumerate(series):
+        points = _metric_points(rows, metric_name)
+        if points:
+            prepared.append(
+                (label, colors[index % len(colors)], points)
+            )
+    if not prepared:
+        return "<p>No comparable loss history has been logged yet.</p>"
+
+    all_points = [point for _label, _color, points in prepared for point in points]
+    min_step = min(step for step, _value in all_points)
+    max_step = max(step for step, _value in all_points)
+    min_loss = min(value for _step, value in all_points)
+    max_loss = max(value for _step, value in all_points)
+    if min_step == max_step:
+        min_step -= 1.0
+        max_step += 1.0
+    if min_loss == max_loss:
+        min_loss -= 0.5
+        max_loss += 0.5
+
+    left = 56
+    right = 18
+    top = 28
+    bottom = 38
+    plot_width = width - left - right
+    plot_height = height - top - bottom
+
+    def project(point: tuple[float, float]) -> tuple[float, float]:
+        step, value = point
+        x = left + (step - min_step) / (max_step - min_step) * plot_width
+        y = top + (max_loss - value) / (max_loss - min_loss) * plot_height
+        return x, y
+
+    lines: list[str] = []
+    markers: list[str] = []
+    for _label, color, points in prepared:
+        projected = [project(point) for point in points]
+        if len(projected) >= 2:
+            lines.append(
+                f'<polyline fill="none" stroke="{color}" stroke-width="2" '
+                f'points="{_polyline(projected)}" />'
+            )
+        markers.extend(
+            f'<circle cx="{x:.2f}" cy="{y:.2f}" r="2.5" fill="{color}" />'
+            for x, y in projected
+        )
+
+    legend = "".join(
+        _legend_item(
+            x=left + 12 + index * 200,
+            y=top - 10,
+            color=color,
+            label=label,
+        )
+        for index, (label, color, _points) in enumerate(prepared)
+    )
+    metric_label = metric_name.replace("_", " ")
+
+    return f"""
+    <svg viewBox="0 0 {width} {height}" width="100%" role="img"
+         aria-label="{escape(metric_label)} comparison">
+      <rect x="0" y="0" width="{width}" height="{height}" fill="white" />
+      <line x1="{left}" y1="{top + plot_height}" x2="{left + plot_width}"
+            y2="{top + plot_height}" stroke="#222" />
+      <line x1="{left}" y1="{top}" x2="{left}" y2="{top + plot_height}"
+            stroke="#222" />
+      {"".join(lines)}
+      {"".join(markers)}
+      <text x="{left}" y="{height - 10}" fill="#222" font-size="12">
+        step {min_step:.0f}</text>
+      <text x="{left + plot_width - 62}" y="{height - 10}" fill="#222"
+            font-size="12">step {max_step:.0f}</text>
+      <text x="8" y="{top + 4}" fill="#222" font-size="12">{max_loss:.3f}</text>
+      <text x="8" y="{top + plot_height}" fill="#222" font-size="12">
+        {min_loss:.3f}</text>
+      {legend}
+    </svg>
+    """
+
+
 def _signed_pixels(values: torch.Tensor, *, size: int, max_abs: float) -> str:
     pixels = []
     for amplitude in values.reshape(size * size).tolist():

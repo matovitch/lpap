@@ -254,6 +254,48 @@ class TrainingLogTest(unittest.TestCase):
                 improved=True,
             )
 
+    def test_run_id_with_most_logged_steps_skips_empty_siblings(self) -> None:
+        from lpap.training_log import run_id_with_most_logged_steps
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "training.sqlite"
+            upsert_run(
+                path,
+                run_id="ae:empty",
+                checkpoint_path="checkpoints/ae.pt",
+                config={},
+            )
+            upsert_run(
+                path,
+                run_id="ae:live",
+                checkpoint_path="checkpoints/ae.pt",
+                config={},
+            )
+            attempt_id = start_run_attempt(
+                path,
+                run_id="ae:live",
+                resumed=False,
+                start_step=1,
+                checkpoint_step=None,
+                message="train",
+            )
+            log_step_metrics(
+                path,
+                run_id="ae:live",
+                attempt_id=attempt_id,
+                step=10,
+                epoch=10,
+                metrics={"loss": 1.0, "validation_loss": 0.9},
+                improved=True,
+            )
+            self.assertEqual(
+                run_id_with_most_logged_steps(path, base_run_id="ae"),
+                "ae:live",
+            )
+            self.assertIsNone(
+                run_id_with_most_logged_steps(path, base_run_id="missing")
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

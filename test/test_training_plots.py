@@ -36,6 +36,32 @@ class TrainingPlotsTest(unittest.TestCase):
         self.assertIn("source ce regularizer", svg)
         self.assertIn("stroke-dasharray", svg)
 
+    def test_renders_loss_history_comparison(self) -> None:
+        from lpap.training_plots import render_loss_history_comparison_svg
+
+        svg = render_loss_history_comparison_svg(
+            [
+                (
+                    "iter-1",
+                    [
+                        {"step": 100, "validation_loss": 0.04},
+                        {"step": 200, "validation_loss": 0.02},
+                    ],
+                ),
+                (
+                    "iter-2",
+                    [
+                        {"step": 100, "validation_loss": 0.05},
+                        {"step": 150, "validation_loss": 0.03},
+                    ],
+                ),
+            ]
+        )
+        self.assertIn("iter-1", svg)
+        self.assertIn("iter-2", svg)
+        self.assertIn("#2563eb", svg)
+        self.assertIn("#dc2626", svg)
+
     def test_renders_image_energy_flow_gallery_with_both_directions(self) -> None:
         html = render_image_energy_flow_gallery_html(
             [
