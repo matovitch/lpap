@@ -253,6 +253,56 @@ def _checkpoint_step_from_file(path: Path) -> int | None:
         return None
 
 
+def _bucket_file_size(
+    api: Any,
+    bucket: str,
+    remote_path: str,
+    *,
+    token: str | None = None,
+) -> int:
+    """Return object size via ``get_bucket_paths_info`` (metadata.size is unreliable)."""
+    from huggingface_hub import get_bucket_paths_info
+
+    infos = list(
+        get_bucket_paths_info(
+            bucket, [remote_path.lstrip("/")], token=token or True
+        )
+    )
+    if not infos:
+        raise FileNotFoundError(
+            f"bucket object not found after upload: {bucket}/{remote_path}"
+        )
+    info = infos[0]
+    size = getattr(info, "size", None)
+    if size is None:
+        raise RuntimeError(f"bucket object missing size: {bucket}/{remote_path}")
+    return int(size)
+
+
+def _bucket_file_xet_hash(
+    api: Any,
+    bucket: str,
+    remote_path: str,
+    *,
+    token: str | None = None,
+) -> str:
+    from huggingface_hub import get_bucket_paths_info
+
+    infos = list(
+        get_bucket_paths_info(
+            bucket, [remote_path.lstrip("/")], token=token or True
+        )
+    )
+    if not infos:
+        raise FileNotFoundError(
+            f"bucket object not found: {bucket}/{remote_path}"
+        )
+    xet_hash = getattr(infos[0], "xet_hash", None)
+    if not xet_hash:
+        raise RuntimeError(f"bucket object missing xet_hash: {bucket}/{remote_path}")
+    return str(xet_hash)
+
+
 def upload_checkpoint_to_bucket(
     local_path: str | Path,
     *,
@@ -277,9 +327,9 @@ def upload_checkpoint_to_bucket(
         project_root=project_root,
         what="checkpoint upload",
     )
-    _require_write_token(token=token)
+    write_token = _require_write_token(token=token)
     api = HfApi()
-    fs = HfFileSystem(token=os.environ["HF_TOKEN"])
+    fs = HfFileSystem(token=write_token)
 
     active: int | None = None
     pointer_remote = checkpoint_pointer_remote_path(stem)
@@ -304,8 +354,9 @@ def upload_checkpoint_to_bucket(
     api.batch_bucket_files(
         resolved_bucket, add=[(str(path), slot_remote)]
     )
-    meta = api.get_bucket_file_metadata(resolved_bucket, slot_remote)
-    remote_size = getattr(meta, "size", None)
+    remote_size = _bucket_file_size(
+        api, resolved_bucket, slot_remote, token=write_token
+    )
     if remote_size != size:
         raise RuntimeError(
             f"checkpoint slot size mismatch after upload: "
@@ -653,12 +704,9 @@ def migrate_bare_checkpoints_to_dual_slot(
 ) -> list[dict[str, Any]]:
     """Wrap bare HF ``checkpoints/<stem>.pt`` files as slot0 + ``current.json``.
 
-    For each bare checkpoint (or each name in ``checkpoint_names``):
-
-    1. Skip if ``current.json`` already exists (optionally delete leftover bare).
-    2. Download bare object to local ``checkpoints/<stem>.pt`` if needed.
-    3. Upload via ``upload_checkpoint_to_bucket`` (slot0 + pointer).
-    4. Delete the bare remote key when ``delete_bare`` is true.
+    Prefers a server-side xet copy of the bare object into ``slot0`` (no
+    re-upload). Falls back to local download + ``upload_checkpoint_to_bucket``
+    when needed.
 
     Returns a list of result dicts for logging.
     """
@@ -671,9 +719,9 @@ def migrate_bare_checkpoints_to_dual_slot(
         project_root=root,
         what="migrate checkpoints",
     )
-    _require_write_token(token=token)
+    write_token = _require_write_token(token=token)
     api = HfApi()
-    fs = HfFileSystem(token=os.environ["HF_TOKEN"])
+    fs = HfFileSystem(token=write_token)
 
     if checkpoint_names is None:
         names = list_bare_checkpoint_names(
@@ -687,6 +735,7 @@ def migrate_bare_checkpoints_to_dual_slot(
         stem = checkpoint_stem(name)
         bare_remote = f"checkpoints/{name}"
         pointer_remote = checkpoint_pointer_remote_path(stem)
+        slot_remote = checkpoint_slot_remote_path(stem, 0)
         local = root / "checkpoints" / name
         result: dict[str, Any] = {"name": name, "stem": stem}
 
@@ -705,24 +754,64 @@ def migrate_bare_checkpoints_to_dual_slot(
             results.append(result)
             continue
 
-        if not local.is_file():
-            download_files(
-                [(bare_remote, local)],
+        if fs.exists(bare_uri):
+            xet_hash = _bucket_file_xet_hash(
+                api, resolved_bucket, bare_remote, token=write_token
+            )
+            size = _bucket_file_size(
+                api, resolved_bucket, bare_remote, token=write_token
+            )
+            api.batch_bucket_files(
+                resolved_bucket,
+                copy=[
+                    ("bucket", resolved_bucket, xet_hash, slot_remote),
+                ],
+            )
+            remote_size = _bucket_file_size(
+                api, resolved_bucket, slot_remote, token=write_token
+            )
+            if remote_size != size:
+                raise RuntimeError(
+                    f"migrate copy size mismatch for {name}: "
+                    f"bare={size} slot={remote_size}"
+                )
+            pointer_payload: dict[str, Any] = {
+                "slot": 0,
+                "size": size,
+                "name": name,
+                "xet_hash": xet_hash,
+            }
+            if local.is_file():
+                pointer_payload["sha256"] = sha256_file(local)
+                step = _checkpoint_step_from_file(local)
+                if step is not None:
+                    pointer_payload["step"] = step
+            api.batch_bucket_files(
+                resolved_bucket,
+                add=[
+                    (
+                        json.dumps(pointer_payload, sort_keys=True).encode(
+                            "utf-8"
+                        ),
+                        pointer_remote,
+                    )
+                ],
+            )
+            result["uploaded"] = [slot_remote, pointer_remote]
+            result["status"] = "migrated"
+            result["method"] = "xet_copy"
+        else:
+            uploaded = upload_checkpoint_to_bucket(
+                local,
                 bucket=resolved_bucket,
                 token=token,
                 project_root=root,
+                canonical_name=name,
             )
-            result["downloaded"] = bare_remote
+            result["uploaded"] = uploaded
+            result["status"] = "migrated"
+            result["method"] = "local_upload"
 
-        uploaded = upload_checkpoint_to_bucket(
-            local,
-            bucket=resolved_bucket,
-            token=token,
-            project_root=root,
-            canonical_name=name,
-        )
-        result["uploaded"] = uploaded
-        result["status"] = "migrated"
         if delete_bare and fs.exists(bare_uri):
             api.batch_bucket_files(resolved_bucket, delete=[bare_remote])
             result["deleted_bare"] = bare_remote

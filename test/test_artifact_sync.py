@@ -247,9 +247,6 @@ class ArtifactSyncTest(unittest.TestCase):
             local = Path(temp_dir) / "model.pt"
             local.write_bytes(b"ckpt-bytes")
             mock_api = MagicMock()
-            mock_api.get_bucket_file_metadata.return_value = MagicMock(
-                size=local.stat().st_size
-            )
             mock_fs = MagicMock()
             mock_fs.exists.return_value = False
             with (
@@ -257,6 +254,10 @@ class ArtifactSyncTest(unittest.TestCase):
                 patch("lpap.artifact_sync.apply_hf_token", return_value="tok"),
                 patch("huggingface_hub.HfApi", return_value=mock_api),
                 patch("huggingface_hub.HfFileSystem", return_value=mock_fs),
+                patch(
+                    "lpap.artifact_sync._bucket_file_size",
+                    return_value=local.stat().st_size,
+                ),
             ):
                 remotes = upload_checkpoint_to_bucket(
                     local, bucket="user/bucket", canonical_name="model.pt"
@@ -289,9 +290,6 @@ class ArtifactSyncTest(unittest.TestCase):
             local = Path(temp_dir) / "model.pt"
             local.write_bytes(b"ckpt-bytes-2")
             mock_api = MagicMock()
-            mock_api.get_bucket_file_metadata.return_value = MagicMock(
-                size=local.stat().st_size
-            )
             mock_fs = MagicMock()
             mock_fs.exists.return_value = True
             pointer = {"slot": 0, "sha256": "x", "size": 1, "name": "model.pt"}
@@ -303,6 +301,10 @@ class ArtifactSyncTest(unittest.TestCase):
                 patch(
                     "lpap.artifact_sync.read_checkpoint_pointer",
                     return_value=pointer,
+                ),
+                patch(
+                    "lpap.artifact_sync._bucket_file_size",
+                    return_value=local.stat().st_size,
                 ),
             ):
                 remotes = upload_checkpoint_to_bucket(
@@ -326,7 +328,6 @@ class ArtifactSyncTest(unittest.TestCase):
             local = Path(temp_dir) / "model.pt"
             local.write_bytes(b"ckpt")
             mock_api = MagicMock()
-            mock_api.get_bucket_file_metadata.return_value = MagicMock(size=999)
             mock_fs = MagicMock()
             mock_fs.exists.return_value = False
             with (
@@ -334,6 +335,7 @@ class ArtifactSyncTest(unittest.TestCase):
                 patch("lpap.artifact_sync.apply_hf_token", return_value="tok"),
                 patch("huggingface_hub.HfApi", return_value=mock_api),
                 patch("huggingface_hub.HfFileSystem", return_value=mock_fs),
+                patch("lpap.artifact_sync._bucket_file_size", return_value=999),
             ):
                 with self.assertRaises(RuntimeError):
                     upload_checkpoint_to_bucket(
