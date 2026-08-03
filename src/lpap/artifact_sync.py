@@ -134,6 +134,26 @@ def _require_write_token(*, token: str | None = None) -> str:
     return resolved
 
 
+def _bucket_object_exists(
+    bucket: str,
+    remote_path: str,
+    *,
+    token: str | None = None,
+) -> bool:
+    """Return whether a bucket object exists (``HfFileSystem.exists`` is unreliable)."""
+    from huggingface_hub import get_bucket_paths_info
+
+    try:
+        infos = list(
+            get_bucket_paths_info(
+                bucket, [remote_path.lstrip("/")], token=token or True
+            )
+        )
+    except Exception:
+        return False
+    return bool(infos)
+
+
 def read_checkpoint_pointer(
     stem: str,
     *,
@@ -155,12 +175,14 @@ def read_checkpoint_pointer(
     resolved = apply_hf_token(token=token)
     remote = checkpoint_pointer_remote_path(stem)
     uri = bucket_uri(resolved_bucket, remote)
-    fs = HfFileSystem(token=resolved if resolved else False)
-    if not fs.exists(uri):
+    if not _bucket_object_exists(
+        resolved_bucket, remote, token=resolved
+    ):
         raise FileNotFoundError(
             f"checkpoint pointer not found: {uri} "
             f"(expected dual-slot layout for stem={stem!r})"
         )
+    fs = HfFileSystem(token=resolved if resolved else False)
     with fs.open(uri, "rb") as handle:
         payload = json.loads(handle.read().decode("utf-8"))
     if not isinstance(payload, dict):
@@ -226,7 +248,9 @@ def download_files(
         dest = Path(local)
         dest.parent.mkdir(parents=True, exist_ok=True)
         uri = bucket_uri(resolved_bucket, remote)
-        if not fs.exists(uri):
+        if not _bucket_object_exists(
+            resolved_bucket, remote, token=resolved
+        ):
             raise FileNotFoundError(uri)
         tmp = dest.with_suffix(dest.suffix + ".partial")
         try:
@@ -316,7 +340,7 @@ def upload_checkpoint_to_bucket(
     Writes the inactive slot, verifies remote size, then updates the pointer.
     Optionally deletes the previous slot afterward (best-effort).
     """
-    from huggingface_hub import HfApi, HfFileSystem
+    from huggingface_hub import HfApi
 
     path = Path(local_path)
     if not path.is_file():
@@ -329,12 +353,12 @@ def upload_checkpoint_to_bucket(
     )
     write_token = _require_write_token(token=token)
     api = HfApi()
-    fs = HfFileSystem(token=write_token)
 
     active: int | None = None
     pointer_remote = checkpoint_pointer_remote_path(stem)
-    pointer_uri = bucket_uri(resolved_bucket, pointer_remote)
-    if fs.exists(pointer_uri):
+    if _bucket_object_exists(
+        resolved_bucket, pointer_remote, token=write_token
+    ):
         pointer = read_checkpoint_pointer(
             stem,
             bucket=resolved_bucket,
@@ -343,7 +367,10 @@ def upload_checkpoint_to_bucket(
         )
         active = int(pointer["slot"])
         if active not in (0, 1):
-            raise ValueError(f"invalid pointer slot {active} in {pointer_uri}")
+            raise ValueError(
+                f"invalid pointer slot {active} in "
+                f"{bucket_uri(resolved_bucket, pointer_remote)}"
+            )
 
     inactive = 0 if active is None else 1 - active
     slot_remote = checkpoint_slot_remote_path(stem, inactive)
@@ -710,7 +737,7 @@ def migrate_bare_checkpoints_to_dual_slot(
 
     Returns a list of result dicts for logging.
     """
-    from huggingface_hub import HfApi, HfFileSystem
+    from huggingface_hub import HfApi
 
     root = Path(project_root)
     (root / "checkpoints").mkdir(parents=True, exist_ok=True)
@@ -721,7 +748,6 @@ def migrate_bare_checkpoints_to_dual_slot(
     )
     write_token = _require_write_token(token=token)
     api = HfApi()
-    fs = HfFileSystem(token=write_token)
 
     if checkpoint_names is None:
         names = list_bare_checkpoint_names(
@@ -739,22 +765,25 @@ def migrate_bare_checkpoints_to_dual_slot(
         local = root / "checkpoints" / name
         result: dict[str, Any] = {"name": name, "stem": stem}
 
-        pointer_uri = bucket_uri(resolved_bucket, pointer_remote)
-        bare_uri = bucket_uri(resolved_bucket, bare_remote)
-        if fs.exists(pointer_uri):
+        bare_exists = _bucket_object_exists(
+            resolved_bucket, bare_remote, token=write_token
+        )
+        if _bucket_object_exists(
+            resolved_bucket, pointer_remote, token=write_token
+        ):
             result["status"] = "already_migrated"
-            if delete_bare and fs.exists(bare_uri):
+            if delete_bare and bare_exists:
                 api.batch_bucket_files(resolved_bucket, delete=[bare_remote])
                 result["deleted_bare"] = bare_remote
             results.append(result)
             continue
 
-        if not fs.exists(bare_uri) and not local.is_file():
+        if not bare_exists and not local.is_file():
             result["status"] = "missing"
             results.append(result)
             continue
 
-        if fs.exists(bare_uri):
+        if bare_exists:
             xet_hash = _bucket_file_xet_hash(
                 api, resolved_bucket, bare_remote, token=write_token
             )
@@ -812,7 +841,9 @@ def migrate_bare_checkpoints_to_dual_slot(
             result["status"] = "migrated"
             result["method"] = "local_upload"
 
-        if delete_bare and fs.exists(bare_uri):
+        if delete_bare and _bucket_object_exists(
+            resolved_bucket, bare_remote, token=write_token
+        ):
             api.batch_bucket_files(resolved_bucket, delete=[bare_remote])
             result["deleted_bare"] = bare_remote
         results.append(result)

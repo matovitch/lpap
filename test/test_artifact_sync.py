@@ -172,7 +172,6 @@ class ArtifactSyncTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             dest = Path(temp_dir) / "checkpoints" / "a.pt"
             mock_fs = MagicMock()
-            mock_fs.exists.return_value = True
 
             def _get(uri: str, local: str) -> None:
                 Path(local).parent.mkdir(parents=True, exist_ok=True)
@@ -182,6 +181,10 @@ class ArtifactSyncTest(unittest.TestCase):
             bucket = default_artifacts_bucket(REPO_ROOT)
             with (
                 patch("lpap.artifact_sync.apply_hf_token", return_value=None),
+                patch(
+                    "lpap.artifact_sync._bucket_object_exists",
+                    return_value=True,
+                ) as exists_mock,
                 patch("huggingface_hub.HfFileSystem", return_value=mock_fs),
             ):
                 paths = download_files(
@@ -190,8 +193,8 @@ class ArtifactSyncTest(unittest.TestCase):
                 )
             self.assertEqual(paths, [dest])
             self.assertEqual(dest.read_bytes(), b"data")
-            mock_fs.exists.assert_called_once_with(
-                bucket_uri(bucket, "checkpoints/a.pt")
+            exists_mock.assert_called_once_with(
+                bucket, "checkpoints/a.pt", token=None
             )
 
     def test_upload_and_download_training_artifacts_wrappers(self) -> None:
@@ -247,13 +250,14 @@ class ArtifactSyncTest(unittest.TestCase):
             local = Path(temp_dir) / "model.pt"
             local.write_bytes(b"ckpt-bytes")
             mock_api = MagicMock()
-            mock_fs = MagicMock()
-            mock_fs.exists.return_value = False
             with (
                 patch.dict(os.environ, {"HF_TOKEN": "tok"}, clear=False),
                 patch("lpap.artifact_sync.apply_hf_token", return_value="tok"),
                 patch("huggingface_hub.HfApi", return_value=mock_api),
-                patch("huggingface_hub.HfFileSystem", return_value=mock_fs),
+                patch(
+                    "lpap.artifact_sync._bucket_object_exists",
+                    return_value=False,
+                ),
                 patch(
                     "lpap.artifact_sync._bucket_file_size",
                     return_value=local.stat().st_size,
@@ -290,14 +294,15 @@ class ArtifactSyncTest(unittest.TestCase):
             local = Path(temp_dir) / "model.pt"
             local.write_bytes(b"ckpt-bytes-2")
             mock_api = MagicMock()
-            mock_fs = MagicMock()
-            mock_fs.exists.return_value = True
             pointer = {"slot": 0, "sha256": "x", "size": 1, "name": "model.pt"}
             with (
                 patch.dict(os.environ, {"HF_TOKEN": "tok"}, clear=False),
                 patch("lpap.artifact_sync.apply_hf_token", return_value="tok"),
                 patch("huggingface_hub.HfApi", return_value=mock_api),
-                patch("huggingface_hub.HfFileSystem", return_value=mock_fs),
+                patch(
+                    "lpap.artifact_sync._bucket_object_exists",
+                    return_value=True,
+                ),
                 patch(
                     "lpap.artifact_sync.read_checkpoint_pointer",
                     return_value=pointer,
@@ -328,13 +333,14 @@ class ArtifactSyncTest(unittest.TestCase):
             local = Path(temp_dir) / "model.pt"
             local.write_bytes(b"ckpt")
             mock_api = MagicMock()
-            mock_fs = MagicMock()
-            mock_fs.exists.return_value = False
             with (
                 patch.dict(os.environ, {"HF_TOKEN": "tok"}, clear=False),
                 patch("lpap.artifact_sync.apply_hf_token", return_value="tok"),
                 patch("huggingface_hub.HfApi", return_value=mock_api),
-                patch("huggingface_hub.HfFileSystem", return_value=mock_fs),
+                patch(
+                    "lpap.artifact_sync._bucket_object_exists",
+                    return_value=False,
+                ),
                 patch("lpap.artifact_sync._bucket_file_size", return_value=999),
             ):
                 with self.assertRaises(RuntimeError):
@@ -453,12 +459,12 @@ class ArtifactSyncTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             mock_api = MagicMock()
-            mock_fs = MagicMock()
 
-            def _exists(uri: str) -> bool:
-                return uri.endswith(".current.json") or uri.endswith("/model.pt")
+            def _exists(bucket: str, remote: str, *, token=None) -> bool:
+                return remote.endswith(".current.json") or remote.endswith(
+                    "/model.pt"
+                ) or remote == "checkpoints/model.pt"
 
-            mock_fs.exists.side_effect = _exists
             with (
                 patch.dict(os.environ, {"HF_TOKEN": "tok"}, clear=False),
                 patch("lpap.artifact_sync.apply_hf_token", return_value="tok"),
@@ -467,7 +473,10 @@ class ArtifactSyncTest(unittest.TestCase):
                     return_value="user/bucket",
                 ),
                 patch("huggingface_hub.HfApi", return_value=mock_api),
-                patch("huggingface_hub.HfFileSystem", return_value=mock_fs),
+                patch(
+                    "lpap.artifact_sync._bucket_object_exists",
+                    side_effect=_exists,
+                ),
                 patch(
                     "lpap.artifact_sync.list_bare_checkpoint_names",
                     return_value=["model.pt"],
