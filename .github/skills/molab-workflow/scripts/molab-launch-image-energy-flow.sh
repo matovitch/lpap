@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Launch the bidirectional image↔energy flow worker on molab (Gaussian prior).
+# Launch the bidirectional image↔energy flow worker on molab (signed log-normal prior).
 #
 # Artifacts: image_energy_flow.{pt,sqlite}
 #

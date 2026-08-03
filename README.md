@@ -38,7 +38,7 @@ AE path); several widths are trained the same way on the shared bank / flow.
 ```mermaid
 flowchart TB
   subgraph s1 ["1 · Flow"]
-    prior(["N(0, σ²I)"]) --> flow[flow]
+    prior(["signed log-normal"]) --> flow[flow]
   end
   subgraph s2 ["2 · Teachers · Cᵢ"]
     bank[energy bank] --> sur["surrogate · Cᵢ"]
