@@ -168,24 +168,28 @@ class ArtifactSyncTest(unittest.TestCase):
                 add=[(str(local), "checkpoints/a.pt")],
             )
 
-    def test_download_files_uses_hf_filesystem(self) -> None:
+    def test_download_files_uses_download_bucket_files(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             dest = Path(temp_dir) / "checkpoints" / "a.pt"
-            mock_fs = MagicMock()
+            bucket = default_artifacts_bucket(REPO_ROOT)
 
-            def _get(uri: str, local: str) -> None:
+            def _download(bucket_id, files, **kwargs):
+                self.assertEqual(bucket_id, bucket)
+                remote, local = files[0]
+                self.assertEqual(remote, "checkpoints/a.pt")
                 Path(local).parent.mkdir(parents=True, exist_ok=True)
                 Path(local).write_bytes(b"data")
 
-            mock_fs.get.side_effect = _get
-            bucket = default_artifacts_bucket(REPO_ROOT)
             with (
                 patch("lpap.artifact_sync.apply_hf_token", return_value=None),
                 patch(
                     "lpap.artifact_sync._bucket_object_exists",
                     return_value=True,
                 ) as exists_mock,
-                patch("huggingface_hub.HfFileSystem", return_value=mock_fs),
+                patch(
+                    "huggingface_hub.download_bucket_files",
+                    side_effect=_download,
+                ) as download_mock,
             ):
                 paths = download_files(
                     [("checkpoints/a.pt", dest)],
@@ -196,6 +200,7 @@ class ArtifactSyncTest(unittest.TestCase):
             exists_mock.assert_called_once_with(
                 bucket, "checkpoints/a.pt", token=None
             )
+            download_mock.assert_called_once()
 
     def test_upload_and_download_training_artifacts_wrappers(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

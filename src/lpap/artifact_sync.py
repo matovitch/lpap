@@ -165,7 +165,9 @@ def read_checkpoint_pointer(
 
     Raises ``FileNotFoundError`` if the pointer is missing.
     """
-    from huggingface_hub import HfFileSystem
+    import tempfile
+
+    from huggingface_hub import download_bucket_files
 
     resolved_bucket = _resolve_bucket(
         bucket=bucket,
@@ -182,9 +184,15 @@ def read_checkpoint_pointer(
             f"checkpoint pointer not found: {uri} "
             f"(expected dual-slot layout for stem={stem!r})"
         )
-    fs = HfFileSystem(token=resolved if resolved else False)
-    with fs.open(uri, "rb") as handle:
-        payload = json.loads(handle.read().decode("utf-8"))
+    with tempfile.TemporaryDirectory() as temp_dir:
+        local = Path(temp_dir) / "current.json"
+        download_bucket_files(
+            resolved_bucket,
+            [(remote, local)],
+            raise_on_missing_files=True,
+            token=resolved if resolved else True,
+        )
+        payload = json.loads(local.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise ValueError(f"checkpoint pointer must be a JSON object: {uri}")
     return payload
@@ -232,9 +240,10 @@ def download_files(
 
     Public buckets can be read anonymously (``token=False``). If a token is
     available it is used; otherwise downloads run without authentication.
+    Uses ``download_bucket_files`` (``HfFileSystem`` is unreliable for buckets).
     Writes via a ``.partial`` sibling then renames into place.
     """
-    from huggingface_hub import HfFileSystem
+    from huggingface_hub import download_bucket_files
 
     resolved_bucket = _resolve_bucket(
         bucket=bucket,
@@ -242,7 +251,6 @@ def download_files(
         what="default artifacts bucket",
     )
     resolved = apply_hf_token(token=token)
-    fs = HfFileSystem(token=resolved if resolved else False)
     written: list[Path] = []
     for remote, local in pairs:
         dest = Path(local)
@@ -254,7 +262,12 @@ def download_files(
             raise FileNotFoundError(uri)
         tmp = dest.with_suffix(dest.suffix + ".partial")
         try:
-            fs.get(uri, str(tmp))
+            download_bucket_files(
+                resolved_bucket,
+                [(remote.lstrip("/"), tmp)],
+                raise_on_missing_files=True,
+                token=resolved if resolved else True,
+            )
             tmp.replace(dest)
         finally:
             tmp.unlink(missing_ok=True)
