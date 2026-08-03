@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -139,7 +140,12 @@ def save_training_checkpoint(
         "optimizer_state": None if optimizer is None else optimizer.state_dict(),
         "training_state_json": _training_state_to_json(training_state),
     }
-    torch.save(payload, checkpoint_path)
+    partial_path = checkpoint_path.with_suffix(checkpoint_path.suffix + ".partial")
+    try:
+        torch.save(payload, partial_path)
+        os.replace(partial_path, checkpoint_path)
+    finally:
+        partial_path.unlink(missing_ok=True)
     return CheckpointInfo(
         path=checkpoint_path,
         step=step,

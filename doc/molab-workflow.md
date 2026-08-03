@@ -198,6 +198,27 @@ Bucket settings come from [`configs/storage.toml`](../configs/storage.toml)
 auth is `HF_TOKEN` only — from `configs/secrets.toml` via inject, or
 `export HF_TOKEN=…` locally. Local download of public buckets needs no login.
 
+**Training checkpoints** use a dual-slot HF layout so a mid-upload kill cannot
+clobber the last good weights:
+
+- `checkpoints/<stem>.slot0.pt` / `.slot1.pt` — alternating cold/hot objects
+- `checkpoints/<stem>.current.json` — pointer (`slot`, `sha256`, `size`, optional `step`)
+
+Local code and configs still use `checkpoints/<stem>.pt`. `ensure_checkpoint` /
+resume **require** the pointer (missing pointer raises; no bare-`.pt` fallback).
+SQLite under `training_logs/` remains a single best-effort key after the
+checkpoint promote.
+
+One-time migration of legacy bare HF objects:
+
+```bash
+# local or molab kernel
+PYTHONPATH=src python -m lpap.artifact_sync migrate-checkpoints --project-root .
+# optional: only some names
+PYTHONPATH=src python -m lpap.artifact_sync migrate-checkpoints --project-root . \
+  --checkpoint image_autoencoder_tri_bank_flow.pt
+```
+
 ```python
 # molab
 from lpap.artifact_sync import upload_training_artifacts

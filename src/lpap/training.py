@@ -284,12 +284,13 @@ class TrainingRun:
             )
         except Exception as exc:
             warnings.warn(
-                f"artifact upload failed for {self.config.checkpoint_path.name}: {exc}",
+                f"checkpoint artifact upload failed for "
+                f"{self.config.checkpoint_path.name}: {exc}",
                 stacklevel=2,
             )
             return
         print(
-            f"uploaded artifacts: {', '.join(uploaded)}",
+            f"uploaded checkpoint artifacts: {', '.join(uploaded)}",
             flush=True,
         )
 
