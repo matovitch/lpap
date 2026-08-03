@@ -105,16 +105,15 @@ def render_image_energy_flow_run_gallery(
         return "<p>No image samples are available.</p>"
     images = torch.stack([dataset[index][0] for index in range(count)])
     generator = torch.Generator(device=device).manual_seed(0)
-    energies = (
-        torch.randn(
-            count,
-            config.value_count,
-            device=device,
-            dtype=torch.float32,
-            generator=generator,
-        )
-        * float(config.prior.sigma)
-    ).unsqueeze(1)
+    from lpap.image_energy_flow_training import sample_image_energy_prior
+
+    energies = sample_image_energy_prior(
+        config.prior,
+        batch_size=count,
+        value_count=config.value_count,
+        generator=generator,
+        device=device,
+    )
     return render_image_energy_flow_gallery_html(
         collect_image_energy_flow_gallery(
             model=flow,

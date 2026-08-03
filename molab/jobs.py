@@ -18,7 +18,7 @@ from molab.bg_worker import (
     spawn_detached_python,
 )
 
-# Tri-pair AE from one bidirectional Gaussian-midpoint flow
+# Tri-pair AE from one bidirectional image↔energy flow
 # (c128_k16 + c256_k24 + c512_k32).
 AE_BIDIR_FLOW_RUN_ID = "image_autoencoder_tri_flow"
 AE_BIDIR_FLOW_CHECKPOINT = "image_autoencoder_tri_flow.pt"
@@ -43,12 +43,12 @@ def image_energy_flow_worker_source(
     notify_on_finished: bool = True,
     comment: str | None = None,
 ) -> str:
-    """Return Python source for the bidirectional Gaussian-midpoint flow worker."""
+    """Return Python source for the bidirectional image-energy flow worker."""
     if target_steps <= 0:
         raise ValueError("target_steps must be positive")
     root = Path(project_root)
     resolved_comment = comment or (
-        f"image_energy_flow Gaussian prior; bg to {target_steps}"
+        f"image_energy_flow signed log-normal prior; bg to {target_steps}"
     )
     upload = "True" if upload_artifacts_on_checkpoint else "False"
     notify = "True" if notify_on_finished else "False"
@@ -92,6 +92,7 @@ session.training_run.config = replace(
 print(
     f"device={{session.device}} kind={{KIND}} start={{session.resume_info.start_step}} "
     f"target={{config.run.steps}} prior_sigma={{config.prior.sigma}} "
+    f"prior_scale={{config.prior.scale}} "
     f"upload={{session.training_run.config.upload_artifacts_on_checkpoint}} "
     f"notify={{session.training_run.config.notify_on_finished}}",
     flush=True,
@@ -297,7 +298,7 @@ def launch_ae_bidirectional_flow_bg(
     require_secrets: bool = True,
     resume_from_checkpoint: bool = False,
 ) -> dict[str, Any]:
-    """Write + spawn multi-pair AE from one bidirectional Gaussian-midpoint flow."""
+    """Write + spawn multi-pair AE from one bidirectional image-energy flow."""
     root = Path(project_root)
     return _spawn_job(
         project_root=root,
@@ -330,7 +331,7 @@ def launch_image_energy_flow_bg(
     comment: str | None = None,
     require_secrets: bool = True,
 ) -> dict[str, Any]:
-    """Write + spawn the bidirectional Gaussian-midpoint flow worker."""
+    """Write + spawn the bidirectional image-energy flow worker."""
     root = Path(project_root)
     return _spawn_job(
         project_root=root,
@@ -504,7 +505,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
     launch_bidir = sub.add_parser(
         "launch-ae-bidirectional-flow",
-        help="spawn multi-pair AE from one bidirectional Gaussian-midpoint flow",
+        help="spawn multi-pair AE from one bidirectional image-energy flow",
     )
     add_common(launch_bidir)
     launch_bidir.add_argument(
@@ -515,7 +516,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
     flow = sub.add_parser(
         "launch-image-energy-flow",
-        help="spawn the bidirectional image_energy_flow worker (Gaussian prior)",
+        help="spawn the bidirectional image_energy_flow worker (signed log-normal prior)",
     )
     add_common(flow)
 

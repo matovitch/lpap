@@ -50,7 +50,8 @@ class TrainingNotebookConfigTest(unittest.TestCase):
             image_energy_flow.image.dataset_path, "data/images_32x32_gray.pt"
         )
         self.assertEqual(image_energy_flow.time.distribution, "beta")
-        self.assertEqual(image_energy_flow.prior.sigma, 1.0)
+        self.assertEqual(image_energy_flow.prior.sigma, 2.0)
+        self.assertEqual(image_energy_flow.prior.scale, 1.0e-3)
         self.assertIsInstance(image_autoencoder, ImageAutoencoderTrainingConfig)
         self.assertEqual(image_autoencoder.run.run_id, "image_autoencoder")
         self.assertEqual(image_autoencoder.integration.image_to_energy_steps, 16)
@@ -162,7 +163,8 @@ class TrainingNotebookConfigTest(unittest.TestCase):
         config = training_config_from_project_file(project_root, "image_energy_flow")
         text = training_config_to_toml(config)
         self.assertIn("[prior]", text)
-        self.assertIn("sigma = 1.0", text)
+        self.assertIn("sigma = 2.0", text)
+        self.assertIn("scale = 0.001", text)
 
     def test_restores_training_toml_from_run_log(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

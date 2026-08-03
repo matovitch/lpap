@@ -3,7 +3,10 @@
 `image_energy_flow` is one bidirectional flow on `t∈[-1, 1]`:
 
 - Normalized Hilbert-flattened images occupy `t=-1`.
-- A Gaussian energy prior `N(0, σ²I)` occupies `t=0` (`[prior] sigma` in TOML).
+- A signed log-normal energy prior occupies `t=0`:
+  `|e| = scale · exp(σ Z)` with `Z~N(0,1)` (so `scale` is the median of `|e|`),
+  and independent fair-coin signs (``P(+) = 0.5``). Configurable via TOML
+  ``[prior]`` ``sigma`` and ``scale``.
 - The return image endpoint occupies `t=+1`.
 
 Training samples both branches of this path. Image encoding integrates from

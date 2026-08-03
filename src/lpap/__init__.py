@@ -219,6 +219,7 @@ _LAZY_MODULE_EXPORTS: dict[str, tuple[str, ...]] = {
         "image_energy_flow_training_config_from_dict",
         "iter_image_energy_flow_training",
         "rerun_image_energy_flow_training_config_from_log",
+        "sample_image_energy_prior",
         "should_validate_image_energy_flow",
         "train_image_energy_flow_step",
     ),

@@ -26,6 +26,7 @@ from lpap.image_energy_flow_training import (
     create_image_energy_flow_training_session,
     image_energy_flow_training_config_from_dict,
     iter_image_energy_flow_training,
+    sample_image_energy_prior,
 )
 
 
@@ -56,7 +57,31 @@ class ImageEnergyFlowTrainingTest(unittest.TestCase):
         self.assertTrue(bool((times < 0).any()))
         self.assertTrue(bool((times > 0).any()))
 
-    def test_session_trains_gaussian_prior(self) -> None:
+    def test_sample_lognormal_prior_shape_and_signs(self) -> None:
+        prior = ImageEnergyFlowPriorConfig(sigma=2.0, scale=1.0e-3)
+        gen = torch.Generator().manual_seed(0)
+        sample = sample_image_energy_prior(
+            prior,
+            batch_size=4,
+            value_count=64,
+            generator=gen,
+            device=torch.device("cpu"),
+        )
+        self.assertEqual(tuple(sample.shape), (4, 1, 64))
+        self.assertTrue(bool((sample > 0).any()))
+        self.assertTrue(bool((sample < 0).any()))
+        # Median of |e| should be near scale for a large draw.
+        big = sample_image_energy_prior(
+            prior,
+            batch_size=32,
+            value_count=1024,
+            generator=torch.Generator().manual_seed(1),
+            device=torch.device("cpu"),
+        )
+        median_abs = float(big.abs().median())
+        self.assertLess(abs(median_abs - prior.scale) / prior.scale, 0.25)
+
+    def test_session_trains_lognormal_prior(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             dataset_path = root / "data" / "images.pt"
@@ -78,7 +103,7 @@ class ImageEnergyFlowTrainingTest(unittest.TestCase):
                     normalize=True,
                     shuffle=False,
                 ),
-                prior=ImageEnergyFlowPriorConfig(sigma=1.0),
+                prior=ImageEnergyFlowPriorConfig(sigma=2.0, scale=1.0e-3),
                 flow=FlowModelConfig(
                     sequence_length=16,
                     width=8,
@@ -111,7 +136,8 @@ class ImageEnergyFlowTrainingTest(unittest.TestCase):
             self.assertIn(
                 "validation_reconstructed_image_rms_steps_1", results[-1].metrics
             )
-            self.assertEqual(session.config.prior.sigma, 1.0)
+            self.assertEqual(session.config.prior.sigma, 2.0)
+            self.assertEqual(session.config.prior.scale, 1.0e-3)
 
     def test_gallery_both_directions(self) -> None:
         model = DilatedConvFlow1d(
@@ -148,7 +174,7 @@ class ImageEnergyFlowTrainingTest(unittest.TestCase):
     def test_config_round_trip(self) -> None:
         raw = {
             "image": FlowImageConfig(dataset_path="data/images.pt", side=4).as_dict(),
-            "prior": {"sigma": 0.5},
+            "prior": {"sigma": 2.0, "scale": 5.0e-4},
             "flow": FlowModelConfig(sequence_length=16, width=8, time_dim=8).as_dict(),
             "time": FlowTimeConfig().as_dict(),
             "optimizer": {"learning_rate": 1e-4, "max_grad_norm": 1.0},
@@ -156,7 +182,8 @@ class ImageEnergyFlowTrainingTest(unittest.TestCase):
             "run": ImageEnergyFlowRunConfig(steps=3).as_dict(),
         }
         config = image_energy_flow_training_config_from_dict(raw)
-        self.assertEqual(config.prior.sigma, 0.5)
+        self.assertEqual(config.prior.sigma, 2.0)
+        self.assertEqual(config.prior.scale, 5.0e-4)
 
 
 if __name__ == "__main__":

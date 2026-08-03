@@ -73,7 +73,7 @@ flowchart TD
     image_flow[Image to energy flow]
     reverse_flow[Energy to image flow]
     image[32x32 image]
-    gaussian[Gaussian prior at t=0]
+    prior[Signed log-normal prior at t=0]
 
     energy_bank --> permute --> lpap
     lpap --> surrogate
@@ -94,7 +94,7 @@ returning values to the original energy ordering.
 
 The surrogate model consumes `C` tokens of dimension `N // C`. Its local RoPE attention mask is circular-backward: bucket token `i` can attend to the rolled source lanes that LPAP may inspect, `(i - roll) mod C` for `roll < k_max`. It predicts full-`N` source-index logits for each output bucket instead of only local probe indices — i.e. it learns to emulate LPAP’s selection. The training loss is weighted cross entropy, with per-bucket weights equal to the absolute selected amplitudes.
 
-The decoder does not see raw length-`N` energy. It consumes the frontend reduction of frozen surrogate logits into `(amplitude, DIB, entropy)` tokens and reconstructs source energy (see [Why amplitude and DIB](#why-amplitude-and-dib-inverting-the-table)). Decoder training uses a reconstruction objective plus an adaptive weighted source-logit cross-entropy regularizer. Surrogate and decoder both sample from the same empirical energy bank; the flow prior is Gaussian `N(0, σ²I)`, not bank rows.
+The decoder does not see raw length-`N` energy. It consumes the frontend reduction of frozen surrogate logits into `(amplitude, DIB, entropy)` tokens and reconstructs source energy (see [Why amplitude and DIB](#why-amplitude-and-dib-inverting-the-table)). Decoder training uses a reconstruction objective plus an adaptive weighted source-logit cross-entropy regularizer. Surrogate and decoder both sample from the same empirical energy bank; the flow prior is signed log-normal (configurable `σ`, median `scale`), not bank rows.
 
 ## Tensor View
 

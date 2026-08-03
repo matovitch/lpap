@@ -11,7 +11,7 @@ Start here when navigating the LPAP research stack.
 
 - [Training stack notes](training-stack.md): model dependencies, checkpoint/logging policy, molab lab workflow, AE loss terms / lambda dialing, and the trainable model kinds.
 - [Sizing probes](sizing-probes.md): capacity / integration exploration before promoting new baselines.
-- [Image-to-energy implementation notes](image-to-energy-implementation.md): bidirectional image↔energy flow with Gaussian prior at `t=0`.
+- [Image-to-energy implementation notes](image-to-energy-implementation.md): bidirectional image↔energy flow with signed log-normal prior at `t=0`.
 
 ## Data And Artifacts
 
@@ -37,7 +37,7 @@ the end-to-end image autoencoder.
 
 ```mermaid
 flowchart TD
-    gaussian[Gaussian prior at t=0] --> flow[Image-energy flow]
+    prior[Signed log-normal prior at t=0] --> flow[Image-energy flow]
     flow --> energy_bank[Encode images via i2e]
     energy_bank --> surrogate[Surrogate]
     surrogate --> decoder[Decoder]
@@ -51,5 +51,5 @@ flowchart TD
     inner --> autoencoder
 ```
 
-Pipeline: Gaussian-prior flow → encode bank → teachers → AE. See the
+Pipeline: signed log-normal flow → encode bank → teachers → AE. See the
 [README loss diagram](../README.md) for the joint training objective.

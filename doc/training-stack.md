@@ -7,7 +7,7 @@ and [`molab/lab.py`](../molab/lab.py)):
 
 - `surrogate`: learns full-`N` source-index logits for LPAP bucket selections on empirical i2e energy-bank rows.
 - `decoder`: reconstructs source energy values from frozen surrogate logits (same energy bank).
-- `image_energy_flow`: one bidirectional flow with image at `t=-1`, Gaussian energy prior at `t=0`, and image reconstruction at `t=+1`.
+- `image_energy_flow`: one bidirectional flow with image at `t=-1`, signed log-normal energy prior at `t=0`, and image reconstruction at `t=+1`.
 - `image_autoencoder`: end-to-end grayscale AE (image → energy → LPAP surrogate/decoder → image) initialized by cloning the bidirectional flow.
 
 ## Training Overview
@@ -69,14 +69,14 @@ This is a research repository. Local checkpoint and SQLite schemas are allowed t
 
 ```mermaid
 flowchart TD
-    gaussian[Gaussian N0 sigma2 I prior]
+    prior[Signed log-normal energy prior]
     flow_ckpt[image_energy_flow.pt]
     energy_bank[Empirical energy bank .pt]
     surrogate_ckpt[Surrogate checkpoint]
     decoder_ckpt[Decoder checkpoint]
     image_autoencoder_config[Image autoencoder TOML]
 
-    gaussian --> flow_ckpt
+    prior --> flow_ckpt
     flow_ckpt --> energy_bank
     energy_bank --> surrogate_ckpt
     surrogate_ckpt --> decoder_ckpt
@@ -87,11 +87,11 @@ flowchart TD
     image_autoencoder_config --> image_autoencoder[Image autoencoder training]
 ```
 
-Pipeline: train `image_energy_flow` with a Gaussian energy prior at `t=0`
-(`[prior] sigma = 1.0`), encode the image dataset once through that flow’s i2e
-branch into an empirical energy bank, train surrogate and decoder on that bank
-(`[data.energy_bank]`), then train `image_autoencoder` by cloning the flow
-checkpoint into both AE branches.
+Pipeline: train `image_energy_flow` with a signed log-normal energy prior at `t=0`
+(`[prior] sigma`, `scale`; fair-coin signs), encode the image dataset once through
+that flow’s i2e branch into an empirical energy bank, train surrogate and
+decoder on that bank (`[data.energy_bank]`), then train `image_autoencoder` by
+cloning the flow checkpoint into both AE branches.
 
 `image_autoencoder` is the total autoencoder. It Hilbert-flattens a grayscale image, rolls an image-to-energy flow forward for a small fixed number of differentiable steps, passes the encoded energy through one or more LPAP surrogate/decoder pairs in parallel (shared flows), then rolls an energy-to-image flow forward to reconstruct the image. Pair-dependent losses (image L2, energy L1, surrogate CE) are averaged over pairs; signed-mass is applied once on the shared encoded energy. Configure pairs with `[[source.lpap_pairs]]` or the legacy flat `surrogate_checkpoint_name` / `decoder_checkpoint_name` (normalized to one pair).
 
@@ -175,7 +175,8 @@ flowchart TD
 
 `image_energy_flow_training.py` owns the image/energy endpoints, bidirectional
 flow-matching objective, and the `[-1, 0]` / `[0, +1]` integration ranges.
-The energy endpoint is i.i.d. Gaussian with configurable `sigma`.
+The energy endpoint is i.i.d. signed log-normal with configurable `sigma`
+(log-scale std) and `scale` (median of `|e|`); signs are a fair coin.
 
 ## Lab notebook
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass, field
+from math import log
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +42,7 @@ from lpap.training import (
 from lpap.training_log import load_run_record
 
 # Global time: t=-1 image, t=0 energy, t=+1 image.
+# Energy prior: signed log-normal (|e|~LogNormal(μ,σ²), coin-toss signs).
 IMAGE_TO_ENERGY_T0 = -1.0
 IMAGE_TO_ENERGY_T1 = 0.0
 ENERGY_TO_IMAGE_T0 = 0.0
@@ -49,16 +51,30 @@ ENERGY_TO_IMAGE_T1 = 1.0
 
 @dataclass(frozen=True)
 class ImageEnergyFlowPriorConfig:
-    """Gaussian energy marginal at ``t=0``: i.i.d. ``N(0, sigma^2 I)``."""
+    """Signed log-normal energy marginal at ``t=0``.
 
-    sigma: float = 1.0
+    Magnitudes: ``|e| ~ LogNormal(μ, σ²)`` with median ``scale = exp(μ)``.
+    Signs: i.i.d. fair coin ``±1`` (``P(+) = 0.5``).
+    """
+
+    sigma: float = 2.0
+    scale: float = 1.0e-3
+
+    @property
+    def mu(self) -> float:
+        return log(self.scale)
 
     def validate(self) -> None:
         if self.sigma <= 0:
             raise ValueError("prior.sigma must be positive")
+        if self.scale <= 0:
+            raise ValueError("prior.scale must be positive")
 
     def as_dict(self) -> dict[str, object]:
-        return {"sigma": self.sigma}
+        return {
+            "sigma": self.sigma,
+            "scale": self.scale,
+        }
 
 
 @dataclass(frozen=True)
@@ -151,7 +167,10 @@ class ImageEnergyFlowTrainingConfig:
 def image_energy_flow_prior_config_from_dict(
     data: dict[str, Any],
 ) -> ImageEnergyFlowPriorConfig:
-    return ImageEnergyFlowPriorConfig(sigma=float(data.get("sigma", 1.0)))
+    return ImageEnergyFlowPriorConfig(
+        sigma=float(data.get("sigma", 2.0)),
+        scale=float(data.get("scale", 1.0e-3)),
+    )
 
 
 def image_energy_flow_training_config_from_dict(
@@ -238,7 +257,7 @@ def create_image_energy_flow_training_session(
         seed=config.run.seed,
         run_config=config.as_run_config(),
         model_config=config.model_config(),
-        metadata={"prior_sigma": config.prior.sigma},
+        metadata={"prior": config.prior.as_dict()},
         device=device,
     )
     return ImageEnergyFlowTrainingSession(
@@ -258,6 +277,36 @@ def create_image_energy_flow_training_session(
     )
 
 
+def sample_image_energy_prior(
+    prior: ImageEnergyFlowPriorConfig,
+    *,
+    batch_size: int,
+    value_count: int,
+    generator: torch.Generator,
+    device: torch.device,
+) -> torch.Tensor:
+    """Sample ``(batch, 1, value_count)`` signed log-normal energies."""
+    prior.validate()
+    # |e| = scale * exp(σ Z) = exp(μ + σ Z) with μ = log(scale).
+    noise = torch.randn(
+        batch_size,
+        value_count,
+        device=device,
+        dtype=torch.float32,
+        generator=generator,
+    )
+    magnitudes = float(prior.scale) * torch.exp(float(prior.sigma) * noise)
+    coins = torch.rand(
+        batch_size,
+        value_count,
+        device=device,
+        dtype=torch.float32,
+        generator=generator,
+    )
+    signs = torch.where(coins < 0.5, 1.0, -1.0)
+    return (signs * magnitudes).unsqueeze(1)
+
+
 def _sample_energy(
     *,
     config: ImageEnergyFlowTrainingConfig,
@@ -265,14 +314,13 @@ def _sample_energy(
     generator: torch.Generator,
     device: torch.device,
 ) -> torch.Tensor:
-    values = torch.randn(
-        batch_size,
-        config.value_count,
-        device=device,
-        dtype=torch.float32,
+    return sample_image_energy_prior(
+        config.prior,
+        batch_size=batch_size,
+        value_count=config.value_count,
         generator=generator,
+        device=device,
     )
-    return (values * float(config.prior.sigma)).unsqueeze(1)
 
 
 def train_image_energy_flow_step(
@@ -536,6 +584,7 @@ __all__ = [
     "image_energy_flow_training_config_from_dict",
     "iter_image_energy_flow_training",
     "rerun_image_energy_flow_training_config_from_log",
+    "sample_image_energy_prior",
     "should_validate_image_energy_flow",
     "train_image_energy_flow_step",
 ]

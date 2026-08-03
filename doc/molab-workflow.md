@@ -80,7 +80,7 @@ Extra molab-workflow helpers (same `MOLAB_*` env):
 - `molab-push-package-file.sh` — hot-patch one `src/lpap/*.py` into the kernel
   (ephemeral; prefer commit + `molab-sync` for durable updates)
 - `molab-export-notebook.sh` — backport live cells → `molab/lab.py`
-- `molab-train-status.sh` / `molab-launch-ae-bidirectional-flow.sh` / `molab-launch-image-energy-flow.sh` — long AE / Gaussian flow runs
+- `molab-train-status.sh` / `molab-launch-ae-bidirectional-flow.sh` / `molab-launch-image-energy-flow.sh` — long AE / image-energy flow runs
 - `molab-notify.sh` — Pushover on job finish / handoff (prefer over agent polling)
 
 ## Capabilities
@@ -258,7 +258,7 @@ Caches `data/images_32x32_gray.pt` (skips if present). Do not confuse with
 
 ## Training order
 
-Gaussian-prior `image_energy_flow` → encode images via that flow’s i2e into an
+Signed log-normal `image_energy_flow` → encode images via that flow’s i2e into an
 empirical energy bank → bank teachers (`surrogate`/`decoder`) →
 `image_autoencoder` (clones the flow checkpoint). Teachers sample the energy
 bank (no image dataset); the AE needs images + flow + teacher checkpoints.

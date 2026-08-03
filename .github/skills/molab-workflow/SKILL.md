@@ -51,7 +51,7 @@ All under `.github/skills/molab-workflow/scripts/` (require `MOLAB_URL` +
 | `molab-train-status.sh` | On-demand AE bg / ckpt / SQLite summary (not a completion waiter) |
 | `molab-notify.sh` | Pushover ping (job finished / agent handoff) |
 | `molab-launch-ae-bidirectional-flow.sh` | Detached multi-pair AE from `image_energy_flow.pt` |
-| `molab-launch-image-energy-flow.sh` | Detached Gaussian-prior bidirectional flow |
+| `molab-launch-image-energy-flow.sh` | Detached signed log-normal bidirectional flow |
 | `molab-launch-lpap-teacher.sh` | Detached surrogate or decoder teacher |
 | `molab-push-package-file.sh` | Hot-patch one local `src/lpap/*.py` into site-packages + reload |
 | `molab-export-notebook.sh` | Backport live cells → `molab/lab.py` |
@@ -169,7 +169,7 @@ Implementation: repo [`molab/jobs.py`](../../../molab/jobs.py)
 `training_logs/train_image_autoencoder_tri_flow_bg.py` and spawns with
 pid/log under `image_autoencoder_tri_flow_bg.*`.
 
-Gaussian flow train:
+Image-energy flow train:
 
 ```bash
 bash .github/skills/molab-workflow/scripts/molab-launch-image-energy-flow.sh \
@@ -199,7 +199,7 @@ Reports ckpt step, SQLite max step, and bg alive / last log step.
 
 ## Training order
 
-Gaussian-prior `image_energy_flow` → encode images via i2e into an empirical
+Signed log-normal `image_energy_flow` → encode images via i2e into an empirical
 energy bank → bank teachers (`surrogate` → `decoder`) → `image_autoencoder`
 (clones the flow). Teachers use the bank; the AE needs images + flow + teacher
 checkpoints. Launch teachers from a shared `configs/training/teacher_*.toml`
