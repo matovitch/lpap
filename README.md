@@ -71,7 +71,9 @@ flowchart LR
 
 ![Autoencoder loss](doc/assets/ae-loss.png)
 
-*[Source TeX](doc/tex/ae_loss.tex)* · regenerate with `pixi run tex-ae-loss`
+*[Source TeX](doc/tex/ae_loss.tex)* · regenerate with `pixi run tex-ae-loss`.
+Optional signed-mass on $e$ is configured in TOML but has been a minor lever in
+practice — details in [training stack](doc/training-stack.md).
 
 ## Documentation
 

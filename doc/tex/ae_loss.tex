@@ -7,8 +7,7 @@
 \begin{minipage}{0.98\linewidth}
 {\large\bfseries Autoencoder loss}\\[0.45em]
 {\footnotesize
-Pair losses averaged over widths $C_i$;
-signed-mass once on the shared latent $e$.
+Pair losses averaged over parallel widths $C_i$.
 }\\[0.7em]
 \[
 \setlength{\jot}{0.55em}
@@ -23,8 +22,6 @@ signed-mass once on the shared latent $e$.
   +
   \lambda_{\mathrm{ce}}\,L_{\mathrm{ce}}^{(i)}
 \Bigr]
-+
-\lambda_{\mathrm{sm}}\,L_{\mathrm{signed}}(e)
 \\
 L_{\mathrm{rec}}^{(i)}
 &=
@@ -37,23 +34,12 @@ L_{\mathrm{e}}^{(i)}
 L_{\mathrm{ce}}^{(i)}
 =
 \mathrm{CE}_{i}^{\mathrm{LPAP}}
-\\
-L_{\mathrm{signed}}(e)
-&=
-\Bigl(\tfrac{m_{+}-m_{-}}{\tau}\Bigr)^{2}
-+
-\alpha\Biggl[
-  \Bigl(\tfrac{\mathrm{relu}(\tau-m_{+})}{\tau}\Bigr)^{2}
-  +
-  \Bigl(\tfrac{\mathrm{relu}(\tau-m_{-})}{\tau}\Bigr)^{2}
-\Biggr]
 \end{aligned}
 \]
-\vspace{0.25em}
+\vspace{0.35em}
 {\footnotesize
-$m_{\pm}=\mathrm{mean}(\mathrm{relu}(\pm e))$,\;
-$\tau$ = mass floor,\;
-$\alpha$ = floor coefficient.
+An optional signed-mass term on the shared latent $e$ exists in config but has
+had little practical effect so far; see the training-stack notes.
 }
 \end{minipage}
 \end{document}
