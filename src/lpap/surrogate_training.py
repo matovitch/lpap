@@ -11,7 +11,7 @@ from lpap.energy_bank import (
     EnergyBankConfig,
     cycle_energy_bank_batches,
     energy_bank_config_from_dict,
-    load_energy_bank_for_flow,
+    ensure_energy_bank,
     sample_energy_bank_values,
 )
 from lpap.permutation import make_grouped_permutation_indices
@@ -67,10 +67,10 @@ def load_teacher_energy_bank(
     data: LPAPSurrogateDataConfig,
 ) -> torch.Tensor:
     """Load the energy bank and check ``energy_dim == data.value_count``."""
-    return load_energy_bank_for_flow(
+    return ensure_energy_bank(
         Path(root),
         data.energy_bank,
-        sequence_length=data.value_count,
+        energy_dim=data.value_count,
     )
 
 

@@ -1,5 +1,4 @@
-# Bidirectional image↔energy flow on t∈[-1,1] (energy at t=0).
-# Harmonics prior at the latent.
+# Bidirectional image↔energy flow on t∈[-1,1] (Gaussian energy at t=0).
 
 [image]
 dataset_path = "data/images_32x32_gray.pt"
@@ -10,14 +9,7 @@ shuffle = true
 num_workers = 0
 
 [prior]
-kind = "harmonics"
-
-[prior.harmonics]
-harmonic_count = 32
-gain_variance = 1.0
-gain_half_life = 4.0
-spikiness_range = [4.0, 6.0]
-dtype = "torch.float32"
+sigma = 1.0
 
 [flow]
 sequence_length = 1024
@@ -56,5 +48,5 @@ log_every = 1
 run_id = "image_energy_flow"
 checkpoint_name = "image_energy_flow.pt"
 log_name = "image_energy_flow.sqlite"
-comment = "bidirectional image↔energy; t=-1 image, t=0 energy, t=+1 image"
+comment = ""
 pinned = false

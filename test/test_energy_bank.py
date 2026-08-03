@@ -13,14 +13,12 @@ from lpap.energy_bank import (
     cycle_energy_bank_batches,
     energy_bank_config_from_dict,
     energy_bank_scale_stats,
+    ensure_energy_bank,
     load_energy_bank,
-    load_energy_bank_for_flow,
     relative_rmse,
     resolve_energy_bank_path,
     sample_energy_bank_values,
-    sample_energy_prior_values,
 )
-from lpap.data import SyntheticHarmonicConfig
 
 
 class EnergyBankTest(unittest.TestCase):
@@ -107,40 +105,17 @@ class EnergyBankTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 load_energy_bank(path)
 
-    def test_load_for_training_checks_sequence_length(self) -> None:
+    def test_ensure_energy_bank_checks_energy_dim(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             data_dir = root / "data"
             data_dir.mkdir()
             torch.save({"energies": torch.randn(5, 8)}, data_dir / "bank.pt")
             config = EnergyBankConfig(path="data/bank.pt")
-            loaded = load_energy_bank_for_flow(root, config, sequence_length=8)
+            loaded = ensure_energy_bank(root, config, energy_dim=8)
             self.assertEqual(tuple(loaded.shape), (5, 8))
             with self.assertRaises(ValueError):
-                load_energy_bank_for_flow(root, config, sequence_length=4)
-
-    def test_sample_energy_prior_harmonics_and_bank(self) -> None:
-        generator = torch.Generator().manual_seed(0)
-        harmonics = SyntheticHarmonicConfig(harmonic_count=2)
-        values = sample_energy_prior_values(
-            kind="harmonics",
-            batch_size=3,
-            generator=generator,
-            device=torch.device("cpu"),
-            sequence_length=8,
-            harmonics=harmonics,
-        )
-        self.assertEqual(tuple(values.shape), (3, 8))
-        bank = torch.arange(20, dtype=torch.float32).reshape(5, 4)
-        bank_values = sample_energy_prior_values(
-            kind="energy_bank",
-            batch_size=2,
-            generator=torch.Generator().manual_seed(1),
-            device=torch.device("cpu"),
-            sequence_length=4,
-            energy_bank=bank,
-        )
-        self.assertEqual(tuple(bank_values.shape), (2, 4))
+                ensure_energy_bank(root, config, energy_dim=4)
 
     @unittest.skipUnless(torch.cuda.is_available(), "CUDA required")
     def test_sample_energy_bank_with_cuda_generator(self) -> None:

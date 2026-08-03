@@ -32,7 +32,7 @@ When working in this repository:
 ## Useful Facts
 
 - This is a research repo: local checkpoint and SQLite schemas are not kept backward-compatible. Regenerate stale artifacts rather than migrating, unless migration is explicitly requested.
-- Train models in dependency order (surrogate → decoder, then the two flows) before the end-to-end `image_autoencoder`; model-dependent config (harmonics, bucket layout) is read from upstream checkpoints, not duplicated in TOML.
+- Train models in dependency order (Gaussian `image_energy_flow` → encode bank → surrogate → decoder → `image_autoencoder`); model-dependent config (bucket layout, flow dims) is read from upstream checkpoints, not duplicated in TOML.
 - For free remote GPUs on molab, see `.github/skills/molab-workflow/SKILL.md` and
   [doc/molab-workflow.md](../../doc/molab-workflow.md) (worktree
   `lpap-molab` on `main`; sibling `../lpap` parks `main-pre-molab`).

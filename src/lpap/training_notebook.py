@@ -5,9 +5,6 @@ import json
 from pathlib import Path
 from typing import Literal
 
-import torch
-
-from lpap.data import SyntheticHarmonicConfig
 from lpap.decoder_training import (
     LPAPDecoderModelConfig,
     LPAPDecoderRegularizationConfig,
@@ -20,6 +17,7 @@ from lpap.decoder_training import (
     lpap_decoder_training_config_from_dict,
     rerun_lpap_decoder_training_config_from_log,
 )
+from lpap.energy_bank import EnergyBankConfig
 from lpap.flow_training import (
     FlowImageConfig,
     FlowModelConfig,
@@ -40,7 +38,6 @@ from lpap.image_autoencoder_training import (
     iter_image_autoencoder_training,
     rerun_image_autoencoder_training_config_from_log,
 )
-from lpap.energy_bank import EnergyBankConfig
 from lpap.image_energy_flow_training import (
     ImageEnergyFlowPriorConfig,
     ImageEnergyFlowRunConfig,
@@ -70,7 +67,6 @@ TrainingModelKind = Literal[
     "surrogate",
     "decoder",
     "image_energy_flow",
-    "image_energy_flow_energy_bank",
     "image_autoencoder",
 ]
 TrainingConfig = (
@@ -89,8 +85,6 @@ TrainingSession = (
 
 def training_backend_kind(model_kind: TrainingModelKind) -> str:
     """Map UI/config kind to the training stack that owns the session."""
-    if model_kind in ("image_energy_flow", "image_energy_flow_energy_bank"):
-        return "image_energy_flow"
     return model_kind
 
 
@@ -183,13 +177,6 @@ def default_decoder_training_config() -> LPAPDecoderTrainingConfig:
 
 
 def default_image_energy_flow_training_config() -> ImageEnergyFlowTrainingConfig:
-    harmonics = SyntheticHarmonicConfig(
-        harmonic_count=16,
-        gain_variance=1.0,
-        gain_half_life=4.0,
-        spikiness_range=(4.0, 8.0),
-        dtype=torch.float32,
-    )
     return ImageEnergyFlowTrainingConfig(
         image=FlowImageConfig(
             dataset_path="data/images_32x32_gray.pt",
@@ -199,7 +186,7 @@ def default_image_energy_flow_training_config() -> ImageEnergyFlowTrainingConfig
             shuffle=True,
             num_workers=0,
         ),
-        prior=ImageEnergyFlowPriorConfig(harmonics=harmonics),
+        prior=ImageEnergyFlowPriorConfig(sigma=1.0),
         flow=FlowModelConfig(
             sequence_length=1024,
             width=128,
@@ -238,43 +225,6 @@ def default_image_energy_flow_training_config() -> ImageEnergyFlowTrainingConfig
             checkpoint_name="image_energy_flow.pt",
             log_name="image_energy_flow.sqlite",
             comment="",
-            pinned=False,
-        ),
-    )
-
-
-def default_image_energy_flow_energy_bank_training_config() -> ImageEnergyFlowTrainingConfig:
-    config = default_image_energy_flow_training_config()
-    return ImageEnergyFlowTrainingConfig(
-        image=config.image,
-        prior=ImageEnergyFlowPriorConfig(
-            kind="energy_bank",
-            energy_bank=EnergyBankConfig(
-                path="data/encoded_energies_ae_best.pt",
-            ),
-        ),
-        flow=config.flow,
-        time=config.time,
-        optimizer=config.optimizer,
-        validation=FlowValidationConfig(
-            enabled=True,
-            every=50,
-            batch_size=64,
-            seed=30_123,
-            validate_at_end=True,
-            euler_steps=(1, 4, 16),
-        ),
-        run=ImageEnergyFlowRunConfig(
-            run_training=config.run.run_training,
-            resume_from_checkpoint=config.run.resume_from_checkpoint,
-            steps=2_000,
-            seed=config.run.seed,
-            display_every=25,
-            log_every=5,
-            run_id="image_energy_flow_energy_bank",
-            checkpoint_name="image_energy_flow_energy_bank.pt",
-            log_name="image_energy_flow_energy_bank.sqlite",
-            comment="energy-bank prior; unpaired images",
             pinned=False,
         ),
     )
@@ -368,8 +318,6 @@ def default_training_config(model_kind: TrainingModelKind) -> TrainingConfig:
         return default_decoder_training_config()
     if model_kind == "image_energy_flow":
         return default_image_energy_flow_training_config()
-    if model_kind == "image_energy_flow_energy_bank":
-        return default_image_energy_flow_energy_bank_training_config()
     if model_kind == "image_autoencoder":
         return default_image_autoencoder_training_config()
     raise ValueError("unsupported model_kind")

@@ -10,7 +10,7 @@ import json
 import os
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from molab.bg_worker import (
     BackgroundWorkerError,
@@ -18,186 +18,37 @@ from molab.bg_worker import (
     spawn_detached_python,
 )
 
-# Fresh tri-pair AE initialized from bank-pretrained bidirectional flow
-# (c128_k16 + c256_k24 + c512_k32). Distinct from harmonics-init
-# image_autoencoder_tri_flow.* artifacts.
-AE_ENERGY_BANK_RUN_ID = "image_autoencoder_tri_bank_flow"
-AE_ENERGY_BANK_CHECKPOINT = "image_autoencoder_tri_bank_flow.pt"
-AE_ENERGY_BANK_LOG = "image_autoencoder_tri_bank_flow.sqlite"
-AE_ENERGY_BANK_BG_STEM = "image_autoencoder_tri_bank_flow_bg"
-AE_ENERGY_BANK_SCRIPT = "train_image_autoencoder_tri_bank_flow_bg.py"
-
-# Tri-pair AE from one bidirectional harmonics flow
-# (c128_k16 + c256_k24 + c512_k32). New stem so the prior 2-pair
-# image_autoencoder_multi_flow.* artifacts stay intact on HF.
+# Tri-pair AE from one bidirectional Gaussian-midpoint flow
+# (c128_k16 + c256_k24 + c512_k32).
 AE_BIDIR_FLOW_RUN_ID = "image_autoencoder_tri_flow"
 AE_BIDIR_FLOW_CHECKPOINT = "image_autoencoder_tri_flow.pt"
 AE_BIDIR_FLOW_LOG = "image_autoencoder_tri_flow.sqlite"
 AE_BIDIR_FLOW_BG_STEM = "image_autoencoder_tri_flow_bg"
 AE_BIDIR_FLOW_SCRIPT = "train_image_autoencoder_tri_flow_bg.py"
 
-FlowKind = Literal["image_energy_flow_energy_bank"]
-
-_FLOW_SPECS: dict[FlowKind, dict[str, str]] = {
-    "image_energy_flow_energy_bank": {
-        "run_id": "image_energy_flow_energy_bank",
-        "checkpoint": "image_energy_flow_energy_bank.pt",
-        "log": "image_energy_flow_energy_bank.sqlite",
-        "bg_stem": "image_energy_flow_energy_bank_bg",
-        "script": "train_image_energy_flow_energy_bank_bg.py",
-        "default_fn": "default_image_energy_flow_energy_bank_training_config",
-        "done_marker": "IMAGE_ENERGY_FLOW_ENERGY_BANK_DONE",
-    },
-}
+FLOW_RUN_ID = "image_energy_flow"
+FLOW_CHECKPOINT = "image_energy_flow.pt"
+FLOW_LOG = "image_energy_flow.sqlite"
+FLOW_BG_STEM = "image_energy_flow_bg"
+FLOW_SCRIPT = "train_image_energy_flow_bg.py"
+FLOW_DONE_MARKER = "IMAGE_ENERGY_FLOW_DONE"
 
 
-def ae_energy_bank_worker_source(
+
+def image_energy_flow_worker_source(
     *,
     target_steps: int,
     project_root: str | Path = "/marimo",
     upload_artifacts_on_checkpoint: bool = True,
     notify_on_finished: bool = True,
     comment: str | None = None,
-    energy_bank_path: str = "data/encoded_energies_ae_best.pt",
-    resume_from_checkpoint: bool = False,
 ) -> str:
-    """Return Python source for the tri-pair AE worker (bank-pretrained flow)."""
-    del energy_bank_path  # kept for launcher API compatibility
+    """Return Python source for the bidirectional Gaussian-midpoint flow worker."""
     if target_steps <= 0:
         raise ValueError("target_steps must be positive")
     root = Path(project_root)
     resolved_comment = comment or (
-        "tri-pair AE c128_k16+c256_k24+c512_k32 from "
-        f"image_energy_flow_energy_bank; bg to {target_steps}; "
-        "HF upload + notify"
-    )
-    upload = "True" if upload_artifacts_on_checkpoint else "False"
-    notify = "True" if notify_on_finished else "False"
-    resume = "True" if resume_from_checkpoint else "False"
-    return f'''from __future__ import annotations
-
-from dataclasses import replace
-from pathlib import Path
-
-from lpap.image_autoencoder_training import (
-    ImageAutoencoderRunConfig,
-    ImageAutoencoderSourceConfig,
-    ImageAutoencoderLpapPairConfig,
-)
-from lpap.training_notebook import (
-    create_training_session,
-    default_image_autoencoder_training_config,
-    iter_training,
-)
-
-project_root = Path({str(root)!r})
-TARGET = {int(target_steps)}
-base = default_image_autoencoder_training_config()
-config = replace(
-    base,
-    source=ImageAutoencoderSourceConfig(
-        lpap_pairs=(
-            ImageAutoencoderLpapPairConfig(
-                surrogate_checkpoint_name="surrogate_c128_k16.pt",
-                decoder_checkpoint_name="decoder_c128_k16.pt",
-                name="c128_k16",
-            ),
-            ImageAutoencoderLpapPairConfig(
-                surrogate_checkpoint_name="surrogate_c256_k24.pt",
-                decoder_checkpoint_name="decoder_c256_k24.pt",
-                name="c256_k24",
-            ),
-            ImageAutoencoderLpapPairConfig(
-                surrogate_checkpoint_name="surrogate_c512_k32.pt",
-                decoder_checkpoint_name="decoder_c512_k32.pt",
-                name="c512_k32",
-            ),
-        ),
-        flow_checkpoint_name="image_energy_flow_energy_bank.pt",
-        load_best=True,
-        require_checkpoints=True,
-        train_image_to_energy_flow=True,
-        train_surrogate=True,
-        train_decoder=True,
-        train_energy_to_image_flow=True,
-    ),
-    validation=replace(
-        base.validation, every=250, batch_size=32, num_batches=8
-    ),
-    run=ImageAutoencoderRunConfig(
-        run_training=True,
-        resume_from_checkpoint={resume},
-        steps=TARGET,
-        seed=base.run.seed,
-        display_every=25,
-        log_every=5,
-        run_id="{AE_ENERGY_BANK_RUN_ID}",
-        checkpoint_name="{AE_ENERGY_BANK_CHECKPOINT}",
-        log_name="{AE_ENERGY_BANK_LOG}",
-        comment={resolved_comment!r},
-        pinned=True,
-        upload_artifacts_on_checkpoint={upload},
-        notify_on_finished={notify},
-    ),
-)
-
-session = create_training_session(
-    "image_autoencoder", project_root=project_root, config=config
-)
-print(
-    f"device={{session.device}} start={{session.resume_info.start_step}} "
-    f"target={{config.run.steps}} upload={{config.run.upload_artifacts_on_checkpoint}} "
-    f"notify={{config.run.notify_on_finished}} resume={{config.run.resume_from_checkpoint}}",
-    flush=True,
-)
-print(session.resume_info.message, flush=True)
-print(f"best_so_far={{session.training_run.best_metric}}", flush=True)
-print(
-    "flow=image_energy_flow_energy_bank.pt pairs=c128_k16,c256_k24,c512_k32",
-    flush=True,
-)
-for result in iter_training("image_autoencoder", session):
-    if result.should_display or result.improved or result.step % 50 == 0:
-        loss = result.metrics.get("loss", float("nan"))
-        vloss = result.metrics.get("validation_loss")
-        img = result.metrics.get("image_reconstruction_l2", float("nan"))
-        eng = result.metrics.get("energy_reconstruction_l1", float("nan"))
-        img128 = result.metrics.get("image_reconstruction_l2/c128_k16", float("nan"))
-        img256 = result.metrics.get("image_reconstruction_l2/c256_k24", float("nan"))
-        img512 = result.metrics.get("image_reconstruction_l2/c512_k32", float("nan"))
-        vtxt = "n/a" if vloss is None else f"{{vloss:.5f}}"
-        best = "n/a" if result.best_metric is None else f"{{result.best_metric:.5f}}"
-        mark = " *" if result.improved else ""
-        ck = " ckpt" if result.checkpointed else ""
-        print(
-            f"step={{result.step}} loss={{loss:.5f}} val={{vtxt}} "
-            f"img_l2={{img:.5f}} energy_l1={{eng:.5f}} "
-            f"img_c128={{img128:.5f}} img_c256={{img256:.5f}} img_c512={{img512:.5f}} "
-            f"best={{best}}{{mark}}{{ck}}",
-            flush=True,
-        )
-print("AE_TRI_BANK_FLOW_DONE", flush=True)
-'''
-
-
-
-def flow_energy_bank_worker_source(
-    *,
-    target_steps: int,
-    project_root: str | Path = "/marimo",
-    upload_artifacts_on_checkpoint: bool = True,
-    notify_on_finished: bool = True,
-    comment: str | None = None,
-    energy_bank_path: str = "data/encoded_energies_ae_best.pt",
-) -> str:
-    """Return Python source for an unpaired energy-bank flow worker."""
-    if target_steps <= 0:
-        raise ValueError("target_steps must be positive")
-    kind: FlowKind = "image_energy_flow_energy_bank"
-    spec = _FLOW_SPECS[kind]
-    root = Path(project_root)
-    resolved_comment = comment or (
-        f"{kind} against {energy_bank_path}; bg to {target_steps}"
+        f"image_energy_flow Gaussian prior; bg to {target_steps}"
     )
     upload = "True" if upload_artifacts_on_checkpoint else "False"
     notify = "True" if notify_on_finished else "False"
@@ -208,20 +59,16 @@ from pathlib import Path
 
 from lpap.training_notebook import (
     create_training_session,
-    {spec["default_fn"]},
+    default_image_energy_flow_training_config,
     iter_training,
 )
 
 project_root = Path({str(root)!r})
 TARGET = {int(target_steps)}
-KIND = {kind!r}
-base = {spec["default_fn"]}()
+KIND = "image_energy_flow"
+base = default_image_energy_flow_training_config()
 config = replace(
     base,
-    prior=replace(
-        base.prior,
-        energy_bank=replace(base.prior.energy_bank, path={energy_bank_path!r}),
-    ),
     run=replace(
         base.run,
         run_training=True,
@@ -229,15 +76,14 @@ config = replace(
         steps=TARGET,
         display_every=25,
         log_every=5,
-        run_id={spec["run_id"]!r},
-        checkpoint_name={spec["checkpoint"]!r},
-        log_name={spec["log"]!r},
+        run_id={FLOW_RUN_ID!r},
+        checkpoint_name={FLOW_CHECKPOINT!r},
+        log_name={FLOW_LOG!r},
         comment={resolved_comment!r},
         pinned=True,
     ),
 )
 session = create_training_session(KIND, project_root=project_root, config=config)
-# Flow run configs do not yet carry these flags; set on TrainingRunConfig.
 session.training_run.config = replace(
     session.training_run.config,
     upload_artifacts_on_checkpoint={upload},
@@ -245,7 +91,7 @@ session.training_run.config = replace(
 )
 print(
     f"device={{session.device}} kind={{KIND}} start={{session.resume_info.start_step}} "
-    f"target={{config.run.steps}} bank={energy_bank_path!r} "
+    f"target={{config.run.steps}} prior_sigma={{config.prior.sigma}} "
     f"upload={{session.training_run.config.upload_artifacts_on_checkpoint}} "
     f"notify={{session.training_run.config.notify_on_finished}}",
     flush=True,
@@ -264,8 +110,9 @@ for result in iter_training(KIND, session):
             f"best={{best}}{{mark}}{{ck}}",
             flush=True,
         )
-print({spec["done_marker"]!r}, flush=True)
+print({FLOW_DONE_MARKER!r}, flush=True)
 '''
+
 
 
 def _spawn_job(
@@ -439,41 +286,6 @@ print("AE_TRI_BIDIR_FLOW_DONE", flush=True)
 '''
 
 
-def launch_ae_energy_bank_bg(
-    project_root: str | Path = "/marimo",
-    *,
-    target_steps: int,
-    upload_artifacts_on_checkpoint: bool = True,
-    notify_on_finished: bool = True,
-    comment: str | None = None,
-    require_secrets: bool = True,
-    energy_bank_path: str = "data/encoded_energies_ae_best.pt",
-    resume_from_checkpoint: bool = False,
-) -> dict[str, Any]:
-    """Write + spawn the multi-pair AE worker (bank-pretrained flows)."""
-    root = Path(project_root)
-    return _spawn_job(
-        project_root=root,
-        script_name=AE_ENERGY_BANK_SCRIPT,
-        bg_stem=AE_ENERGY_BANK_BG_STEM,
-        source=ae_energy_bank_worker_source(
-            target_steps=target_steps,
-            project_root=root,
-            upload_artifacts_on_checkpoint=upload_artifacts_on_checkpoint,
-            notify_on_finished=notify_on_finished,
-            comment=comment,
-            energy_bank_path=energy_bank_path,
-            resume_from_checkpoint=resume_from_checkpoint,
-        ),
-        target_steps=target_steps,
-        run_id=AE_ENERGY_BANK_RUN_ID,
-        checkpoint_name=AE_ENERGY_BANK_CHECKPOINT,
-        log_name=AE_ENERGY_BANK_LOG,
-        upload_artifacts_on_checkpoint=upload_artifacts_on_checkpoint,
-        notify_on_finished=notify_on_finished,
-        require_secrets=require_secrets,
-    )
-
 
 def launch_ae_bidirectional_flow_bg(
     project_root: str | Path = "/marimo",
@@ -485,7 +297,7 @@ def launch_ae_bidirectional_flow_bg(
     require_secrets: bool = True,
     resume_from_checkpoint: bool = False,
 ) -> dict[str, Any]:
-    """Write + spawn multi-pair AE from one bidirectional harmonics flow."""
+    """Write + spawn multi-pair AE from one bidirectional Gaussian-midpoint flow."""
     root = Path(project_root)
     return _spawn_job(
         project_root=root,
@@ -509,7 +321,7 @@ def launch_ae_bidirectional_flow_bg(
     )
 
 
-def launch_flow_energy_bank_bg(
+def launch_image_energy_flow_bg(
     project_root: str | Path = "/marimo",
     *,
     target_steps: int,
@@ -517,32 +329,29 @@ def launch_flow_energy_bank_bg(
     notify_on_finished: bool = True,
     comment: str | None = None,
     require_secrets: bool = True,
-    energy_bank_path: str = "data/encoded_energies_ae_best.pt",
 ) -> dict[str, Any]:
-    """Write + spawn the bidirectional energy-bank flow worker."""
+    """Write + spawn the bidirectional Gaussian-midpoint flow worker."""
     root = Path(project_root)
-    kind: FlowKind = "image_energy_flow_energy_bank"
-    spec = _FLOW_SPECS[kind]
     return _spawn_job(
         project_root=root,
-        script_name=spec["script"],
-        bg_stem=spec["bg_stem"],
-        source=flow_energy_bank_worker_source(
+        script_name=FLOW_SCRIPT,
+        bg_stem=FLOW_BG_STEM,
+        source=image_energy_flow_worker_source(
             target_steps=target_steps,
             project_root=root,
             upload_artifacts_on_checkpoint=upload_artifacts_on_checkpoint,
             notify_on_finished=notify_on_finished,
             comment=comment,
-            energy_bank_path=energy_bank_path,
         ),
         target_steps=target_steps,
-        run_id=spec["run_id"],
-        checkpoint_name=spec["checkpoint"],
-        log_name=spec["log"],
+        run_id=FLOW_RUN_ID,
+        checkpoint_name=FLOW_CHECKPOINT,
+        log_name=FLOW_LOG,
         upload_artifacts_on_checkpoint=upload_artifacts_on_checkpoint,
         notify_on_finished=notify_on_finished,
         require_secrets=require_secrets,
     )
+
 
 
 def lpap_teacher_worker_source(
@@ -693,26 +502,11 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         p.add_argument("--no-notify", action="store_true")
         p.add_argument("--comment", default=None)
         p.add_argument("--allow-missing-secrets", action="store_true")
-        p.add_argument(
-            "--energy-bank-path",
-            default="data/encoded_energies_ae_best.pt",
-        )
         p.add_argument("--json", action="store_true")
-
-    launch = sub.add_parser(
-        "launch-ae-energy-bank",
-        help="spawn multi-pair AE from bank-pretrained flows",
-    )
-    add_common(launch)
-    launch.add_argument(
-        "--resume",
-        action="store_true",
-        help="resume from existing AE checkpoint instead of fresh init",
-    )
 
     launch_bidir = sub.add_parser(
         "launch-ae-bidirectional-flow",
-        help="spawn multi-pair AE from one bidirectional harmonics flow",
+        help="spawn multi-pair AE from one bidirectional Gaussian-midpoint flow",
     )
     add_common(launch_bidir)
     launch_bidir.add_argument(
@@ -722,8 +516,8 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
 
     flow = sub.add_parser(
-        "launch-flow-energy-bank",
-        help="spawn the bidirectional image_energy_flow_energy_bank worker",
+        "launch-image-energy-flow",
+        help="spawn the bidirectional image_energy_flow worker (Gaussian prior)",
     )
     add_common(flow)
 
@@ -749,18 +543,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
     try:
-        if args.command == "launch-ae-energy-bank":
-            result = launch_ae_energy_bank_bg(
-                args.project_root,
-                target_steps=args.target_steps,
-                upload_artifacts_on_checkpoint=not args.no_upload,
-                notify_on_finished=not args.no_notify,
-                comment=args.comment,
-                require_secrets=not args.allow_missing_secrets,
-                energy_bank_path=args.energy_bank_path,
-                resume_from_checkpoint=bool(args.resume),
-            )
-        elif args.command == "launch-ae-bidirectional-flow":
+        if args.command == "launch-ae-bidirectional-flow":
             result = launch_ae_bidirectional_flow_bg(
                 args.project_root,
                 target_steps=args.target_steps,
@@ -770,15 +553,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 require_secrets=not args.allow_missing_secrets,
                 resume_from_checkpoint=bool(args.resume),
             )
-        elif args.command == "launch-flow-energy-bank":
-            result = launch_flow_energy_bank_bg(
+        elif args.command == "launch-image-energy-flow":
+            result = launch_image_energy_flow_bg(
                 args.project_root,
                 target_steps=args.target_steps,
                 upload_artifacts_on_checkpoint=not args.no_upload,
                 notify_on_finished=not args.no_notify,
                 comment=args.comment,
                 require_secrets=not args.allow_missing_secrets,
-                energy_bank_path=args.energy_bank_path,
             )
         elif args.command == "launch-lpap-teacher":
             result = launch_lpap_teacher_bg(

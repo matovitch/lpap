@@ -50,9 +50,9 @@ All under `.github/skills/molab-workflow/scripts/` (require `MOLAB_URL` +
 | `molab-inject-secrets.sh` | Secrets → kernel env only |
 | `molab-train-status.sh` | On-demand AE bg / ckpt / SQLite summary (not a completion waiter) |
 | `molab-notify.sh` | Pushover ping (job finished / agent handoff) |
-| `molab-launch-ae-energy-bank.sh` | Detached multi-pair AE (bank flows) |
 | `molab-launch-ae-bidirectional-flow.sh` | Detached multi-pair AE from `image_energy_flow.pt` |
-| `molab-launch-flow-energy-bank.sh` | Detached bidirectional energy-bank flow |
+| `molab-launch-image-energy-flow.sh` | Detached Gaussian-prior bidirectional flow |
+| `molab-launch-lpap-teacher.sh` | Detached surrogate or decoder teacher |
 | `molab-push-package-file.sh` | Hot-patch one local `src/lpap/*.py` into site-packages + reload |
 | `molab-export-notebook.sh` | Backport live cells → `notebooks/molab_lab.py` |
 
@@ -129,7 +129,7 @@ Current AE lab roles (rename/extend as the notebook evolves):
 ## Hard rules
 
 1. **One paired notebook** (`notebooks/molab_lab.py` as the durable surface).
-2. **Default long-train path = detached bg worker** (`molab-launch-ae-energy-bank.sh`
+2. **Default long-train path = detached bg worker** (`molab-launch-ae-bidirectional-flow.sh`
    + pid/log + Pushover/HF). Use **visible code-mode cells** only for short /
    shared chunks the human should watch. Scratchpad = probes / installs / sync.
 3. **No parallel `execute-code` during a train cell** — and do not spawn a
@@ -156,23 +156,23 @@ Current AE lab roles (rename/extend as the notebook evolves):
 10. **No unconditional force-reinstall in lab setup cells** — use `molab-sync`
    (or `LPAP_FORCE_REINSTALL`) instead of wiping the env on every re-run-all.
 
-## Long AE energy-bank runs (default)
+## Long AE runs (default)
 
 ```bash
 bash .github/skills/molab-workflow/scripts/molab-sync.sh
-bash .github/skills/molab-workflow/scripts/molab-launch-ae-energy-bank.sh --target-steps 58200
+bash .github/skills/molab-workflow/scripts/molab-launch-ae-bidirectional-flow.sh --target-steps 20000
 bash .github/skills/molab-workflow/scripts/molab-train-status.sh
 ```
 
 Implementation: repo [`molab/jobs.py`](../../../molab/jobs.py)
-(`launch_ae_energy_bank_bg`, synced to `/marimo/molab/`) writes
-`training_logs/train_image_autoencoder_multi_energy_bank_bg.py` and spawns with
-pid/log under `image_autoencoder_multi_energy_bank_bg.*`.
+(`launch_ae_bidirectional_flow_bg`, synced to `/marimo/molab/`) writes
+`training_logs/train_image_autoencoder_tri_flow_bg.py` and spawns with
+pid/log under `image_autoencoder_tri_flow_bg.*`.
 
-Bank flow retrain (after encoding `data/encoded_energies_ae_best.pt`):
+Gaussian flow train:
 
 ```bash
-bash .github/skills/molab-workflow/scripts/molab-launch-flow-energy-bank.sh \
+bash .github/skills/molab-workflow/scripts/molab-launch-image-energy-flow.sh \
   --target-steps 10000
 ```
 
@@ -181,7 +181,7 @@ bash .github/skills/molab-workflow/scripts/molab-launch-flow-energy-bank.sh \
    — never raw `dataset.images` (uint8). `normalize=True` only applies in
    `__getitem__` / `float_batch`.
 2. Probe asserts must pass (mean≈0, std≲0.5, not close to raw Hilbert).
-3. Glance gallery energy after first bank-flow / AE best before long runs.
+3. Glance gallery energy after first AE best before long runs.
 
 ## Background worker status
 
@@ -189,17 +189,17 @@ bash .github/skills/molab-workflow/scripts/molab-launch-flow-energy-bank.sh \
 bash .github/skills/molab-workflow/scripts/molab-train-status.sh
 # or locally / in molab-exec:
 python -m lpap.training_status --project-root /marimo \
-  --checkpoint image_autoencoder_multi_energy_bank.pt \
-  --log image_autoencoder_multi_energy_bank.sqlite \
-  --run-id image_autoencoder_multi_energy_bank \
-  --bg-stem image_autoencoder_multi_energy_bank_bg
+  --checkpoint image_autoencoder_tri_flow.pt \
+  --log image_autoencoder_tri_flow.sqlite \
+  --run-id image_autoencoder_tri_flow \
+  --bg-stem image_autoencoder_tri_flow_bg
 ```
 
 Reports ckpt step, SQLite max step, and bg alive / last log step.
 
 ## Training order
 
-Bank curriculum (loop): prior energies → unpaired bank-flow → re-encode via
-new i2e → bank teachers (`surrogate` → `decoder`) → `image_autoencoder`.
-Teachers use the **post-flow** bank; the AE needs images + flow + teacher
+Gaussian-prior `image_energy_flow` → encode images via i2e into an empirical
+energy bank → bank teachers (`surrogate` → `decoder`) → `image_autoencoder`
+(clones the flow). Teachers use the bank; the AE needs images + flow + teacher
 checkpoints.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Poll AE energy-bank training status on molab (checkpoint + SQLite + bg).
+# Poll AE training status on molab (checkpoint + SQLite + bg).
 #
 # Required env: MOLAB_URL, MOLAB_TOKEN or MARIMO_TOKEN
 # Optional: MOLAB_SESSION (prefer unset unless multi-session)
@@ -36,17 +36,17 @@ import sys
 
 sys.path.insert(0, "/marimo")
 from molab.jobs import (
-    AE_ENERGY_BANK_BG_STEM,
-    AE_ENERGY_BANK_CHECKPOINT,
-    AE_ENERGY_BANK_LOG,
+    AE_BIDIR_FLOW_BG_STEM,
+    AE_BIDIR_FLOW_CHECKPOINT,
+    AE_BIDIR_FLOW_LOG,
 )
 from lpap.training_status import format_training_status, summarize_training_status
 
 summary = summarize_training_status(
     project_root="/marimo",
-    checkpoint_name=AE_ENERGY_BANK_CHECKPOINT,
-    log_name=AE_ENERGY_BANK_LOG,
-    bg_stem=AE_ENERGY_BANK_BG_STEM,
+    checkpoint_name=AE_BIDIR_FLOW_CHECKPOINT,
+    log_name=AE_BIDIR_FLOW_LOG,
+    bg_stem=AE_BIDIR_FLOW_BG_STEM,
 )
 if ${as_json} == 1:
     print(json.dumps(summary, indent=2, sort_keys=True, default=str))

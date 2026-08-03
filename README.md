@@ -75,7 +75,6 @@ pixi install
 pixi run test
 pixi run bench-lpap
 pixi run notebook-train          # surrogate → decoder → flows → AE
-pixi run notebook-synthetic
 pixi run notebook-surrogate      # also: notebook-decoder, notebook-image-to-energy,
 pixi run notebook-energy-to-image
 pixi run notebook-image-autoencoder
@@ -113,7 +112,7 @@ Short shared work stays in visible notebook cells.
 
 ```sh
 bash .github/skills/molab-workflow/scripts/molab-sync.sh
-bash .github/skills/molab-workflow/scripts/molab-launch-ae-energy-bank.sh --target-steps 58200
+bash .github/skills/molab-workflow/scripts/molab-launch-ae-bidirectional-flow.sh --target-steps 20000
 bash .github/skills/molab-workflow/scripts/molab-train-status.sh
 ```
 

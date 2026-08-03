@@ -34,9 +34,6 @@ args = [
 ]
 description = "Benchmark PyTorch and Triton LPAP implementations."
 
-[tasks.notebook-synthetic]
-cmd = "PYTHONPATH=src marimo edit notebooks/synthetic_harmonics.py --no-token"
-description = "Open the synthetic harmonic visualization marimo notebook."
 
 [tasks.notebook-surrogate]
 cmd = "PYTHONPATH=src marimo edit notebooks/visualize_surrogate.py --no-token"

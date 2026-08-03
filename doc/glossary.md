@@ -2,7 +2,7 @@
 
 ## Data And Layout
 
-- **Energy**: A flat length-`N` tensor of scalar values. Synthetic harmonics and image-to-energy outputs both live in this representation.
+- **Energy**: A flat length-`N` tensor of scalar values. Image-to-energy encodings and teacher bank rows both live in this representation.
 - **Image sequence**: A grayscale image flattened to length `N` through the Hilbert ordering helpers.
 - **Hilbert flattening**: The image-to-1D mapping used before flow models. It preserves more spatial locality than raster order.
 - **Bucket**: One LPAP output lane. The value count `N` is split into `bucket_count` buckets, each with `probe_count = N / bucket_count` source slots.
@@ -19,9 +19,9 @@
 
 ## Flow Models
 
-- **Image-energy flow (`image_energy_flow`)**: A 1D bidirectional flow: images are at `t=-1`, energy is at `t=0`, and image reconstruction is at `t=+1`. It integrates image→energy over `[-1, 0]` and energy→image over `[0, 1]`.
+- **Image-energy flow (`image_energy_flow`)**: A 1D bidirectional flow: images are at `t=-1`, a Gaussian energy prior `N(0, σ²I)` is at `t=0`, and image reconstruction is at `t=+1`. It integrates image→energy over `[-1, 0]` and energy→image over `[0, 1]`.
 - **Student steps**: The number of unrolled Euler midpoint steps used during image-autoencoder training.
-- **Energy bank**: A float tensor of shape `(n, energy_dim)` of empirical energies (typically image→energy encodings). Training iterates bank rows in shuffled epochs (`cycle_energy_bank_batches`), independently of image batches so flows learn the energy marginal rather than a paired joint. One-off iid draws remain available for galleries.
+- **Energy bank**: A float tensor of shape `(n, energy_dim)` of empirical energies (typically image→energy encodings). Used by surrogate/decoder teachers only — not as the flow prior. Training iterates bank rows in shuffled epochs (`cycle_energy_bank_batches`). One-off iid draws remain available for galleries.
 
 ## Autoencoders
 

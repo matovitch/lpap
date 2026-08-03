@@ -3,11 +3,11 @@
 See the [documentation index](index.md) for the full documentation map and the [glossary](glossary.md) for project terminology.
 
 LPAP currently wires these trainable model kinds into the shared marimo training
-notebook (energy-bank variants share the corresponding flow backend):
+notebook:
 
 - `surrogate`: learns full-`N` source-index logits for LPAP bucket selections on empirical i2e energy-bank rows.
 - `decoder`: reconstructs source energy values from frozen surrogate logits (same energy bank).
-- `image_energy_flow` / `image_energy_flow_energy_bank`: one bidirectional flow with image at `t=-1`, energy at `t=0`, and image reconstruction at `t=+1`.
+- `image_energy_flow`: one bidirectional flow with image at `t=-1`, Gaussian energy prior at `t=0`, and image reconstruction at `t=+1`.
 - `image_autoencoder`: end-to-end grayscale AE (image → energy → LPAP surrogate/decoder → image) initialized by cloning the bidirectional flow.
 
 ## Training Overview
@@ -19,7 +19,7 @@ flowchart TD
     dispatch --> kinds{{Model kind}}
     kinds --> surrogate[surrogate]
     kinds --> decoder[decoder]
-    kinds --> image_energy_flow[image_energy_flow (+ energy_bank)]
+    kinds --> image_energy_flow[image_energy_flow]
     kinds --> image_autoencoder[image_autoencoder]
     surrogate & decoder & image_energy_flow & image_autoencoder --> session[Training session]
     session --> checkpoint[(Checkpoint files)]
@@ -65,24 +65,29 @@ This is a research repository. Local checkpoint and SQLite schemas are allowed t
 
 ```mermaid
 flowchart TD
+    gaussian[Gaussian N0 sigma2 I prior]
+    flow_ckpt[image_energy_flow.pt]
     energy_bank[Empirical energy bank .pt]
     surrogate_ckpt[Surrogate checkpoint]
     decoder_ckpt[Decoder checkpoint]
-    image_energy_flow_config[Bidirectional image-energy TOML]
     image_autoencoder_config[Image autoencoder TOML]
 
+    gaussian --> flow_ckpt
+    flow_ckpt --> energy_bank
     energy_bank --> surrogate_ckpt
     surrogate_ckpt --> decoder_ckpt
     energy_bank --> decoder_ckpt
-    energy_bank --> image_energy_flow_config
-    image_energy_flow_config --> image_energy_flow[Bidirectional flow training]
-    image_energy_flow_config --> image_autoencoder_config
+    flow_ckpt --> image_autoencoder_config
     surrogate_ckpt --> image_autoencoder_config
     decoder_ckpt --> image_autoencoder_config
     image_autoencoder_config --> image_autoencoder[Image autoencoder training]
 ```
 
-Surrogate and decoder train on the same empirical energy bank (`[data.energy_bank]` in their TOMLs). Synthetic harmonics remain available as the flow prior for `image_energy_flow` init only. The bidirectional flow can also iterate bank rows as its energy marginal at `t=0` (see `configs/training/image_energy_flow_energy_bank.toml` and `lpap.energy_bank`); bank rows are shuffled epoch-style independently of image batches so training learns the energy *marginal*, not a paired joint map.
+Pipeline: train `image_energy_flow` with a Gaussian energy prior at `t=0`
+(`[prior] sigma = 1.0`), encode the image dataset once through that flow’s i2e
+branch into an empirical energy bank, train surrogate and decoder on that bank
+(`[data.energy_bank]`), then train `image_autoencoder` by cloning the flow
+checkpoint into both AE branches.
 
 `image_autoencoder` is the total autoencoder. It Hilbert-flattens a grayscale image, rolls an image-to-energy flow forward for a small fixed number of differentiable steps, passes the encoded energy through one or more LPAP surrogate/decoder pairs in parallel (shared flows), then rolls an energy-to-image flow forward to reconstruct the image. Pair-dependent losses (image L2, energy L1, surrogate CE) are averaged over pairs; signed-mass is applied once on the shared encoded energy. Configure pairs with `[[source.lpap_pairs]]` or the legacy flat `surrogate_checkpoint_name` / `decoder_checkpoint_name` (normalized to one pair).
 
@@ -166,6 +171,7 @@ flowchart TD
 
 `image_energy_flow_training.py` owns the image/energy endpoints, bidirectional
 flow-matching objective, and the `[-1, 0]` / `[0, +1]` integration ranges.
+The energy endpoint is i.i.d. Gaussian with configurable `sigma`.
 
 ## Notebooks
 
@@ -173,7 +179,6 @@ Use Pixi tasks from the repository root:
 
 ```sh
 pixi run notebook-train
-pixi run notebook-synthetic
 pixi run notebook-surrogate
 pixi run notebook-decoder
 pixi run notebook-image-to-energy
@@ -190,7 +195,7 @@ than long local notebook cells — see [molab workflow](molab-workflow.md).
 
 ## Testing
 
-The suite covers the LPAP operator, surrogate/decoder behavior, logging/checkpoints, Hilbert ordering, flow matching, energy-bank priors, notebook dispatch, galleries, small CPU flow/AE loops, storage config, artifact sync helpers, and notify. Repo-top `molab/` helpers have their own unit tests (`PYTHONPATH=src:.`).
+The suite covers the LPAP operator, surrogate/decoder behavior, logging/checkpoints, Hilbert ordering, flow matching, energy-bank teachers, notebook dispatch, galleries, small CPU flow/AE loops, storage config, artifact sync helpers, and notify. Repo-top `molab/` helpers have their own unit tests (`PYTHONPATH=src:.`).
 
 ```sh
 pixi run test

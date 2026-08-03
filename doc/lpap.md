@@ -35,12 +35,12 @@ flowchart TD
     image_flow[Image to energy flow]
     reverse_flow[Energy to image flow]
     image[32x32 image]
-    harmonics[Synthetic harmonics]
+    gaussian[Gaussian prior at t=0]
 
     energy_bank --> permute --> lpap
     lpap --> surrogate
     surrogate --> decoder
-    harmonics --> image_flow
+    gaussian --> image_flow
     image --> image_flow --> energy_bank
     energy_bank --> surrogate --> decoder --> reverse_flow --> image
 ```
@@ -56,7 +56,7 @@ returning values to the original energy ordering.
 
 The surrogate model consumes `C` tokens of dimension `N // C`. Its local RoPE attention mask is circular-backward: bucket token `i` can attend to the rolled source lanes that LPAP may inspect, `(i - roll) mod C` for `roll < k_max`. It predicts full-`N` source-index logits for each output bucket instead of only local probe indices. The training loss is weighted cross entropy, with per-bucket weights equal to the absolute selected amplitudes.
 
-The decoder consumes frozen surrogate logits and reconstructs the original source energy values. Decoder training uses a reconstruction objective plus an adaptive weighted source-logit cross-entropy regularizer. Surrogate and decoder both sample from the same empirical energy bank; harmonics are used for flow prior init, not for teacher training.
+The decoder consumes frozen surrogate logits and reconstructs the original source energy values. Decoder training uses a reconstruction objective plus an adaptive weighted source-logit cross-entropy regularizer. Surrogate and decoder both sample from the same empirical energy bank; the flow prior is Gaussian `N(0, σ²I)`, not bank rows.
 
 ## Tensor View
 

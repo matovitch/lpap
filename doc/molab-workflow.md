@@ -80,7 +80,7 @@ Extra molab-workflow helpers (same `MOLAB_*` env):
 - `molab-push-package-file.sh` — hot-patch one `src/lpap/*.py` into the kernel
   (ephemeral; prefer commit + `molab-sync` for durable updates)
 - `molab-export-notebook.sh` — backport live cells → `notebooks/molab_lab.py`
-- `molab-train-status.sh` / `molab-launch-ae-energy-bank.sh` / `molab-launch-flow-energy-bank.sh` — long AE / bank-flow runs
+- `molab-train-status.sh` / `molab-launch-ae-bidirectional-flow.sh` / `molab-launch-image-energy-flow.sh` — long AE / Gaussian flow runs
 - `molab-notify.sh` — Pushover on job finish / handoff (prefer over agent polling)
 
 ## Capabilities
@@ -132,7 +132,7 @@ Sandbox layout (molab persistence, from Aug 2026): only notebook source and
 **session-local caches**. Large files (>1 GB: images, energy banks) must live
 on Hugging Face and are **lazily pulled** when training/code needs them
 (`ensure_image_tensor_archive`, `ensure_project_artifact` /
-`load_energy_bank_for_flow`, checkpoint `ensure=` / resume). Prefer
+`ensure_energy_bank`, checkpoint `ensure=` / resume). Prefer
 `upload_artifacts_on_checkpoint=True` so HF stays the source of truth — do not
 preload everything at sync time.
 
@@ -147,7 +147,7 @@ blocking code-mode cell:
 
 ```bash
 bash .github/skills/molab-workflow/scripts/molab-sync.sh
-bash .github/skills/molab-workflow/scripts/molab-launch-ae-energy-bank.sh --target-steps 58200
+bash .github/skills/molab-workflow/scripts/molab-launch-ae-bidirectional-flow.sh --target-steps 20000
 bash .github/skills/molab-workflow/scripts/molab-train-status.sh
 ```
 
@@ -259,18 +259,16 @@ Caches `data/images_32x32_gray.pt` (skips if present). Do not confuse with
 
 ## Training order
 
-Bank curriculum (keep the loop): prior energies (harmonics or AE-encoded bank)
-→ unpaired `image_energy_flow_energy_bank` → **re-encode** images via that
-flow’s i2e → bank teachers (`surrogate`/`decoder`) → `image_autoencoder`.
-Teachers train on the post-flow bank, not on the prior energies.
-Teachers sample the energy bank (no image dataset); the AE needs images + flow
-+ teacher checkpoints.
+Gaussian-prior `image_energy_flow` → encode images via that flow’s i2e into an
+empirical energy bank → bank teachers (`surrogate`/`decoder`) →
+`image_autoencoder` (clones the flow checkpoint). Teachers sample the energy
+bank (no image dataset); the AE needs images + flow + teacher checkpoints.
 
 ## Session checklist
 
 **Human:** open lab notebook → attach GPU → pair → paste URL/token (leave
 `MOLAB_SESSION` unset unless multi-session).  
-**Agent (long AE):** `molab-sync` → `molab-launch-ae-energy-bank` (notify +
+**Agent (long AE):** `molab-sync` → `molab-launch-ae-bidirectional-flow` (notify +
 HF) → stop; human wakes agent on Pushover.
 **Agent (short/shared):** visible code-mode cells only.  
 **Local:** `artifacts-download` → viz notebooks.

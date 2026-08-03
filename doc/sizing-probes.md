@@ -86,7 +86,7 @@ prints the summary table.
 | 512 | 8 | 8 |
 | 512 | 12 | 8 |
 
-**Budget:** 2000 steps each; validation every 100; same data/harmonics/`k_max`
+**Budget:** 2000 steps each; validation every 100; same data/`k_max`
 as the current default surrogate config.
 
 **Artifacts:** checkpoints

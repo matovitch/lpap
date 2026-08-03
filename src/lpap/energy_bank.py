@@ -1,11 +1,9 @@
-"""Empirical energy banks for flow priors (alternative to synthetic harmonics).
+"""Empirical energy banks for LPAP teachers (and encode helpers).
 
 Banks are float tensors of shape ``(n, energy_dim)``, typically produced by
-running a trained image-to-energy model over an image dataset. Training loops
-iterate the bank in shuffled epochs (``cycle_energy_bank_batches``), still
-independently of image batches so flows learn the energy *marginal*, not a
-paired ``(image, energy)`` joint. ``sample_energy_bank_values`` remains for
-one-off draws (galleries, probes).
+running a trained image-to-energy model over an image dataset. Teacher training
+iterates the bank in shuffled epochs (``cycle_energy_bank_batches``).
+``sample_energy_bank_values`` remains for one-off draws (galleries, probes).
 
 Encode with ``lpap.energy_bank_encode.encode_image_dataset_to_energy_bank`` (or
 ``ImageTensorDataset.float_batch``) — never feed raw ``dataset.images`` (uint8)
@@ -17,15 +15,10 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import torch
 from jaxtyping import Float
-
-from lpap.data import SyntheticHarmonicConfig
-
-
-EnergyPriorKind = Literal["harmonics", "energy_bank"]
 
 
 @dataclass(frozen=True)
@@ -135,16 +128,13 @@ def load_energy_bank(
     return energies
 
 
-def load_energy_bank_for_flow(
+def ensure_energy_bank(
     root: Path,
     config: EnergyBankConfig,
     *,
-    sequence_length: int,
+    energy_dim: int | None = None,
 ) -> Float[torch.Tensor, "n energy"]:
-    """Load a bank and check it matches the flow sequence length.
-
-    Lazily pulls ``config.path`` from the artifacts HF bucket when missing.
-    """
+    """Load a bank (HF ensure) and optionally check ``energy_dim``."""
     from lpap.artifact_sync import ensure_project_artifact
 
     path = ensure_project_artifact(
@@ -152,11 +142,10 @@ def load_energy_bank_for_flow(
         project_root=root,
     )
     energies = load_energy_bank(path, energies_key=config.energies_key)
-    if int(energies.shape[-1]) != sequence_length:
+    if energy_dim is not None and int(energies.shape[-1]) != energy_dim:
         raise ValueError(
             "energy bank energy_dim "
-            f"{int(energies.shape[-1])} does not match flow sequence_length "
-            f"{sequence_length}"
+            f"{int(energies.shape[-1])} does not match expected {energy_dim}"
         )
     return energies
 
@@ -351,66 +340,25 @@ def cycle_energy_bank_batches(
         elif n % batch_size != 0:
             raise ValueError(
                 "drop_last=False is unsupported for energy-bank cycling "
-                "(teachers/flows expect fixed batch sizes)"
+                "(teachers expect fixed batch sizes)"
             )
         for start in range(0, int(order.numel()), batch_size):
             indices = order[start : start + batch_size]
             yield energies[indices].to(device=device, dtype=torch.float32)
 
 
-def sample_energy_prior_values(
-    *,
-    kind: EnergyPriorKind,
-    batch_size: int,
-    generator: torch.Generator,
-    device: torch.device,
-    sequence_length: int,
-    harmonics: SyntheticHarmonicConfig | None = None,
-    energy_bank: Float[torch.Tensor, "n energy"] | None = None,
-) -> Float[torch.Tensor, "batch energy"]:
-    """Sample a flow energy prior batch ``(batch, sequence_length)``.
-
-    Image batches must be drawn independently so training targets the energy
-    marginal rather than a paired ``(image, energy)`` map.
-    """
-    if kind == "energy_bank":
-        if energy_bank is None:
-            raise ValueError("energy_bank tensor is required when kind=energy_bank")
-        return sample_energy_bank_values(
-            energy_bank,
-            batch_size=batch_size,
-            generator=generator,
-            device=device,
-        )
-    if kind == "harmonics":
-        if harmonics is None:
-            raise ValueError("harmonics config is required when kind=harmonics")
-        values = harmonics.sample_batch(
-            batch_size=batch_size,
-            n=sequence_length,
-            generator=generator,
-            device=device,
-        )
-        if not isinstance(values, torch.Tensor):
-            raise TypeError("expected harmonic values tensor")
-        return values
-    raise ValueError(f"unsupported energy prior kind: {kind!r}")
-
-
 __all__ = [
     "EnergyBankConfig",
     "EnergyBankScaleStats",
-    "EnergyPriorKind",
     "assert_energies_not_raw_image_like",
     "assert_energy_bank_scale",
     "energy_bank_config_from_dict",
     "energy_bank_scale_stats",
     "cycle_energy_bank_batches",
+    "ensure_energy_bank",
     "load_energy_bank",
-    "load_energy_bank_for_flow",
     "mean_row_correlation",
     "relative_rmse",
     "resolve_energy_bank_path",
     "sample_energy_bank_values",
-    "sample_energy_prior_values",
 ]

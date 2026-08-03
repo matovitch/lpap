@@ -1,11 +1,9 @@
 # Image-Energy Flow Implementation
 
-`image_energy_flow` replaces the former one-way image-to-energy and
-energy-to-image training stacks with one bidirectional flow.
+`image_energy_flow` is one bidirectional flow on `t∈[-1, 1]`:
 
 - Normalized Hilbert-flattened images occupy `t=-1`.
-- The energy marginal (synthetic harmonics or an empirical energy bank) occupies
-  `t=0`.
+- A Gaussian energy prior `N(0, σ²I)` occupies `t=0` (`[prior] sigma` in TOML).
 - The return image endpoint occupies `t=+1`.
 
 Training samples both branches of this path. Image encoding integrates from
@@ -14,11 +12,12 @@ Training samples both branches of this path. Image encoding integrates from
 
 The relevant durable surfaces are:
 
-- TOML: `configs/training/image_energy_flow.toml` and
-  `configs/training/image_energy_flow_energy_bank.toml`
+- TOML: `configs/training/image_energy_flow.toml`
 - Training module: `src/lpap/image_energy_flow_training.py`
 - Test module: `test/test_image_energy_flow_training.py`
 - Gallery renderer: `render_image_energy_flow_gallery_html`
 
-The image autoencoder loads one `flow_checkpoint_name` and clones its state into
-its image→energy and energy→image branches at initialization.
+After training, encode the image dataset once through the flow’s i2e branch to
+build an empirical energy bank for surrogate/decoder teachers. The image
+autoencoder loads one `flow_checkpoint_name` and clones its state into its
+image→energy and energy→image branches at initialization.

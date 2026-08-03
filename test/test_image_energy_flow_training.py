@@ -6,8 +6,6 @@ from pathlib import Path
 
 import torch
 
-from lpap.data import SyntheticHarmonicConfig
-from lpap.energy_bank import EnergyBankConfig
 from lpap.flow import DilatedConvFlow1d, bidirectional_image_energy_state
 from lpap.flow_training import (
     FlowImageConfig,
@@ -58,7 +56,7 @@ class ImageEnergyFlowTrainingTest(unittest.TestCase):
         self.assertTrue(bool((times < 0).any()))
         self.assertTrue(bool((times > 0).any()))
 
-    def test_session_trains_harmonics(self) -> None:
+    def test_session_trains_gaussian_prior(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             dataset_path = root / "data" / "images.pt"
@@ -80,9 +78,7 @@ class ImageEnergyFlowTrainingTest(unittest.TestCase):
                     normalize=True,
                     shuffle=False,
                 ),
-                prior=ImageEnergyFlowPriorConfig(
-                    harmonics=SyntheticHarmonicConfig(harmonic_count=3)
-                ),
+                prior=ImageEnergyFlowPriorConfig(sigma=1.0),
                 flow=FlowModelConfig(
                     sequence_length=16,
                     width=8,
@@ -115,53 +111,7 @@ class ImageEnergyFlowTrainingTest(unittest.TestCase):
             self.assertIn(
                 "validation_reconstructed_image_rms_steps_1", results[-1].metrics
             )
-            self.assertIsNone(session.energy_bank)
-
-    def test_session_trains_energy_bank(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            dataset_path = root / "data" / "images.pt"
-            bank_path = root / "data" / "bank.pt"
-            dataset_path.parent.mkdir(parents=True)
-            torch.save(
-                {
-                    "images": torch.arange(8 * 1 * 4 * 4, dtype=torch.uint8).reshape(
-                        8, 1, 4, 4
-                    ),
-                    "names": [str(index) for index in range(8)],
-                },
-                dataset_path,
-            )
-            torch.save({"energies": torch.randn(16, 16)}, bank_path)
-            config = ImageEnergyFlowTrainingConfig(
-                image=FlowImageConfig(
-                    dataset_path="data/images.pt",
-                    batch_size=2,
-                    side=4,
-                    normalize=True,
-                    shuffle=False,
-                ),
-                prior=ImageEnergyFlowPriorConfig(
-                    kind="energy_bank",
-                    energy_bank=EnergyBankConfig(path="data/bank.pt"),
-                ),
-                flow=FlowModelConfig(
-                    sequence_length=16,
-                    width=8,
-                    time_dim=8,
-                    dilation_cycles=1,
-                    dilations=(1,),
-                ),
-                time=FlowTimeConfig(distribution="uniform"),
-                validation=FlowValidationConfig(every=1, batch_size=4, euler_steps=(1,)),
-                run=ImageEnergyFlowRunConfig(steps=1, display_every=1, run_id="bank"),
-            )
-            session = create_image_energy_flow_training_session(
-                project_root=root, config=config, device="cpu"
-            )
-            list(iter_image_energy_flow_training(session))
-            self.assertIsNotNone(session.energy_bank)
-            self.assertEqual(session.config.prior.kind, "energy_bank")
+            self.assertEqual(session.config.prior.sigma, 1.0)
 
     def test_gallery_both_directions(self) -> None:
         model = DilatedConvFlow1d(
@@ -198,10 +148,7 @@ class ImageEnergyFlowTrainingTest(unittest.TestCase):
     def test_config_round_trip(self) -> None:
         raw = {
             "image": FlowImageConfig(dataset_path="data/images.pt", side=4).as_dict(),
-            "prior": {
-                "kind": "harmonics",
-                "harmonics": SyntheticHarmonicConfig(harmonic_count=3).as_dict(),
-            },
+            "prior": {"sigma": 0.5},
             "flow": FlowModelConfig(sequence_length=16, width=8, time_dim=8).as_dict(),
             "time": FlowTimeConfig().as_dict(),
             "optimizer": {"learning_rate": 1e-4, "max_grad_norm": 1.0},
@@ -209,8 +156,25 @@ class ImageEnergyFlowTrainingTest(unittest.TestCase):
             "run": ImageEnergyFlowRunConfig(steps=3).as_dict(),
         }
         config = image_energy_flow_training_config_from_dict(raw)
-        self.assertEqual(config.prior.kind, "harmonics")
-        self.assertEqual(config.prior.harmonics.harmonic_count, 3)
+        self.assertEqual(config.prior.sigma, 0.5)
+
+    def test_legacy_prior_keys_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            image_energy_flow_training_config_from_dict(
+                {
+                    "image": FlowImageConfig(
+                        dataset_path="data/images.pt", side=4
+                    ).as_dict(),
+                    "prior": {"kind": "harmonics", "sigma": 1.0},
+                    "flow": FlowModelConfig(
+                        sequence_length=16, width=8, time_dim=8
+                    ).as_dict(),
+                    "time": FlowTimeConfig().as_dict(),
+                    "optimizer": {"learning_rate": 1e-4, "max_grad_norm": 1.0},
+                    "validation": FlowValidationConfig(euler_steps=(1,)).as_dict(),
+                    "run": ImageEnergyFlowRunConfig(steps=3).as_dict(),
+                }
+            )
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from lpap.checkpoints import load_training_checkpoint
-from lpap.data import SyntheticHarmonicConfig, load_image_tensor_dataset
+from lpap.data import load_image_tensor_dataset
 from lpap.flow import (
     DilatedConvFlow1d,
     FlowMatchingMetrics,
@@ -606,25 +606,6 @@ def prepare_image_sequence(
 ) -> torch.Tensor:
     images = images.to(device=device, dtype=torch.float32)
     return hilbert_flatten_images(images, side=side)
-
-
-def sample_harmonic_values(
-    *,
-    harmonics: SyntheticHarmonicConfig,
-    batch_size: int,
-    n: int,
-    generator: torch.Generator,
-    device: torch.device,
-) -> torch.Tensor:
-    values = harmonics.sample_batch(
-        batch_size=batch_size,
-        n=n,
-        generator=generator,
-        device=device,
-    )
-    if not isinstance(values, torch.Tensor):
-        raise TypeError("expected harmonic values tensor")
-    return values
 
 
 def train_flow_matching_step(

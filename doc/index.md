@@ -10,9 +10,8 @@ Start here when navigating the LPAP research stack.
 ## Training Stack
 
 - [Training stack notes](training-stack.md): model dependencies, checkpoint/logging policy, notebook workflow, AE loss terms / lambda dialing, and the trainable model kinds.
-- [AE iteration-2 roadmap](roadmap-ae-iteration-2.md): AE encode bank → unpaired bank-flow → re-encode via new i2e → fresh 3 teachers → new AE.
 - [Sizing probes](sizing-probes.md): capacity / integration exploration before promoting new baselines.
-- [Image-to-energy implementation notes](image-to-energy-implementation.md): details for the image-to-energy flow and its Hilbert-flattened image representation.
+- [Image-to-energy implementation notes](image-to-energy-implementation.md): bidirectional image↔energy flow with Gaussian prior at `t=0`.
 
 ## Data And Artifacts
 
@@ -27,7 +26,6 @@ pixi run ae-loss-probe
 pixi run data-download
 pixi run artifacts-download
 pixi run notebook-train
-pixi run notebook-synthetic
 pixi run notebook-surrogate
 pixi run notebook-decoder
 pixi run notebook-image-to-energy
@@ -45,25 +43,19 @@ the end-to-end image autoencoder.
 
 ```mermaid
 flowchart TD
-    energy_bank[Empirical i2e energy bank] --> surrogate[Surrogate]
+    gaussian[Gaussian prior at t=0] --> flow[Image-energy flow]
+    flow --> energy_bank[Encode images via i2e]
+    energy_bank --> surrogate[Surrogate]
     surrogate --> decoder[Decoder]
-    harmonics[Synthetic harmonics] --> flow[Image-energy flow init]
-    i2e[Image-to-energy flow]
-    e2i[Energy-to-image flow]
 
     subgraph inner [Inner LPAP energy path]
         surrogate
         decoder
     end
 
-    flow --> i2e
-    flow --> e2i
-    i2e --> autoencoder[Image autoencoder]
-    e2i --> autoencoder
+    flow --> autoencoder[Image autoencoder]
     inner --> autoencoder
 ```
 
-The image autoencoder is the total end-to-end model. The inner energy path is the
-LPAP surrogate and decoder operating on encoded energy; the image-to-energy and
-energy-to-image flows wrap it. See the
+Pipeline: Gaussian-prior flow → encode bank → teachers → AE. See the
 [README loss diagram](../README.md) for the joint training objective.

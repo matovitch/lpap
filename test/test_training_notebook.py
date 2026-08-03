@@ -10,7 +10,6 @@ from lpap.image_energy_flow_training import ImageEnergyFlowTrainingConfig
 from lpap.surrogate_training import LPAPSurrogateTrainingConfig
 from lpap.training_log import upsert_run
 from lpap.training_notebook import (
-    default_image_energy_flow_energy_bank_training_config,
     restore_training_config_from_log,
     training_config_from_file,
     training_config_from_project_file,
@@ -32,10 +31,6 @@ class TrainingNotebookConfigTest(unittest.TestCase):
         image_autoencoder = training_config_from_project_file(
             project_root, "image_autoencoder"
         )
-        image_energy_flow_bank = training_config_from_file(
-            project_root / "configs/training/image_energy_flow_energy_bank.toml",
-            "image_energy_flow_energy_bank",
-        )
 
         self.assertIsInstance(surrogate, LPAPSurrogateTrainingConfig)
         self.assertEqual(surrogate.run.run_id, "surrogate_synthetic")
@@ -53,15 +48,7 @@ class TrainingNotebookConfigTest(unittest.TestCase):
             image_energy_flow.image.dataset_path, "data/images_32x32_gray.pt"
         )
         self.assertEqual(image_energy_flow.time.distribution, "beta")
-        self.assertEqual(image_energy_flow.prior.kind, "harmonics")
-        self.assertIsNone(image_energy_flow.prior.energy_bank)
-        self.assertEqual(image_energy_flow_bank.prior.kind, "energy_bank")
-        self.assertEqual(
-            image_energy_flow_bank.prior.energy_bank.path,
-            "data/encoded_energies_ae_best.pt",
-        )
-        self.assertEqual(image_energy_flow_bank.run.steps, 2000)
-        self.assertEqual(image_energy_flow_bank.validation.every, 50)
+        self.assertEqual(image_energy_flow.prior.sigma, 1.0)
         self.assertIsInstance(image_autoencoder, ImageAutoencoderTrainingConfig)
         self.assertEqual(image_autoencoder.run.run_id, "image_autoencoder")
         self.assertEqual(image_autoencoder.integration.image_to_energy_steps, 16)
@@ -82,25 +69,6 @@ class TrainingNotebookConfigTest(unittest.TestCase):
         self.assertEqual(image_autoencoder.run.steps, 20_000)
         self.assertEqual(image_autoencoder.image.batch_size, 32)
         self.assertEqual(image_autoencoder.validation.batch_size, 32)
-
-    def test_default_energy_bank_helper(self) -> None:
-        flow = default_image_energy_flow_energy_bank_training_config()
-        self.assertEqual(flow.prior.kind, "energy_bank")
-        self.assertEqual(flow.run.run_id, "image_energy_flow_energy_bank")
-        self.assertEqual(flow.run.steps, 2000)
-
-    def test_energy_bank_kinds_load_from_project_and_map_backend(self) -> None:
-        from lpap.training_notebook import training_backend_kind
-
-        project_root = Path(__file__).resolve().parents[1]
-        flow = training_config_from_project_file(
-            project_root, "image_energy_flow_energy_bank"
-        )
-        self.assertEqual(flow.prior.kind, "energy_bank")
-        self.assertEqual(
-            training_backend_kind("image_energy_flow_energy_bank"),
-            "image_energy_flow",
-        )
 
     def test_loads_custom_surrogate_toml_config(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -181,15 +149,17 @@ class TrainingNotebookConfigTest(unittest.TestCase):
         text = training_config_to_toml(config)
 
         self.assertIn("[data.energy_bank]", text)
-        self.assertNotIn("[data.harmonics]", text)
         self.assertIn("[teacher]", text)
 
     def test_image_energy_flow_serializes_prior(self) -> None:
         project_root = Path(__file__).resolve().parents[1]
         config = training_config_from_project_file(project_root, "image_energy_flow")
         text = training_config_to_toml(config)
-        self.assertIn("[prior.harmonics]", text)
-        self.assertIn('kind = "harmonics"', text)
+        self.assertIn("[prior]", text)
+        self.assertIn("sigma = 1.0", text)
+        self.assertNotIn("kind", text)
+        self.assertNotIn("harmonics", text)
+        self.assertNotIn("energy_bank", text)
 
     def test_restores_training_toml_from_run_log(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
