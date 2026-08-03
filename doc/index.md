@@ -4,7 +4,7 @@ Start here when navigating the LPAP research stack.
 
 ## Core Concepts
 
-- [LPAP operator notes](lpap.md): the pooling operator, bucket layout, DIB values, grouped permutation, and implementation notes.
+- [LPAP operator notes](lpap.md): the pooling operator, why amplitude+DIB (collision sets / inverting the table), bucket layout, grouped permutation, and implementation notes.
 - [Glossary](glossary.md): short definitions for project-specific terms and model names.
 
 ## Training Stack

@@ -1,6 +1,6 @@
 # LPAP
 
-LPAP stands for Linear Probing Amplitude Pooling.
+LPAP stands for **Linear Probing Amplitude Pooling**.
 
 ![LPAP operator walkthrough](doc/assets/lpap-operator.gif)
 
@@ -11,109 +11,78 @@ LPAP stands for Linear Probing Amplitude Pooling.
 
 *[Source TeX](doc/tex/lpap_algorithm.tex)* · regenerate with `pixi run tex-lpap-algo`
 
-Research scaffold around a pooling operator and a small training stack for
-probing whether LPAP-like sparse energy representations can be learned, decoded,
-and connected to images through flow matching.
+LPAP selects the largest-amplitude entries of a length-`N` tensor into `C`
+buckets (`N` multiple of `C`), recording a **DIB** (bucket-modulo position) for
+each pick. Probing advances at most **`K`** rolls (the roll budget; `k_max` in
+code).
 
-LPAP reduces a flat tensor of `N` values into `C` buckets (`N` multiple of `C`).
-Values are selected by largest absolute amplitude into a compact bucket table,
-with integer DIB values recording distance from each value's initial bucket.
-Batched use is limited by `k_max` (max probing rolls per batch item).
+On an **autoencoder** latent, think **wavelets**: largest-amplitude coeffs
+usually carry the global picture; finer scales add detail. A small `C` is meant
+to keep near the **top-`C` magnitudes**; larger `C` adds the next tiers (soft
+inclusion by size, not a nested basis). Several `C`s in parallel push toward a
+**progressively compressible** representation.
 
-## Current stack
+LPAP is built so the table is **jointly invertible**: DIB ⇒ position only up to
+a collision set; attention across buckets can disambiguate and rebuild energy.
+Learned path: surrogate (emulate LPAP) → `(amp, DIB, entropy)` frontend →
+decoder. Longer note: [lpap.md](doc/lpap.md#why-amplitude-and-dib-inverting-the-table).
 
-The headline model is the end-to-end image autoencoder: grayscale image →
-Hilbert flatten → image-to-energy flow → LPAP surrogate/decoder →
-energy-to-image flow, trained jointly:
+## Training procedure
+
+How artifacts depend on each other. **`Cᵢ`** means one teacher width (and later
+one AE path); several widths are trained the same way on the shared bank / flow.
+
+```mermaid
+flowchart TB
+  subgraph s1 ["1 · Flow"]
+    prior(["N(0, σ²I)"]) --> flow[flow]
+  end
+  subgraph s2 ["2 · Teachers · Cᵢ"]
+    bank[energy bank] --> sur["surrogate · Cᵢ"]
+    sur --> dec["decoder · Cᵢ"]
+  end
+  subgraph s3 ["3 · Autoencoder"]
+    ae["AE · parallel Cᵢ"]
+  end
+  flow --> bank
+  flow --> ae
+  sur --> ae
+  dec --> ae
+```
+
+## Autoencoder
+
+Shared **flow** both ways; the latent is read by several **LPAP · `Cᵢ`** paths
+in parallel (each = surrogate → decoder). Pair losses are averaged over `Cᵢ`;
+λ’s live in TOML — [training stack](doc/training-stack.md).
 
 ```mermaid
 flowchart LR
-    img[Grayscale image] --> i2e[Image-to-energy flow<br/>Euler rollout]
-    i2e --> enc[Encoded energy]
-    enc --> sur[LPAP surrogate]
-    sur --> dec[LPAP decoder]
-    dec --> den[Decoded energy]
-    den --> e2i[Energy-to-image flow<br/>Euler rollout]
-    e2i --> rec[Reconstructed image]
-
-    sur -. "vs exact LPAP teacher" .-> ce["λ_ce · weighted teacher CE"]
-    den -. "vs encoded energy" .-> el1["λ_energy · inner energy L1"]
-    rec -. "vs input image" .-> il2["λ_image · image L2"]
-
-    ce --> total((Total loss))
-    el1 --> total
-    il2 --> total
+  x[input] --> fin[flow]
+  fin --> e["latent N"]
+  e --> c1["LPAP · C₁"]
+  e --> c2["LPAP · C₂"]
+  e --> c3["LPAP · C₃"]
+  c1 --> fout[flow]
+  c2 --> fout
+  c3 --> fout
+  fout --> xh["reconstruction · Cᵢ"]
 ```
 
-Loss weights and extra terms (e.g. signed-mass) live in the training configs;
-see [training stack notes](doc/training-stack.md). Model dependency order:
-[documentation index](doc/index.md).
+![Autoencoder loss](doc/assets/ae-loss.png)
 
-Every trainable model writes `.pt` under `checkpoints/` and KPIs to SQLite under
-`training_logs/`. Checkpoints are authoritative for model-dependent config;
-local artifacts are not kept backward-compatible.
-
-Useful modules: `lpap.lpap_torch` / `lpap.lpap_triton`, surrogate and decoder
-transformers, `lpap.DilatedConvFlow1d`, `lpap.image_autoencoder_training`,
-`lpap.flow_training`, `lpap.TrainingRun`, `lpap.training_log`.
+*[Source TeX](doc/tex/ae_loss.tex)* · regenerate with `pixi run tex-ae-loss`
 
 ## Documentation
 
-- [Documentation index](doc/index.md)
-- [Glossary](doc/glossary.md)
-- [LPAP operator](doc/lpap.md)
-- [Manim operator film](doc/lpap-manim-script.md)
-- [LPAP pseudocode draft](doc/lpap-pseudocode.md)
-- [Training stack](doc/training-stack.md)
-- [Dataset / storage](doc/data-storage.md)
-- [Molab remote GPU](doc/molab-workflow.md)
-
-## Local environment (Pixi)
+[Index](doc/index.md) · [Glossary](doc/glossary.md) · [Operator](doc/lpap.md) ·
+[Molab](doc/molab-workflow.md) · [Storage](doc/data-storage.md)
 
 ```sh
 pixi install
 pixi run test
-pixi run bench-lpap
-pixi run notebook-train          # surrogate → decoder → flows → AE
-pixi run notebook-surrogate      # also: notebook-decoder, notebook-image-to-energy,
-pixi run notebook-energy-to-image
-pixi run notebook-image-autoencoder
+pixi run notebook-train
 ```
 
-Editable per-model TOMLs: [`configs/training/`](configs/training/). The shared
-train notebook picks a model kind, loads the matching TOML, and can restore a
-past run from SQLite metadata. Details: [training stack](doc/training-stack.md).
-
-```mermaid
-flowchart LR
-    toml[Training TOML] --> train[notebooks/train.py] --> session[training session]
-    session --> checkpoint[checkpoint payload]
-    session --> sqlite[SQLite run log]
-    checkpoint --> session
-    sqlite --> train
-    checkpoint --> viz[visualization notebooks]
-    sqlite --> viz
-```
-
-## Data and HF storage
-
-`pixi run data-download` fetches the public image archive into
-`data/images_32x32_gray.pt` (`data/` is gitignored). Bucket paths live in
-[`configs/storage.toml`](configs/storage.toml); write auth is `HF_TOKEN` only
-(from env or gitignored `configs/secrets.toml`). Artifact upload/download:
-`pixi run artifacts-upload` / `artifacts-download`. See
-[data-storage](doc/data-storage.md).
-
-## Remote GPU (molab)
-
-Worktree `lpap-molab` on `main`: pair a molab notebook, then sync and
-run long AE jobs with detached workers (Pushover + HF upload-on-checkpoint).
-Short shared work stays in visible notebook cells.
-
-```sh
-bash .github/skills/molab-workflow/scripts/molab-sync.sh
-bash .github/skills/molab-workflow/scripts/molab-launch-ae-bidirectional-flow.sh --target-steps 20000
-bash .github/skills/molab-workflow/scripts/molab-train-status.sh
-```
-
-Full pairing, secrets, and agent rules: [molab workflow](doc/molab-workflow.md).
+TOMLs under [`configs/training/`](configs/training/). Checkpoints in
+`checkpoints/`, logs in `training_logs/` (schemas not kept backward-compatible).

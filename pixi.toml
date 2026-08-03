@@ -180,6 +180,34 @@ ls -lh doc/tex/build/lpap_algorithm.pdf
 """
 description = "Compile LPAP algorithm TeX to PDF only (doc/tex/build/)."
 
+[tasks.tex-ae-loss]
+cmd = """
+bash -c '
+set -euo pipefail
+SRC=doc/tex/ae_loss.tex
+BUILD=doc/tex/build
+mkdir -p "$BUILD" doc/assets
+tectonic -o "$BUILD" --keep-logs "$SRC"
+PDF="$BUILD/ae_loss.pdf"
+test -f "$PDF"
+pdftoppm -png -r 300 "$PDF" "$BUILD/ae_loss"
+cp -f "$BUILD/ae_loss-1.png" doc/assets/ae-loss.png
+ls -lh "$PDF" doc/assets/ae-loss.png
+'
+"""
+description = "Compile AE loss TeX → PDF + README PNG in doc/assets/."
+
+[tasks.tex-ae-loss-pdf]
+cmd = """
+bash -c '
+set -euo pipefail
+mkdir -p doc/tex/build
+tectonic -o doc/tex/build --keep-logs doc/tex/ae_loss.tex
+ls -lh doc/tex/build/ae_loss.pdf
+'
+"""
+description = "Compile AE loss TeX to PDF only (doc/tex/build/)."
+
 [dependencies]
 pytorch-gpu = ">=2.10.0,<3"
 python = ">=3.14.5,<3.15"

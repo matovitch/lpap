@@ -7,14 +7,16 @@
 - **Hilbert flattening**: The image-to-1D mapping used before flow models. It preserves more spatial locality than raster order.
 - **Bucket**: One LPAP output lane. The value count `N` is split into `bucket_count` buckets, each with `probe_count = N / bucket_count` source slots.
 - **Probe**: A source slot inside a bucket before LPAP selection.
-- **DIB**: Distance in buckets from a value's original bucket to the bucket where it is selected.
+- **DIB**: Distance in buckets from a value's original bucket to the bucket where it is selected (bucket-modulo position of the pick).
+- **Collision set**: The set of length-`N` source indices compatible with a given bucket’s DIB / probe class. One `(amplitude, DIB)` underdetermines exact placement; joint attention over the full table is meant to disambiguate within each set. See [lpap.md](lpap.md#why-amplitude-and-dib-inverting-the-table).
 - **Grouped permutation**: The fixed seeded permutation applied before LPAP tokenization so each bucket receives balanced source positions. Generation always uses a **CPU** RNG (then moves the tensor to the training device) so the same `permutation_seed` is device-stable. Checkpoints store both the seed and the concrete `permutation` tensor — reload the tensor when present.
 
 ## LPAP Models
 
 - **LPAP operator**: The exact pooling rule that selects high-amplitude values into buckets with DIB metadata.
-- **Surrogate**: A transformer trained to predict full-`N` source-index logits for each LPAP bucket.
-- **Decoder**: A transformer that reconstructs source energy values from surrogate logits and LPAP-derived decoder tokens.
+- **Surrogate**: A transformer that emulates LPAP: predicts full-`N` source-index logits for each bucket.
+- **Decoder frontend**: Softmax reduction of surrogate logits into per-bucket `(amplitude, normalized DIB, entropy)` tokens (`prepare_lpap_decoder_batch`). Entropy is residual doubt; a sharp surrogate drives it toward 0.
+- **Decoder**: A transformer that reconstructs dense energy from those compact tokens (collision-set disambiguation + value placement).
 - **Teacher**: A frozen model or exact operator used to supervise another model. The surrogate is supervised by exact LPAP targets.
 
 ## Flow Models

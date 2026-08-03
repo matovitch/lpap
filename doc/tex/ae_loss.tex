@@ -1,0 +1,59 @@
+% AE training loss — compile with: pixi run tex-ae-loss
+% Standalone crop for README embedding (PNG via pdftoppm).
+\documentclass[preview,border=10pt]{standalone}
+\usepackage{amsmath,amssymb}
+
+\begin{document}
+\begin{minipage}{0.98\linewidth}
+{\large\bfseries Autoencoder loss}\\[0.45em]
+{\footnotesize
+Pair losses averaged over widths $C_i$;
+signed-mass once on the shared latent $e$.
+}\\[0.7em]
+\[
+\setlength{\jot}{0.55em}
+\begin{aligned}
+\mathcal{L}
+&=
+\frac{1}{|I|}\sum_{i\in I}
+\Bigl[
+  \lambda_{\mathrm{rec}}\,L_{\mathrm{rec}}^{(i)}
+  +
+  \lambda_{\mathrm{e}}\,L_{\mathrm{e}}^{(i)}
+  +
+  \lambda_{\mathrm{ce}}\,L_{\mathrm{ce}}^{(i)}
+\Bigr]
++
+\lambda_{\mathrm{sm}}\,L_{\mathrm{signed}}(e)
+\\
+L_{\mathrm{rec}}^{(i)}
+&=
+\lVert x-\hat{x}_i\rVert_2^{2},
+\quad
+L_{\mathrm{e}}^{(i)}
+=
+\lVert e-\hat{e}_i\rVert_1,
+\quad
+L_{\mathrm{ce}}^{(i)}
+=
+\mathrm{CE}_{i}^{\mathrm{LPAP}}
+\\
+L_{\mathrm{signed}}(e)
+&=
+\Bigl(\tfrac{m_{+}-m_{-}}{\tau}\Bigr)^{2}
++
+\alpha\Biggl[
+  \Bigl(\tfrac{\mathrm{relu}(\tau-m_{+})}{\tau}\Bigr)^{2}
+  +
+  \Bigl(\tfrac{\mathrm{relu}(\tau-m_{-})}{\tau}\Bigr)^{2}
+\Biggr]
+\end{aligned}
+\]
+\vspace{0.25em}
+{\footnotesize
+$m_{\pm}=\mathrm{mean}(\mathrm{relu}(\pm e))$,\;
+$\tau$ = mass floor,\;
+$\alpha$ = floor coefficient.
+}
+\end{minipage}
+\end{document}

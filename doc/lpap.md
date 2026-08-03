@@ -21,9 +21,45 @@ dibs:    B x C
 
 Additional leading dimensions can be treated the same way, as long as each independent item still satisfies `N % C == 0`.
 
+## Why Amplitude And DIB (Inverting The Table)
+
+LPAP is not bare top-`k`. Each kept peak is an **amplitude** plus a **DIB**
+(bucket-modulo location). In linear-probing language, the DIB pins the source
+only up to a **collision set**: every index compatible with that bucket class /
+probe residue. A single `(amplitude, DIB)` is therefore underdetermined for
+exact placement on the length-`N` latent.
+
+The design bet is that the **whole table** is enough to invert: given all
+buckets’ values and collision sets together, attention can **cross-reference**
+peaks and pick, for each bucket, which member of its set is consistent — then
+write a dense energy. Coarse `C` tends to keep near the strongest magnitudes
+(global sketch); larger `C` adds the next amplitude tiers. That soft
+size-ordering — not a nested basis — is what makes several `C`s in parallel a
+path toward a **progressively compressible** latent. See also the
+[grouped-permutation note](lpap-pseudocode.md#notes-on-the-figure): with large
+enough `K`, the `C` largest-magnitude values have a fair chance to enter the
+table.
+
+In the learned stack this splits cleanly:
+
+- **Surrogate** emulates LPAP: from folded energy it predicts which sources land
+  in which buckets (full-`N` source-index logits).
+- **Decoder frontend** (`prepare_lpap_decoder_batch`) softmax-reduces those
+  logits (with a temperature) into per-bucket tokens
+  `(amplitude, normalized DIB, entropy)`. Amplitude is a soft expectation over
+  sources; DIB is taken from the argmax source; **entropy** is residual doubt
+  about the distribution. A perfect surrogate collapses this to near-exact LPAP
+  `(a, d)` with entropy ≈ 0 (the entropy channel remains, but carries ~0).
+- **Decoder** then rebuilds energy from that compact table — the collision-set
+  disambiguation story above — with an optional source-CE regularizer.
+
+So amplitude + DIB are not bookkeeping extras: they are the minimal pooled
+code that is meant to be **jointly invertible** by attention.
+
 ## Current Model Context
 
-The current training stack uses LPAP as a supervised projection target and as the front end for a decoder-projected energy distribution:
+The current training stack uses LPAP as a supervised projection target and as the
+source of the decoder’s compact `(amplitude, DIB[, entropy])` view of energy:
 
 ```mermaid
 flowchart TD
@@ -54,9 +90,9 @@ contributes approximately uniformly to the bucket columns when viewed as
 `(N // C) x C`. The inverse permutation is the corresponding back end for
 returning values to the original energy ordering.
 
-The surrogate model consumes `C` tokens of dimension `N // C`. Its local RoPE attention mask is circular-backward: bucket token `i` can attend to the rolled source lanes that LPAP may inspect, `(i - roll) mod C` for `roll < k_max`. It predicts full-`N` source-index logits for each output bucket instead of only local probe indices. The training loss is weighted cross entropy, with per-bucket weights equal to the absolute selected amplitudes.
+The surrogate model consumes `C` tokens of dimension `N // C`. Its local RoPE attention mask is circular-backward: bucket token `i` can attend to the rolled source lanes that LPAP may inspect, `(i - roll) mod C` for `roll < k_max`. It predicts full-`N` source-index logits for each output bucket instead of only local probe indices — i.e. it learns to emulate LPAP’s selection. The training loss is weighted cross entropy, with per-bucket weights equal to the absolute selected amplitudes.
 
-The decoder consumes frozen surrogate logits and reconstructs the original source energy values. Decoder training uses a reconstruction objective plus an adaptive weighted source-logit cross-entropy regularizer. Surrogate and decoder both sample from the same empirical energy bank; the flow prior is Gaussian `N(0, σ²I)`, not bank rows.
+The decoder does not see raw length-`N` energy. It consumes the frontend reduction of frozen surrogate logits into `(amplitude, DIB, entropy)` tokens and reconstructs source energy (see [Why amplitude and DIB](#why-amplitude-and-dib-inverting-the-table)). Decoder training uses a reconstruction objective plus an adaptive weighted source-logit cross-entropy regularizer. Surrogate and decoder both sample from the same empirical energy bank; the flow prior is Gaussian `N(0, σ²I)`, not bank rows.
 
 ## Tensor View
 
