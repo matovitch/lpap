@@ -12,7 +12,7 @@ num_workers = 0
 [prior]
 # |e| = scale * exp(sigma * Z), Z~N(0,1); scale is the median of |e|.
 # Signs are i.i.d. fair coin ±1.
-sigma = 2.0
+sigma = 1.0
 scale = 0.5
 
 [flow]

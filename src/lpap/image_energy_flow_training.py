@@ -57,7 +57,7 @@ class ImageEnergyFlowPriorConfig:
     Signs: i.i.d. fair coin ``±1`` (``P(+) = 0.5``).
     """
 
-    sigma: float = 2.0
+    sigma: float = 1.0
     scale: float = 0.5
 
     @property
@@ -168,7 +168,7 @@ def image_energy_flow_prior_config_from_dict(
     data: dict[str, Any],
 ) -> ImageEnergyFlowPriorConfig:
     return ImageEnergyFlowPriorConfig(
-        sigma=float(data.get("sigma", 2.0)),
+        sigma=float(data.get("sigma", 1.0)),
         scale=float(data.get("scale", 0.5)),
     )
 
