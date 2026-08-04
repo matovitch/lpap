@@ -14,6 +14,13 @@ Signed-mass design (plaintext)::
 
     L_signed = L_gap + floor_coef * L_floor
 
+Open issue
+----------
+Long AE runs can still drive encoded ``|e|`` toward near-zero despite the floor
+(observed vs harmonics-bank / larger flow priors). Possible FP32 sensitivity
+when masses sit near ``tau`` or underflow — not proven. Treat tiny latents as
+suspicious; see ``doc/training-stack.md`` (signed-mass open issue).
+
 Dial protocol
 -------------
 1. Build an AE session (teachers or a checkpoint).
@@ -81,7 +88,7 @@ class ImageAutoencoderLossProbe:
 def signed_mass_balance_loss(
     energy: torch.Tensor,
     *,
-    floor_tau: float = 0.01,
+    floor_tau: float = 0.5,
     floor_coef: float = 1.0,
     eps: float = 1.0e-12,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:

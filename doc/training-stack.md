@@ -63,6 +63,11 @@ SQLite logs include run configuration, metadata, attempts, scalar KPIs, and chec
 
 Teacher pairs use one shared file per pair under `configs/training/teacher_*.toml` (layout, bank, `k_max`, and `permutation_seed` live under `[pair]`). Launch with `--backend surrogate|decoder` against the same file; checkpoint stems remain `surrogate_{name}.pt` / `decoder_{name}.pt`.
 
+Unit tests that assert TOML structure / teacher projection load fixtures from
+`test/resources/training/`, not live `configs/training/` (those are free to dial
+for molab). Update fixtures when the schema or projection contract changes; a
+soft parse smoke still checks that live operator TOMLs load.
+
 This is a research repository. Local checkpoint and SQLite schemas are allowed to change, and stale artifacts should be regenerated instead of migrated unless migration is explicitly useful.
 
 ## Model Dependencies
@@ -123,9 +128,9 @@ schedule, so each λ is a constant prorating coefficient (defaults below match
 `configs/training/image_autoencoder.toml`):
 
 - **Image reconstruction L2** (`image_l2_weight`, default `1.0`): MSE between the reconstructed and input image. The primary objective.
-- **Inner energy reconstruction L1** (`energy_l1_weight`, default `0.5`): mean absolute error between the decoder-reconstructed energy and the encoded energy. Keeps the LPAP path a faithful autoencoder of the encoded energy. The encoded-energy target can optionally be detached (`detach_energy_target`).
+- **Inner energy reconstruction L1** (`energy_l1_weight`, default `0.05`): mean absolute error between the decoder-reconstructed energy and the encoded energy. Keeps the LPAP path a faithful autoencoder of the encoded energy. The encoded-energy target can optionally be detached (`detach_energy_target`).
 - **Surrogate teacher cross-entropy** (`surrogate_teacher_weight`, default `0.05`): amplitude-weighted CE of `lpap_surrogate_loss` against exact LPAP source indices.
-- **Signed-mass gap/floor** (`signed_mass_balance_weight`, default `0.02`; see `lpap.image_autoencoder_loss`): on encoded energy `e`, with `m± = mean(relu(±e))` and scale `tau` (`signed_mass_floor_tau`, default `0.01`):
+- **Signed-mass gap/floor** (`signed_mass_balance_weight`, default `0.01`; see `lpap.image_autoencoder_loss`): on encoded energy `e`, with `m± = mean(relu(±e))` and scale `tau` (`signed_mass_floor_tau`, default `0.1`):
 
 ```text
 L_gap   = ((m+ - m-) / tau)^2
@@ -135,6 +140,14 @@ L       = L_gap + floor_coef * L_floor
 
   Gap is scaled by `tau` (not by `m+ + m-`), so collapsing `e → 0` is not a free
   “balanced” win; the floor pushes each side toward ~`tau`.
+
+Open issue (signed-mass): even with the floor, long AE runs can still **shrink
+encoded energies toward near-zero** (tiny `|e|` relative to a healthy flow prior /
+harmonics bank). That may interact badly with **float32** when masses sit near
+`tau` or machine epsilon—unconfirmed, but enough to treat small-energy AE
+latents as suspicious. Prefer judging energy scale from galleries / bank stats,
+not only signed-mass KPIs; consider lowering `λ_signed`, raising `tau`, or
+dropping the term until the interaction with the flow prior is better understood.
 
 Current AE defaults use **16-step** Euler in each direction, cloning
 `image_energy_flow.pt` into both AE flow branches, and a longer default budget of **20k** steps.

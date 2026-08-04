@@ -197,13 +197,13 @@ class ImageAutoencoderIntegrationConfig:
 @dataclass(frozen=True)
 class ImageAutoencoderLossConfig:
     image_l2_weight: float = 1.0
-    energy_l1_weight: float = 0.5
+    energy_l1_weight: float = 0.05
     surrogate_teacher_weight: float = 0.05
     # Signed-mass on encoded energy e (see lpap.image_autoencoder_loss):
     #   m+/m- = mean(relu(+/- e)); scale by floor_tau (not by m++m-).
     #   L = ((m+-m-)/tau)^2 + floor_coef * sum_sides (relu(tau-m)/tau)^2
-    signed_mass_balance_weight: float = 0.02
-    signed_mass_floor_tau: float = 0.01
+    signed_mass_balance_weight: float = 0.01
+    signed_mass_floor_tau: float = 0.1
     signed_mass_floor_coef: float = 1.0
     detach_energy_target: bool = False
 
@@ -622,9 +622,9 @@ def image_autoencoder_training_config_from_dict(
             energy_l1_weight=float(data["loss"]["energy_l1_weight"]),
             surrogate_teacher_weight=float(data["loss"]["surrogate_teacher_weight"]),
             signed_mass_balance_weight=float(
-                data["loss"].get("signed_mass_balance_weight", 0.02)
+                data["loss"].get("signed_mass_balance_weight", 0.01)
             ),
-            signed_mass_floor_tau=float(data["loss"].get("signed_mass_floor_tau", 0.01)),
+            signed_mass_floor_tau=float(data["loss"].get("signed_mass_floor_tau", 0.1)),
             signed_mass_floor_coef=float(
                 data["loss"].get("signed_mass_floor_coef", 1.0)
             ),

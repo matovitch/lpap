@@ -41,10 +41,10 @@ energy_to_image_steps = 16
 
 [loss]
 image_l2_weight = 1.0
-energy_l1_weight = 0.5
+energy_l1_weight = 0.05
 surrogate_teacher_weight = 0.05
-signed_mass_balance_weight = 0.02
-signed_mass_floor_tau = 0.01
+signed_mass_balance_weight = 0.01
+signed_mass_floor_tau = 0.1
 signed_mass_floor_coef = 1.0
 detach_energy_target = false
 
