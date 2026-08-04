@@ -215,6 +215,7 @@ _LAZY_MODULE_EXPORTS: dict[str, tuple[str, ...]] = {
         "collect_image_energy_flow_gallery",
         "create_image_energy_flow_training_session",
         "evaluate_image_energy_flow_batch",
+        "evaluate_image_energy_flow_validation",
         "image_energy_flow_prior_config_from_dict",
         "image_energy_flow_training_config_from_dict",
         "iter_image_energy_flow_training",

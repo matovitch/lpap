@@ -210,6 +210,7 @@ def default_image_energy_flow_training_config() -> ImageEnergyFlowTrainingConfig
             enabled=True,
             every=100,
             batch_size=128,
+            num_batches=4,
             seed=30_123,
             validate_at_end=True,
             euler_steps=(1, 4, 16),

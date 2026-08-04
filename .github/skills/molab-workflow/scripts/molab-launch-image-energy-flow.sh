@@ -9,6 +9,7 @@
 #
 # Usage:
 #   bash .github/skills/molab-workflow/scripts/molab-launch-image-energy-flow.sh --target-steps 10000
+#   bash .github/skills/molab-workflow/scripts/molab-launch-image-energy-flow.sh --target-steps 20000 --resume
 #   bash .github/skills/molab-workflow/scripts/molab-launch-image-energy-flow.sh --target-steps 10000 --json
 set -euo pipefail
 
@@ -19,6 +20,7 @@ as_json=0
 comment=""
 upload=1
 notify=1
+resume=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -38,12 +40,16 @@ while [[ $# -gt 0 ]]; do
       notify=0
       shift
       ;;
+    --resume)
+      resume=1
+      shift
+      ;;
     --json)
       as_json=1
       shift
       ;;
     -h|--help)
-      sed -n '2,14p' "$0" | sed 's/^# \?//'
+      sed -n '2,15p' "$0" | sed 's/^# \?//'
       exit 0
       ;;
     *)
@@ -85,6 +91,7 @@ result = launch_image_energy_flow_bg(
     upload_artifacts_on_checkpoint=${upload} == 1,
     notify_on_finished=${notify} == 1,
     comment=comment,
+    resume_from_checkpoint=${resume} == 1,
 )
 if ${as_json} == 1:
     print(json.dumps(result, indent=2, sort_keys=True))

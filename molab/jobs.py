@@ -42,6 +42,7 @@ def image_energy_flow_worker_source(
     upload_artifacts_on_checkpoint: bool = True,
     notify_on_finished: bool = True,
     comment: str | None = None,
+    resume_from_checkpoint: bool = False,
 ) -> str:
     """Return Python source for the bidirectional image-energy flow worker."""
     if target_steps <= 0:
@@ -52,6 +53,7 @@ def image_energy_flow_worker_source(
     )
     upload = "True" if upload_artifacts_on_checkpoint else "False"
     notify = "True" if notify_on_finished else "False"
+    resume = "True" if resume_from_checkpoint else "False"
     return f'''from __future__ import annotations
 
 from dataclasses import replace
@@ -72,7 +74,7 @@ config = replace(
     run=replace(
         base.run,
         run_training=True,
-        resume_from_checkpoint=False,
+        resume_from_checkpoint={resume},
         steps=TARGET,
         display_every=25,
         log_every=5,
@@ -93,6 +95,8 @@ print(
     f"device={{session.device}} kind={{KIND}} start={{session.resume_info.start_step}} "
     f"target={{config.run.steps}} prior_sigma={{config.prior.sigma}} "
     f"prior_scale={{config.prior.scale}} "
+    f"val_batches={{config.validation.num_batches}} "
+    f"resume={{config.run.resume_from_checkpoint}} "
     f"upload={{session.training_run.config.upload_artifacts_on_checkpoint}} "
     f"notify={{session.training_run.config.notify_on_finished}}",
     flush=True,
@@ -330,6 +334,7 @@ def launch_image_energy_flow_bg(
     notify_on_finished: bool = True,
     comment: str | None = None,
     require_secrets: bool = True,
+    resume_from_checkpoint: bool = False,
 ) -> dict[str, Any]:
     """Write + spawn the bidirectional image-energy flow worker."""
     root = Path(project_root)
@@ -343,6 +348,7 @@ def launch_image_energy_flow_bg(
             upload_artifacts_on_checkpoint=upload_artifacts_on_checkpoint,
             notify_on_finished=notify_on_finished,
             comment=comment,
+            resume_from_checkpoint=resume_from_checkpoint,
         ),
         target_steps=target_steps,
         run_id=FLOW_RUN_ID,
@@ -519,6 +525,11 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="spawn the bidirectional image_energy_flow worker (signed log-normal prior)",
     )
     add_common(flow)
+    flow.add_argument(
+        "--resume",
+        action="store_true",
+        help="resume from existing image_energy_flow checkpoint",
+    )
 
     teacher = sub.add_parser(
         "launch-lpap-teacher",
@@ -560,6 +571,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 notify_on_finished=not args.no_notify,
                 comment=args.comment,
                 require_secrets=not args.allow_missing_secrets,
+                resume_from_checkpoint=bool(args.resume),
             )
         elif args.command == "launch-lpap-teacher":
             result = launch_lpap_teacher_bg(

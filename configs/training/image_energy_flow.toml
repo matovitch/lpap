@@ -38,6 +38,7 @@ max_grad_norm = 1.0
 enabled = true
 every = 100
 batch_size = 128
+num_batches = 4
 seed = 30123
 validate_at_end = true
 euler_steps = [1, 4, 16]

@@ -421,6 +421,58 @@ def evaluate_image_energy_flow_batch(
     return metrics, diagnostics
 
 
+def _average_flow_matching_metrics(
+    metrics_list: list[FlowMatchingMetrics],
+) -> FlowMatchingMetrics:
+    if not metrics_list:
+        raise ValueError("metrics_list must be non-empty")
+    count = float(len(metrics_list))
+    return FlowMatchingMetrics(
+        loss=sum(m.loss for m in metrics_list) / count,
+        velocity_mse=sum(m.velocity_mse for m in metrics_list) / count,
+        velocity_cosine=sum(m.velocity_cosine for m in metrics_list) / count,
+        velocity_rel_l2_percent=sum(m.velocity_rel_l2_percent for m in metrics_list)
+        / count,
+        image_rms=sum(m.image_rms for m in metrics_list) / count,
+        target_rms=sum(m.target_rms for m in metrics_list) / count,
+        image_mean=sum(m.image_mean for m in metrics_list) / count,
+        target_mean=sum(m.target_mean for m in metrics_list) / count,
+    )
+
+
+def evaluate_image_energy_flow_validation(
+    *,
+    model: DilatedConvFlow1d,
+    images_iter: Iterator[torch.Tensor],
+    config: ImageEnergyFlowTrainingConfig,
+    generator: torch.Generator,
+    device: torch.device,
+    num_batches: int,
+) -> tuple[FlowMatchingMetrics, dict[str, float]]:
+    """Average flow-matching + integration diagnostics over ``num_batches``."""
+    if num_batches <= 0:
+        raise ValueError("num_batches must be positive")
+    batch_metrics: list[FlowMatchingMetrics] = []
+    batch_diagnostics: list[dict[str, float]] = []
+    for _ in range(num_batches):
+        metrics, diagnostics = evaluate_image_energy_flow_batch(
+            model=model,
+            images=next(images_iter),
+            config=config,
+            generator=generator,
+            device=device,
+        )
+        batch_metrics.append(metrics)
+        batch_diagnostics.append(diagnostics)
+    keys = sorted({key for diagnostics in batch_diagnostics for key in diagnostics})
+    count = float(num_batches)
+    averaged_diagnostics = {
+        key: sum(diagnostics.get(key, 0.0) for diagnostics in batch_diagnostics) / count
+        for key in keys
+    }
+    return _average_flow_matching_metrics(batch_metrics), averaged_diagnostics
+
+
 def collect_image_energy_flow_gallery(
     *,
     model: DilatedConvFlow1d,
@@ -536,13 +588,13 @@ def iter_image_energy_flow_training(
         )
         step_metrics = _metrics_dict(metrics)
         if should_validate_image_energy_flow(step=step, config=config):
-            validation_images = next(validation_images_iter)
-            validation_metrics, diagnostics = evaluate_image_energy_flow_batch(
+            validation_metrics, diagnostics = evaluate_image_energy_flow_validation(
                 model=session.flow,
-                images=validation_images,
+                images_iter=validation_images_iter,
                 config=config,
                 generator=session.validation_generator,
                 device=session.device,
+                num_batches=config.validation.num_batches,
             )
             step_metrics.update(
                 {
@@ -580,6 +632,7 @@ __all__ = [
     "collect_image_energy_flow_gallery",
     "create_image_energy_flow_training_session",
     "evaluate_image_energy_flow_batch",
+    "evaluate_image_energy_flow_validation",
     "image_energy_flow_prior_config_from_dict",
     "image_energy_flow_training_config_from_dict",
     "iter_image_energy_flow_training",

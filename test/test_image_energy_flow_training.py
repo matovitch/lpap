@@ -114,7 +114,8 @@ class ImageEnergyFlowTrainingTest(unittest.TestCase):
                 time=FlowTimeConfig(distribution="uniform"),
                 validation=FlowValidationConfig(
                     every=1,
-                    batch_size=4,
+                    batch_size=2,
+                    num_batches=2,
                     euler_steps=(1,),
                 ),
                 run=ImageEnergyFlowRunConfig(
@@ -130,6 +131,7 @@ class ImageEnergyFlowTrainingTest(unittest.TestCase):
             self.assertEqual(len(results), 2)
             self.assertTrue(session.checkpoint_path.exists())
             self.assertIn("validation_loss", results[-1].metrics)
+            self.assertEqual(session.config.validation.num_batches, 2)
             self.assertIn(
                 "validation_encoded_energy_rms_steps_1", results[-1].metrics
             )

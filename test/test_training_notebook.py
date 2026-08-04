@@ -52,6 +52,7 @@ class TrainingNotebookConfigTest(unittest.TestCase):
         self.assertEqual(image_energy_flow.time.distribution, "beta")
         self.assertEqual(image_energy_flow.prior.sigma, 2.0)
         self.assertEqual(image_energy_flow.prior.scale, 2.0e-3)
+        self.assertEqual(image_energy_flow.validation.num_batches, 4)
         self.assertIsInstance(image_autoencoder, ImageAutoencoderTrainingConfig)
         self.assertEqual(image_autoencoder.run.run_id, "image_autoencoder")
         self.assertEqual(image_autoencoder.integration.image_to_energy_steps, 16)

@@ -62,7 +62,7 @@ class MolabJobsTest(unittest.TestCase):
         self.assertIn("KIND = 'surrogate'", source)
         compile(source, "<surr_worker>", "exec")
 
-    def test_flow_worker_source_gaussian_prior(self) -> None:
+    def test_flow_worker_source_signed_lognormal_prior(self) -> None:
         source = image_energy_flow_worker_source(
             target_steps=10000,
             project_root="/marimo",
@@ -72,7 +72,17 @@ class MolabJobsTest(unittest.TestCase):
         self.assertIn("default_image_energy_flow_training_config", source)
         self.assertIn("IMAGE_ENERGY_FLOW_DONE", source)
         self.assertIn("upload_artifacts_on_checkpoint=True", source)
+        self.assertIn("resume_from_checkpoint=False", source)
         compile(source, "<flow_worker>", "exec")
+
+    def test_flow_worker_source_resume(self) -> None:
+        source = image_energy_flow_worker_source(
+            target_steps=20000,
+            resume_from_checkpoint=True,
+        )
+        self.assertIn("TARGET = 20000", source)
+        self.assertIn("resume_from_checkpoint=True", source)
+        compile(source, "<flow_resume>", "exec")
 
     def test_launch_ae_writes_script_and_spawns(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
