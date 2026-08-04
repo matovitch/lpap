@@ -40,6 +40,34 @@ class MigrateAePermutationsTest(unittest.TestCase):
                         "model_config": {
                             "sequence_length": 16,
                             "lpap_pair_names": ["c4", "c8"],
+                            "lpap_pair_surrogates": [
+                                {
+                                    "value_count": 16,
+                                    "bucket_count": 4,
+                                    "k_max": 2,
+                                    "permutation_seed": 123,
+                                },
+                                {
+                                    "value_count": 16,
+                                    "bucket_count": 8,
+                                    "k_max": 3,
+                                    "permutation_seed": 456,
+                                },
+                            ],
+                            "lpap_pair_decoders": [
+                                {
+                                    "value_count": 16,
+                                    "bucket_count": 4,
+                                    "probe_count": 2,
+                                },
+                                {
+                                    "value_count": 16,
+                                    "bucket_count": 8,
+                                    "probe_count": 3,
+                                },
+                            ],
+                            "surrogate": {"value_count": 16, "bucket_count": 4},
+                            "decoder": {"value_count": 16, "bucket_count": 4},
                         },
                         "lpap_pair_names": ["c4", "c8"],
                         "lpap_pair_permutations": [perm_a, perm_b],
@@ -55,6 +83,19 @@ class MigrateAePermutationsTest(unittest.TestCase):
             self.assertNotIn("lpap_pair_permutations", ts)
             self.assertNotIn("surrogate_checkpoint_path", ts)
             self.assertNotIn("permutation_seed", ts)
+            model_config = ts["model_config"]
+            self.assertNotIn("lpap_pair_surrogates", model_config)
+            self.assertNotIn("lpap_pair_decoders", model_config)
+            self.assertNotIn("lpap_pair_names", model_config)
+            self.assertNotIn("surrogate", model_config)
+            self.assertNotIn("decoder", model_config)
+            self.assertEqual(
+                [entry["name"] for entry in model_config["lpap_pairs"]],
+                ["c4", "c8"],
+            )
+            self.assertNotIn(
+                "permutation_seed", model_config["lpap_pairs"][0]["surrogate"]
+            )
             perms = parse_ae_lpap_pair_permutations(
                 ts, pair_count=2, value_count=16
             )

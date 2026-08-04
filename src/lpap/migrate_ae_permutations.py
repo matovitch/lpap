@@ -2,8 +2,9 @@
 
 Salvage path for AE checkpoints that stored layouts as
 ``training_state.lpap_pair_permutations`` (or lacked them). Rewrites
-``training_state.lpap_pairs`` to ``[{name, permutation}, ...]``, drops legacy
-keys / seeds, and leaves weights / optimizer / step untouched.
+``training_state.lpap_pairs`` to ``[{name, permutation}, ...]``, normalizes
+``model_config.lpap_pairs`` (drops legacy surrogate/decoder pair blocks),
+strips seeds / path pointers, and leaves weights / optimizer / step untouched.
 
 Example::
 
@@ -25,6 +26,7 @@ from lpap.checkpoints import (
 )
 from lpap.permutation import as_long_permutation, make_grouped_permutation_indices
 from lpap.teacher_checkpoints import (
+    lpap_pair_model_config_record,
     lpap_pair_training_state_record,
     parse_ae_lpap_pair_permutations,
 )
@@ -158,12 +160,75 @@ def _seed_permutations_from_model_config(
     )
 
 
+def _normalize_ae_model_config(
+    model_config: dict[str, Any],
+    *,
+    pair_names: list[str],
+) -> dict[str, Any]:
+    """Rewrite legacy pair blocks into ``model_config.lpap_pairs``.
+
+    Old AE checkpoints stored ``lpap_pair_surrogates`` / ``lpap_pair_decoders``
+    (and sometimes top-level ``surrogate`` / ``decoder``). Resume compares the
+    full ``model_config`` dict, so those keys must match the current package.
+    """
+    updated = dict(model_config)
+    raw_pairs = updated.get("lpap_pairs")
+    if (
+        isinstance(raw_pairs, list | tuple)
+        and len(raw_pairs) == len(pair_names)
+        and raw_pairs
+        and isinstance(raw_pairs[0], dict)
+        and "surrogate" in raw_pairs[0]
+        and "decoder" in raw_pairs[0]
+    ):
+        pair_records = [
+            lpap_pair_model_config_record(
+                name=str(entry.get("name", pair_names[index])),
+                surrogate=dict(entry["surrogate"]),
+                decoder=dict(entry["decoder"]),
+            )
+            for index, entry in enumerate(raw_pairs)
+        ]
+    else:
+        surrogates = updated.get("lpap_pair_surrogates")
+        decoders = updated.get("lpap_pair_decoders")
+        if not (
+            isinstance(surrogates, list | tuple)
+            and isinstance(decoders, list | tuple)
+            and len(surrogates) == len(pair_names)
+            and len(decoders) == len(pair_names)
+        ):
+            raise ValueError(
+                "cannot normalize AE model_config: need lpap_pairs "
+                "[{name,surrogate,decoder}, ...] or matching "
+                "lpap_pair_surrogates / lpap_pair_decoders"
+            )
+        pair_records = [
+            lpap_pair_model_config_record(
+                name=name, surrogate=dict(surrogate), decoder=dict(decoder)
+            )
+            for name, surrogate, decoder in zip(
+                pair_names, surrogates, decoders, strict=True
+            )
+        ]
+    updated["lpap_pairs"] = pair_records
+    for key in (
+        "lpap_pair_surrogates",
+        "lpap_pair_decoders",
+        "lpap_pair_names",
+        "surrogate",
+        "decoder",
+    ):
+        updated.pop(key, None)
+    return updated
+
+
 def migrate_ae_checkpoint_permutations(
     checkpoint_path: str | Path,
     *,
     output_path: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Rewrite AE ``training_state.lpap_pairs`` to ``[{name, permutation}, ...]``."""
+    """Rewrite AE layouts + ``model_config`` to the self-contained pair schema."""
     source = Path(checkpoint_path)
     destination = Path(output_path) if output_path is not None else source
     payload = load_training_checkpoint(source, map_location="cpu")
@@ -214,6 +279,9 @@ def migrate_ae_checkpoint_permutations(
         )
         for name, perm in zip(pair_names, permutations, strict=True)
     ]
+    updated["model_config"] = _normalize_ae_model_config(
+        model_config, pair_names=pair_names
+    )
     for key in (
         "lpap_pair_permutations",
         "lpap_pair_names",
