@@ -53,6 +53,25 @@ def make_grouped_permutation_indices(
     return permutation.to(device=target_device)
 
 
+def as_long_permutation(
+    permutation: torch.Tensor,
+    *,
+    value_count: int,
+) -> Int[torch.Tensor, "n"]:
+    """Normalize a stored layout tensor (contiguous CPU ``long`` clone).
+
+    Device of the input is irrelevant — checkpoints store the concrete indices
+    so loaders never regenerate from seed/device RNG.
+    """
+    if permutation.ndim != 1:
+        raise ValueError("permutation must be one-dimensional")
+    if int(permutation.numel()) != value_count:
+        raise ValueError(
+            f"permutation length must be {value_count}, got {int(permutation.numel())}"
+        )
+    return permutation.detach().cpu().long().contiguous().clone()
+
+
 def invert_permutation_indices(
     permutation: Int[torch.Tensor, "n"],
 ) -> Int[torch.Tensor, "n"]:

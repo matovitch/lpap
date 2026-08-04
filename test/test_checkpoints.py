@@ -98,17 +98,20 @@ class CheckpointTest(unittest.TestCase):
                     "best_model_state": model.state_dict(),
                     "optimizer_state": None,
                     "training_state": {
-                        "lpap_pair_names": ["c4"],
-                        "lpap_pair_permutations": [torch.arange(4)],
+                        "lpap_pairs": [
+                            {
+                                "name": "c4",
+                                "surrogate_checkpoint_path": "checkpoints/s.pt",
+                                "decoder_checkpoint_path": "checkpoints/d.pt",
+                            }
+                        ],
                     },
                 },
             )
             payload = load_training_checkpoint(path, map_location="cpu")
             self.assertEqual(payload["step"], 7)
-            self.assertEqual(payload["training_state"]["lpap_pair_names"], ["c4"])
-            torch.testing.assert_close(
-                payload["training_state"]["lpap_pair_permutations"][0],
-                torch.arange(4),
+            self.assertEqual(
+                payload["training_state"]["lpap_pairs"][0]["name"], "c4"
             )
 
 

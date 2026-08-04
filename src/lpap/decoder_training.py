@@ -463,15 +463,20 @@ def create_lpap_decoder_training_session(
         config=config,
         device=target_device,
     )
-    if teacher_permutation is not None:
-        permutation = teacher_permutation.to(device=target_device)
-    else:
+    if teacher_permutation is None:
+        if config.teacher.require_checkpoint:
+            raise ValueError(
+                "surrogate checkpoint is missing training_state.permutation: "
+                f"{surrogate_checkpoint_path}"
+            )
         permutation = make_grouped_permutation_indices(
             value_count=config.value_count,
             bucket_count=config.data.bucket_count,
             seed=config.run.permutation_seed,
             device=target_device,
         )
+    else:
+        permutation = teacher_permutation.to(device=target_device)
     surrogate.eval()
     for parameter in surrogate.parameters():
         parameter.requires_grad_(False)
@@ -516,6 +521,29 @@ def create_lpap_decoder_training_session(
         },
     )
     resume_info = training_run.resume_or_initialize()
+    if resume_info.resumed:
+        decoder_payload = load_training_checkpoint(checkpoint_path, map_location="cpu")
+        decoder_training_state = decoder_payload.get("training_state")
+        if not isinstance(decoder_training_state, dict):
+            raise ValueError("decoder checkpoint training_state must be a dictionary")
+        from lpap.teacher_checkpoints import (
+            permutation_from_training_state,
+            require_matching_pair_permutation,
+        )
+
+        decoder_permutation = permutation_from_training_state(
+            decoder_training_state,
+            value_count=config.value_count,
+            path=checkpoint_path,
+            role="decoder",
+        )
+        permutation = require_matching_pair_permutation(
+            surrogate_permutation=permutation.detach().cpu(),
+            decoder_permutation=decoder_permutation,
+            value_count=config.value_count,
+            surrogate_path=surrogate_checkpoint_path,
+            decoder_path=checkpoint_path,
+        ).to(device=target_device)
     generator = torch.Generator(device=target_device).manual_seed(
         config.run.seed + resume_info.start_step
     )

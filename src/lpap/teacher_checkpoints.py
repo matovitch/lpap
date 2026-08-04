@@ -10,6 +10,7 @@ import torch
 from lpap.checkpoints import load_training_checkpoint
 from lpap.decoder import LPAPDecoderTransformer
 from lpap.decoder_training import _surrogate_model_config_from_checkpoint
+from lpap.permutation import as_long_permutation
 from lpap.surrogate import LPAPSurrogateTransformer
 
 
@@ -26,6 +27,53 @@ def resolve_checkpoint_path(
 
         ensure_project_artifact(resolved, project_root=root)
     return resolved
+
+
+def permutation_from_training_state(
+    training_state: dict[str, Any] | None,
+    *,
+    value_count: int,
+    path: Path,
+    role: str,
+) -> torch.Tensor:
+    """Require ``training_state.permutation`` (surrogate or decoder schema)."""
+    if not isinstance(training_state, dict):
+        raise ValueError(
+            f"{role} checkpoint training_state must be a dictionary: {path}"
+        )
+    raw = training_state.get("permutation")
+    if raw is None:
+        raise ValueError(
+            f"{role} checkpoint is missing training_state.permutation: {path}"
+        )
+    return as_long_permutation(torch.as_tensor(raw), value_count=value_count)
+
+
+def require_matching_pair_permutation(
+    *,
+    surrogate_permutation: torch.Tensor,
+    decoder_permutation: torch.Tensor,
+    value_count: int,
+    surrogate_path: Path | str | None = None,
+    decoder_path: Path | str | None = None,
+    pair_name: str | None = None,
+) -> torch.Tensor:
+    """Assert surrogate/decoder ``permutation`` tensors match; return one clone."""
+    left = as_long_permutation(surrogate_permutation, value_count=value_count)
+    right = as_long_permutation(decoder_permutation, value_count=value_count)
+    if not torch.equal(left, right):
+        where = []
+        if pair_name is not None:
+            where.append(f"pair={pair_name}")
+        if surrogate_path is not None:
+            where.append(f"surrogate={surrogate_path}")
+        if decoder_path is not None:
+            where.append(f"decoder={decoder_path}")
+        suffix = f" ({', '.join(where)})" if where else ""
+        raise ValueError(
+            "surrogate and decoder training_state.permutation do not match" + suffix
+        )
+    return left
 
 
 def load_surrogate_source(
@@ -53,15 +101,25 @@ def load_surrogate_source(
     surrogate.eval()
     for parameter in surrogate.parameters():
         parameter.requires_grad_(False)
-    raw_perm = (payload.get("training_state") or {}).get("permutation")
-    if raw_perm is None:
+    training_state = payload.get("training_state")
+    if (
+        not isinstance(training_state, dict)
+        or training_state.get("permutation") is None
+    ):
         if require_checkpoint:
             raise ValueError(
                 "surrogate checkpoint is missing training_state.permutation: "
                 f"{path}"
             )
         return surrogate, model_config, None
-    return surrogate, model_config, torch.as_tensor(raw_perm).long()
+    return (
+        surrogate,
+        model_config,
+        as_long_permutation(
+            torch.as_tensor(training_state["permutation"]),
+            value_count=model_config["value_count"],
+        ),
+    )
 
 
 def _decoder_model_config_from_checkpoint(
@@ -98,7 +156,8 @@ def load_decoder_source(
     path: Path,
     load_best: bool,
     device: torch.device,
-) -> tuple[LPAPDecoderTransformer, dict[str, object]]:
+    require_permutation: bool = True,
+) -> tuple[LPAPDecoderTransformer, dict[str, object], torch.Tensor | None]:
     model_config, payload = _decoder_model_config_from_checkpoint(path)
     decoder = LPAPDecoderTransformer(
         value_count=int(model_config["value_count"]),
@@ -114,7 +173,25 @@ def load_decoder_source(
     decoder.eval()
     for parameter in decoder.parameters():
         parameter.requires_grad_(False)
-    return decoder, model_config
+    training_state = payload.get("training_state")
+    if (
+        not isinstance(training_state, dict)
+        or training_state.get("permutation") is None
+    ):
+        if require_permutation:
+            raise ValueError(
+                "decoder checkpoint is missing training_state.permutation: "
+                f"{path}"
+            )
+        return decoder, model_config, None
+    return (
+        decoder,
+        model_config,
+        as_long_permutation(
+            torch.as_tensor(training_state["permutation"]),
+            value_count=int(model_config["value_count"]),
+        ),
+    )
 
 
 def validate_lpap_pair_matches_sequence_length(
@@ -145,9 +222,45 @@ def validate_lpap_pair_matches_sequence_length(
         )
 
 
+def lpap_pair_model_config_record(
+    *,
+    name: str,
+    surrogate: dict[str, Any],
+    decoder: dict[str, Any],
+) -> dict[str, Any]:
+    """Teacher-shaped pair entry for AE ``model_config.lpap_pairs``."""
+    return {
+        "name": name,
+        "surrogate": dict(surrogate),
+        "decoder": dict(decoder),
+    }
+
+
+def lpap_pair_training_state_record(
+    *,
+    name: str,
+    surrogate_checkpoint_path: Path | str,
+    decoder_checkpoint_path: Path | str,
+) -> dict[str, str]:
+    """Teacher-pair path record for AE ``training_state.lpap_pairs``.
+
+    Layout tensors stay on the referenced surrogate/decoder checkpoints
+    (``training_state.permutation``), not duplicated here.
+    """
+    return {
+        "name": name,
+        "surrogate_checkpoint_path": str(surrogate_checkpoint_path),
+        "decoder_checkpoint_path": str(decoder_checkpoint_path),
+    }
+
+
 __all__ = [
     "load_decoder_source",
     "load_surrogate_source",
+    "lpap_pair_model_config_record",
+    "lpap_pair_training_state_record",
+    "permutation_from_training_state",
+    "require_matching_pair_permutation",
     "resolve_checkpoint_path",
     "validate_lpap_pair_matches_sequence_length",
 ]

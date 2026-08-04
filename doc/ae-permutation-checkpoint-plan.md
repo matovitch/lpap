@@ -1,42 +1,67 @@
-# AE permutation checkpoint fix
+# Teacher permutation source-of-truth transition
 
 ## Context
 
-Resume loss spiked because the AE did not store the LPAP permutations it trained
-under. On create it reloaded teacher `training_state.permutation` (c256 teacher =
-legacy CUDA-PRNG layout) while the weights expected CPU-seed layout.
+Resume loss spiked because the AE session layout disagreed with teacher
+checkpoints for **c256**: that surrogate/decoder pair still stores a legacy
+(non–CPU-seed) `training_state.permutation`, while the running AE was trained
+under the device-stable CPU-seed layout for seed `256`.
+
+An interim salvage stored `lpap_pair_permutations` on the AE checkpoint and
+resumed from that. Gallery cells create a *fresh* AE session
+(`resume_from_checkpoint=False`), so they still load teacher perms — c256
+gallery panels look wrong while GPU training (using the AE snapshot) looks fine.
 
 ## Rules (no backward compatibility)
 
-- **Tensors only** for AE pair layouts: never use `permutation_seed` /
-  `make_grouped_permutation_indices` as an AE session source of truth.
-- **Fresh AE run:** each pair’s permutation **must** come from the teacher
-  surrogate checkpoint’s stored `training_state.permutation` (raise if missing).
-- **Resume AE run:** permutations **must** come from the AE checkpoint’s
-  `training_state.lpap_pair_permutations` (raise if missing / wrong count / wrong
-  length). Do not fall back to teacher or seed.
-- **Save:** every AE checkpoint write includes `lpap_pair_permutations` (CPU
-  `LongTensor`s, same order as `lpap_pair_names`).
-
-Seeds may remain in teacher/model configs as documentation of how a teacher was
-originally built; they are not used to reconstruct AE session permutations.
+- **Tensors only.** Seeds in TOML / `model_config` document how a fresh teacher
+  was built; they are not used to reconstruct layouts when a checkpoint exists.
+- **Surrogate and decoder each store** `training_state.permutation` (duplicated
+  on purpose). For a teacher pair the two tensors **must match**.
+- **AE does not store** a third copy. Drop `lpap_pair_permutations` from AE
+  checkpoints.
+- **AE create / resume / gallery:** for each pair, load both stored
+  permutations, assert equality, use that layout. Symmetric — no preference
+  for surrogate vs decoder.
+- **AE metadata shape:** `model_config.lpap_pairs` / `training_state.lpap_pairs`
+  use teacher-shaped records (`name` + `surrogate`/`decoder` configs, or
+  checkpoint paths). Layout tensors stay on the teacher files.
+- **Decoder training:** when a surrogate checkpoint is required, copy its
+  stored permutation (no seed fallback) and write the same tensor into the
+  decoder checkpoint.
 
 ## Phases
 
-1. **Checkpoint save/load** — done (`d3636dc`). AE requires teacher perms when
-   fresh and `lpap_pair_permutations` when resuming; no seed fallback.
-2. **Migration script** — `python -m lpap.migrate_ae_permutations` regenerates
-   CPU-seed pair permutations from `model_config` and writes them into an AE
-   checkpoint without touching weights/optimizer/step.
-3. **SQLite cleanup** — drop failed-resume / probe noise after step 32000.
-4. **Molab resume** — sync new `lpap` + migrated artifacts; resume to 70k.
+0. **Plan doc** — this file (replaces the AE-third-copy salvage plan).
+1. **Revert overlay WIP** — done.
+2. **Shared matching load** — helper + decoder load returns perm; remove
+   decoder seed fallback when surrogate ckpt is required.
+3. **AE** — always use matching teacher perms; remove AE
+   `lpap_pair_permutations` save/resume/tests.
+4. **Migrate CLI** — `migrate_teacher_permutations` rewrites teacher
+   `training_state.permutation` without touching weights.
+5. **HF + molab** — migrate/upload **all six** tri-pair teachers
+   (`surrogate`/`decoder` × `c128_k16`, `c256_k24`, `c512_k32`) to CPU-seed
+   layouts so the set is globally consistent; `molab-sync`; re-run gallery.
+   Do not interrupt the healthy bg AE run.
+6. **Gallery** — only after HF teachers match (no overlay shims).
 
-## Migration usage
+## Historical salvage (completed, then superseded)
+
+- AE `lpap_pair_permutations` + `migrate_ae_permutations` (`d3636dc`,
+  `b15fcdf`): kept the 32k→70k resume healthy.
+- SQLite cleanup + molab resume: done; train loss ≈0.008 after resume.
+
+Those AE-side pieces are removed in phases 3–4 once teachers are the SoT.
+
+## Teacher migration usage (phase 4+)
+
+All six current-run teachers (preferred)::
 
 ```bash
-PYTHONPATH=src python -m lpap.migrate_ae_permutations \
-  --checkpoint checkpoints/image_autoencoder_tri_lnorm.pt \
-  --output checkpoints/image_autoencoder_tri_lnorm.pt
+pixi run migrate-teacher-permutations
+# or:
+PYTHONPATH=src python -m lpap.migrate_teacher_permutations --tri-pair --project-root .
 ```
 
-Then upload the migrated checkpoint via artifact sync before molab resume.
+Then upload each via artifact sync and force-download on molab before gallery.

@@ -74,6 +74,7 @@ from lpap.permutation import (
     fold_grouped_permutation_tokens,
     invert_permutation_indices,
     make_grouped_permutation_indices,
+    as_long_permutation,
     reverse_grouped_permutation,
     unfold_grouped_permutation_tokens,
 )
@@ -320,6 +321,7 @@ __all__ = sorted(
         "TransformerBlock",
         "apply_grouped_permutation",
         "apply_rope",
+        "as_long_permutation",
         "assert_energies_not_raw_image_like",
         "assert_energy_bank_scale",
         "circular_previous_attention_mask",

@@ -40,7 +40,6 @@ from lpap.image_energy_flow_training import (
     IMAGE_TO_ENERGY_T0,
     IMAGE_TO_ENERGY_T1,
 )
-from lpap.checkpoints import load_training_checkpoint
 from lpap.surrogate import (
     LPAPSurrogateTargets,
     LPAPSurrogateTransformer,
@@ -50,6 +49,9 @@ from lpap.surrogate import (
 from lpap.teacher_checkpoints import (
     load_decoder_source,
     load_surrogate_source,
+    lpap_pair_model_config_record,
+    lpap_pair_training_state_record,
+    require_matching_pair_permutation,
     resolve_checkpoint_path,
     validate_lpap_pair_matches_sequence_length,
 )
@@ -349,6 +351,14 @@ class ImageAutoencoderTrainingConfig:
         pair_decoder_configs: tuple[dict[str, object], ...],
         pair_names: tuple[str, ...],
     ) -> dict[str, object]:
+        pair_records = [
+            lpap_pair_model_config_record(
+                name=name, surrogate=surrogate, decoder=decoder
+            )
+            for name, surrogate, decoder in zip(
+                pair_names, pair_surrogate_configs, pair_decoder_configs, strict=True
+            )
+        ]
         return flow_model_metadata(
             image=self.image,
             flow=self.image_to_energy_flow,
@@ -358,12 +368,7 @@ class ImageAutoencoderTrainingConfig:
                 "energy_to_image_flow": self.energy_to_image_flow.as_dict(),
                 "integration": self.integration.as_dict(),
                 "loss": self.loss.as_dict(),
-                "lpap_pair_names": list(pair_names),
-                "lpap_pair_surrogates": list(pair_surrogate_configs),
-                "lpap_pair_decoders": list(pair_decoder_configs),
-                # Legacy single-pair keys (pair 0) for older readers.
-                "surrogate": pair_surrogate_configs[0],
-                "decoder": pair_decoder_configs[0],
+                "lpap_pairs": pair_records,
             },
         )
 
@@ -529,74 +534,6 @@ class ImageAutoencoderLpapPairRuntime:
     permutation: torch.Tensor
     surrogate_model_config: dict[str, int]
     decoder_model_config: dict[str, object]
-
-
-def _cpu_long_permutation(permutation: torch.Tensor, *, value_count: int) -> torch.Tensor:
-    if permutation.ndim != 1:
-        raise ValueError("lpap pair permutation must be one-dimensional")
-    if int(permutation.numel()) != value_count:
-        raise ValueError(
-            f"lpap pair permutation length must be {value_count}, "
-            f"got {int(permutation.numel())}"
-        )
-    return permutation.detach().cpu().long().contiguous().clone()
-
-
-def lpap_pair_permutations_for_checkpoint(
-    pairs: Sequence[ImageAutoencoderLpapPairRuntime],
-    *,
-    value_count: int,
-) -> list[torch.Tensor]:
-    """CPU long clones of each pair permutation for AE ``training_state``."""
-    return [
-        _cpu_long_permutation(runtime.permutation, value_count=value_count)
-        for runtime in pairs
-    ]
-
-
-def parse_lpap_pair_permutations(
-    training_state: dict[str, Any],
-    *,
-    pair_count: int,
-    value_count: int,
-) -> list[torch.Tensor]:
-    """Require ``training_state.lpap_pair_permutations`` (no seed fallback)."""
-    raw = training_state.get("lpap_pair_permutations")
-    if raw is None:
-        raise ValueError(
-            "AE checkpoint training_state is missing lpap_pair_permutations"
-        )
-    if not isinstance(raw, list | tuple):
-        raise ValueError("lpap_pair_permutations must be a list or tuple")
-    if len(raw) != pair_count:
-        raise ValueError(
-            f"lpap_pair_permutations length must be {pair_count}, got {len(raw)}"
-        )
-    return [
-        _cpu_long_permutation(torch.as_tensor(item), value_count=value_count)
-        for item in raw
-    ]
-
-
-def apply_lpap_pair_permutations(
-    pairs: Sequence[ImageAutoencoderLpapPairRuntime],
-    permutations: Sequence[torch.Tensor],
-    *,
-    device: torch.device,
-) -> tuple[ImageAutoencoderLpapPairRuntime, ...]:
-    if len(pairs) != len(permutations):
-        raise ValueError("pairs and permutations lengths must match")
-    return tuple(
-        ImageAutoencoderLpapPairRuntime(
-            name=runtime.name,
-            surrogate_checkpoint_path=runtime.surrogate_checkpoint_path,
-            decoder_checkpoint_path=runtime.decoder_checkpoint_path,
-            permutation=permutation.to(device=device, dtype=torch.long),
-            surrogate_model_config=runtime.surrogate_model_config,
-            decoder_model_config=runtime.decoder_model_config,
-        )
-        for runtime, permutation in zip(pairs, permutations, strict=True)
-    )
 
 
 @dataclass(frozen=True)
@@ -779,28 +716,41 @@ def create_image_autoencoder_training_session(
             pair_config.decoder_checkpoint_name,
             ensure=config.source.require_checkpoints,
         )
-        surrogate, surrogate_model_config, teacher_permutation = load_surrogate_source(
+        surrogate, surrogate_model_config, surrogate_permutation = load_surrogate_source(
             path=surrogate_checkpoint_path,
             load_best=config.source.load_best,
             require_checkpoint=config.source.require_checkpoints,
             device=target_device,
         )
-        decoder, decoder_model_config = load_decoder_source(
+        decoder, decoder_model_config, decoder_permutation = load_decoder_source(
             path=decoder_checkpoint_path,
             load_best=config.source.load_best,
             device=target_device,
+            require_permutation=True,
         )
         validate_lpap_pair_matches_sequence_length(
             sequence_length=config.value_count,
             surrogate_model_config=surrogate_model_config,
             decoder_model_config=decoder_model_config,
         )
-        if teacher_permutation is None:
+        if surrogate_permutation is None:
             raise ValueError(
                 "surrogate checkpoint is missing training_state.permutation: "
                 f"{surrogate_checkpoint_path}"
             )
-        permutation = teacher_permutation.to(device=target_device, dtype=torch.long)
+        if decoder_permutation is None:
+            raise ValueError(
+                "decoder checkpoint is missing training_state.permutation: "
+                f"{decoder_checkpoint_path}"
+            )
+        permutation = require_matching_pair_permutation(
+            surrogate_permutation=surrogate_permutation,
+            decoder_permutation=decoder_permutation,
+            value_count=config.value_count,
+            surrogate_path=surrogate_checkpoint_path,
+            decoder_path=decoder_checkpoint_path,
+            pair_name=pair_name,
+        ).to(device=target_device, dtype=torch.long)
         pair_runtimes.append(
             ImageAutoencoderLpapPairRuntime(
                 name=pair_name,
@@ -895,35 +845,18 @@ def create_image_autoencoder_training_session(
         metadata={
             "device": str(target_device),
             "image_dataset_path": str(image_dataset_path),
-            "lpap_pair_names": list(pair_names),
-            "surrogate_checkpoint_paths": [
-                str(runtime.surrogate_checkpoint_path) for runtime in pair_runtimes
+            "lpap_pairs": [
+                lpap_pair_training_state_record(
+                    name=runtime.name,
+                    surrogate_checkpoint_path=runtime.surrogate_checkpoint_path,
+                    decoder_checkpoint_path=runtime.decoder_checkpoint_path,
+                )
+                for runtime in pair_runtimes
             ],
-            "decoder_checkpoint_paths": [
-                str(runtime.decoder_checkpoint_path) for runtime in pair_runtimes
-            ],
-            "surrogate_checkpoint_path": str(pair_runtimes[0].surrogate_checkpoint_path),
-            "decoder_checkpoint_path": str(pair_runtimes[0].decoder_checkpoint_path),
             "flow_checkpoint_path": str(flow_checkpoint_path),
         },
     )
     resume_info = training_run.resume_or_initialize()
-    if resume_info.resumed:
-        payload = load_training_checkpoint(checkpoint_path, map_location="cpu")
-        training_state = payload.get("training_state", {})
-        if not isinstance(training_state, dict):
-            raise ValueError("AE checkpoint training_state must be a dictionary")
-        pair_runtimes = list(
-            apply_lpap_pair_permutations(
-                pair_runtimes,
-                parse_lpap_pair_permutations(
-                    training_state,
-                    pair_count=len(pair_runtimes),
-                    value_count=config.value_count,
-                ),
-                device=target_device,
-            )
-        )
     generator = torch.Generator(device=target_device).manual_seed(
         config.run.seed + resume_info.start_step
     )
@@ -1243,20 +1176,14 @@ def iter_image_autoencoder_training(
                 "seed": config.run.seed,
                 "validation_seed": config.validation.seed,
                 "image_dataset_path": str(session.image_dataset_path),
-                "lpap_pair_names": [runtime.name for runtime in session.lpap_pairs],
-                "lpap_pair_permutations": lpap_pair_permutations_for_checkpoint(
-                    session.lpap_pairs, value_count=config.value_count
-                ),
-                "surrogate_checkpoint_paths": [
-                    str(runtime.surrogate_checkpoint_path)
+                "lpap_pairs": [
+                    lpap_pair_training_state_record(
+                        name=runtime.name,
+                        surrogate_checkpoint_path=runtime.surrogate_checkpoint_path,
+                        decoder_checkpoint_path=runtime.decoder_checkpoint_path,
+                    )
                     for runtime in session.lpap_pairs
                 ],
-                "decoder_checkpoint_paths": [
-                    str(runtime.decoder_checkpoint_path)
-                    for runtime in session.lpap_pairs
-                ],
-                "surrogate_checkpoint_path": str(session.surrogate_checkpoint_path),
-                "decoder_checkpoint_path": str(session.decoder_checkpoint_path),
                 "flow_checkpoint_path": str(session.flow_checkpoint_path),
             },
         )
@@ -1342,7 +1269,6 @@ __all__ = [
     "ImageAutoencoderTrainingConfig",
     "ImageAutoencoderTrainingSession",
     "ImageAutoencoderValidationConfig",
-    "apply_lpap_pair_permutations",
     "average_image_autoencoder_metrics",
     "collect_image_autoencoder_gallery",
     "create_image_autoencoder_training_session",
@@ -1351,9 +1277,7 @@ __all__ = [
     "image_autoencoder_source_config_from_dict",
     "image_autoencoder_training_config_from_dict",
     "iter_image_autoencoder_training",
-    "lpap_pair_permutations_for_checkpoint",
     "lpap_pairs_from_source_dict",
-    "parse_lpap_pair_permutations",
     "rerun_image_autoencoder_training_config_from_log",
     "should_validate_image_autoencoder",
     "train_image_autoencoder_step",
