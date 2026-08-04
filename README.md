@@ -11,23 +11,24 @@ LPAP stands for **Linear Probing Amplitude Pooling**.
 
 *[Source TeX](doc/tex/lpap_algorithm.tex)* · regenerate with `pixi run tex-lpap-algo`
 
-LPAP selects the largest-amplitude entries of a length-`N` tensor into `C`
-buckets (`N` multiple of `C`), recording a DIB (bucket-modulo position) for
-each pick. Probing advances at most `K` rolls (the roll budget; `k_max` in
-code).
+LPAP is a tensor operation inspired by the design of open addressing hash tables.
 
-On an autoencoder latent, think wavelets: largest-amplitude coeffs usually
+It attempts to select the largest-amplitude values of a length-`N` tensor into `C`
+buckets (`N` multiple of `C`), recording a DIB (distance to initial bucket) for
+each pick using a linear probing budget of `K` rolls.
+
+We use multiple instances of LPAP in an autoencoder try to map datasets (here simple grayscale images 1d-flatten with a hilbert curve) to a *progressively compressible* latent representation.
+
+This design is also inspired by wavelets: largest-amplitude coeffs usually
 carry the global picture; finer scales add detail. A small `C` is meant to keep
 near the top-`C` magnitudes; larger `C` adds the next tiers (soft inclusion by
-size, not a nested basis). Several `C`s in parallel push toward a
-**progressively compressible** representation.
+size, not a nested basis).
 
 Each DIB only locates a peak up to a collision set, so a single bucket does not
 pin an exact source index — the pooled table is not strictly invertible on its
 own. In practice the autoencoder can learn a latent geometry where those
-ambiguities rarely bite: attention across buckets usually resolves the source,
-which matches the strong reconstructions we see. Learned path: surrogate
-(emulate LPAP) → `(amp, DIB, entropy)` frontend → decoder. Longer note:
+ambiguities rarely bite: attention across buckets usually resolves the source.
+Learned path: surrogate (emulate LPAP) → `(amp, DIB, entropy)` frontend → decoder.
 [lpap.md](doc/lpap.md#why-amplitude-and-dib-inverting-the-table).
 
 ## Training procedure
