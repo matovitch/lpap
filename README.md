@@ -17,7 +17,7 @@ It attempts to select the largest-amplitude values of a length-`N` tensor into `
 buckets (`N` multiple of `C`), recording a DIB (distance to initial bucket) for
 each pick using a linear probing budget of `K` rolls.
 
-We use multiple instances of LPAP in an autoencoder try to map datasets (here simple grayscale images 1d-flatten with a hilbert curve) to a **progressively compressible** latent representation.
+We use multiple instances of LPAP and a flow matching network in an autoencoder to map datasets (here simple grayscale images 1d-flatten with a hilbert curve) to **progressively compressible** latent representations.
 
 This design is also inspired by wavelets: largest-amplitude coeffs usually
 carry the global picture; finer scales add detail. A small `C` is meant to keep
