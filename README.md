@@ -11,13 +11,13 @@ LPAP stands for **Linear Probing Amplitude Pooling**.
 
 *[Source TeX](doc/tex/lpap_algorithm.tex)* · regenerate with `pixi run tex-lpap-algo`
 
-LPAP is a tensor operation inspired by the design of open addressing hash tables.
+**LPAP** is a tensor operation inspired by the design of open addressing hash tables.
 
 It attempts to select the largest-amplitude values of a length-`N` tensor into `C`
 buckets (`N` multiple of `C`), recording a DIB (distance to initial bucket) for
 each pick using a linear probing budget of `K` rolls.
 
-We use multiple instances of LPAP in an autoencoder try to map datasets (here simple grayscale images 1d-flatten with a hilbert curve) to a *progressively compressible* latent representation.
+We use multiple instances of LPAP in an autoencoder try to map datasets (here simple grayscale images 1d-flatten with a hilbert curve) to a **progressively compressible** latent representation.
 
 This design is also inspired by wavelets: largest-amplitude coeffs usually
 carry the global picture; finer scales add detail. A small `C` is meant to keep
