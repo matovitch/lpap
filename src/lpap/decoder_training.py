@@ -185,12 +185,11 @@ class LPAPDecoderTrainingConfig:
             "value_count": self.value_count,
             "bucket_count": self.data.bucket_count,
             "probe_count": self.data.probe_count,
-            "surrogate": surrogate_model_config,
+            "surrogate": dict(surrogate_model_config),
             "frontend_initial_temperature": self.decoder.frontend_initial_temperature,
             "hidden_dim": self.decoder.hidden_dim,
             "layer_count": self.decoder.layer_count,
             "head_count": self.decoder.head_count,
-            "permutation_seed": self.run.permutation_seed,
             "regularization": self.regularization.as_dict(),
         }
 
@@ -308,7 +307,6 @@ def _fallback_surrogate_model_config(
         "hidden_dim": surrogate.hidden_dim,
         "layer_count": surrogate.layer_count,
         "head_count": surrogate.head_count,
-        "permutation_seed": config.run.permutation_seed,
     }
 
 
@@ -334,7 +332,6 @@ def _surrogate_model_config_from_checkpoint(
         "hidden_dim",
         "layer_count",
         "head_count",
-        "permutation_seed",
     }
     missing = sorted(required.difference(model_config))
     if missing:
@@ -677,11 +674,7 @@ def iter_lpap_decoder_training(
             metrics=step_metrics,
             training_state={
                 "seed": config.run.seed,
-                "permutation_seed": config.run.permutation_seed,
                 "validation_seed": config.validation.seed,
-                "surrogate_checkpoint_path": str(session.surrogate_checkpoint_path),
-                "surrogate_checkpoint_loaded": session.surrogate_checkpoint_loaded,
-                "surrogate_model_config": session.surrogate_model_config,
                 "permutation": session.permutation.detach().cpu(),
             },
         )

@@ -49,13 +49,14 @@ TRI_PAIR_TEACHER_PAIRS: tuple[tuple[str, str], ...] = (
 
 def permutation_from_teacher_model_config(
     model_config: dict[str, Any],
+    *,
+    permutation_seed: int,
 ) -> torch.Tensor:
-    """Build a layout tensor from teacher ``model_config`` seed fields (salvage)."""
+    """Build a layout tensor from teacher geometry + a salvage seed."""
     value_count = int(
         model_config.get("value_count") or model_config.get("sequence_length") or 0
     )
     bucket_count = int(model_config.get("bucket_count") or 0)
-    seed = int(model_config.get("permutation_seed") or 0)
     if value_count <= 0:
         raise ValueError("model_config.value_count must be positive")
     if bucket_count <= 0:
@@ -67,8 +68,27 @@ def permutation_from_teacher_model_config(
     return make_grouped_permutation_indices(
         value_count=value_count,
         bucket_count=bucket_count,
-        seed=seed,
+        seed=permutation_seed,
         device="cpu",
+    )
+
+
+def _permutation_seed_from_training_state(training_state: dict[str, Any]) -> int:
+    """Salvage seed: prefer run_config (TOML mirror), else legacy model_config."""
+    run_config = training_state.get("run_config")
+    if isinstance(run_config, dict):
+        run = run_config.get("run")
+        if isinstance(run, dict) and "permutation_seed" in run:
+            return int(run["permutation_seed"])
+    model_config = training_state.get("model_config")
+    if isinstance(model_config, dict) and "permutation_seed" in model_config:
+        return int(model_config["permutation_seed"])
+    top = training_state.get("permutation_seed")
+    if top is not None:
+        return int(top)
+    raise ValueError(
+        "cannot migrate permutation: no permutation_seed in run_config.run, "
+        "model_config, or training_state"
     )
 
 
@@ -76,8 +96,9 @@ def migrate_teacher_checkpoint_permutation(
     checkpoint_path: str | Path,
     *,
     output_path: str | Path | None = None,
+    permutation_seed: int | None = None,
 ) -> dict[str, Any]:
-    """Write ``training_state.permutation`` rebuilt from ``model_config`` seeds."""
+    """Write ``training_state.permutation`` rebuilt from geometry + salvage seed."""
     source = Path(checkpoint_path)
     destination = Path(output_path) if output_path is not None else source
     payload = load_training_checkpoint(source, map_location="cpu")
@@ -87,12 +108,27 @@ def migrate_teacher_checkpoint_permutation(
     model_config = training_state.get("model_config")
     if not isinstance(model_config, dict):
         raise ValueError("training_state.model_config is required")
-    permutation = permutation_from_teacher_model_config(model_config)
+    seed = (
+        int(permutation_seed)
+        if permutation_seed is not None
+        else _permutation_seed_from_training_state(training_state)
+    )
+    permutation = permutation_from_teacher_model_config(
+        model_config, permutation_seed=seed
+    )
     value_count = int(model_config["value_count"])
     permutation = as_long_permutation(permutation, value_count=value_count)
     updated = dict(training_state)
     updated["permutation"] = permutation
-    updated["permutation_seed"] = int(model_config["permutation_seed"])
+    updated.pop("permutation_seed", None)
+    if isinstance(updated.get("model_config"), dict):
+        cleaned = dict(updated["model_config"])
+        cleaned.pop("permutation_seed", None)
+        if isinstance(cleaned.get("surrogate"), dict):
+            surrogate = dict(cleaned["surrogate"])
+            surrogate.pop("permutation_seed", None)
+            cleaned["surrogate"] = surrogate
+        updated["model_config"] = cleaned
     payload = dict(payload)
     payload["training_state"] = updated
     write_training_checkpoint_payload(destination, payload)
@@ -103,17 +139,26 @@ def migrate_teacher_checkpoint_permutation(
         "best_metric": payload.get("best_metric"),
         "value_count": value_count,
         "bucket_count": int(model_config["bucket_count"]),
-        "permutation_seed": int(model_config["permutation_seed"]),
+        "permutation_seed": seed,
     }
 
 
 def migrate_teacher_checkpoints_permutations(
     checkpoint_paths: list[Path] | tuple[Path, ...],
+    *,
+    permutation_seeds: list[int] | tuple[int, ...] | None = None,
 ) -> list[dict[str, Any]]:
     """Migrate each teacher checkpoint in place."""
-    return [
-        migrate_teacher_checkpoint_permutation(path) for path in checkpoint_paths
-    ]
+    if permutation_seeds is not None and len(permutation_seeds) != len(checkpoint_paths):
+        raise ValueError("permutation_seeds length must match checkpoint_paths")
+    summaries: list[dict[str, Any]] = []
+    for index, path in enumerate(checkpoint_paths):
+        seed = None if permutation_seeds is None else int(permutation_seeds[index])
+        summaries.append(
+            migrate_teacher_checkpoint_permutation(path, permutation_seed=seed)
+        )
+    return summaries
+
 
 
 def assert_tri_pair_teacher_permutations_match(
@@ -174,6 +219,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=Path("."),
         help="project root containing checkpoints/ (for --tri-pair)",
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="override salvage permutation seed (else read from run_config / legacy fields)",
+    )
     return parser.parse_args(argv)
 
 
@@ -192,7 +243,12 @@ def main(argv: list[str] | None = None) -> int:
         for path in paths:
             if not path.is_file():
                 raise SystemExit(f"missing teacher checkpoint: {path}")
-        summaries = migrate_teacher_checkpoints_permutations(paths)
+        # Default tri-pair seeds match current teacher TOMLs when ckpts lack seed.
+        default_seeds = (123, 123, 256, 256, 512, 512)
+        seeds = default_seeds if args.seed is None else (args.seed,) * len(paths)
+        summaries = migrate_teacher_checkpoints_permutations(
+            paths, permutation_seeds=seeds
+        )
         for summary in summaries:
             print(
                 "migrated teacher permutation: "
@@ -216,6 +272,7 @@ def main(argv: list[str] | None = None) -> int:
         summary = migrate_teacher_checkpoint_permutation(
             checkpoint,
             output_path=args.output if len(checkpoints) == 1 else None,
+            permutation_seed=args.seed,
         )
         print(
             "migrated teacher permutation: "

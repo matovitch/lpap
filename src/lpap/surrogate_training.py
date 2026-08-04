@@ -232,7 +232,6 @@ class LPAPSurrogateTrainingConfig:
             "hidden_dim": self.model.hidden_dim,
             "layer_count": self.model.layer_count,
             "head_count": self.model.head_count,
-            "permutation_seed": self.run.permutation_seed,
         }
 
 
@@ -484,7 +483,6 @@ def iter_lpap_surrogate_training(
             metrics=step_metrics,
             training_state={
                 "seed": config.run.seed,
-                "permutation_seed": config.run.permutation_seed,
                 "validation_seed": config.validation.seed,
                 "permutation": session.permutation.detach().cpu(),
             },

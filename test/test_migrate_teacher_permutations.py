@@ -37,22 +37,28 @@ class MigrateTeacherPermutationsTest(unittest.TestCase):
                     "best_model_state": model.state_dict(),
                     "optimizer_state": None,
                     "training_state": {
+                        "run_config": {"run": {"permutation_seed": 123}},
                         "model_config": {
                             "value_count": 16,
                             "bucket_count": 4,
-                            "permutation_seed": 123,
                         },
                         "permutation": wrong,
                     },
                 },
             )
-            summary = migrate_teacher_checkpoint_permutation(path)
+            summary = migrate_teacher_checkpoint_permutation(
+                path, permutation_seed=123
+            )
             payload = load_training_checkpoint(path, map_location="cpu")
             expected = make_grouped_permutation_indices(
                 value_count=16, bucket_count=4, seed=123, device="cpu"
             )
             torch.testing.assert_close(
                 payload["training_state"]["permutation"], expected
+            )
+            self.assertNotIn("permutation_seed", payload["training_state"])
+            self.assertNotIn(
+                "permutation_seed", payload["training_state"]["model_config"]
             )
             torch.testing.assert_close(
                 payload["model_state"]["weight"], original_weight
@@ -87,17 +93,18 @@ class MigrateTeacherPermutationsTest(unittest.TestCase):
                         "best_model_state": model.state_dict(),
                         "optimizer_state": None,
                         "training_state": {
+                            "run_config": {"run": {"permutation_seed": seed}},
                             "model_config": {
                                 "value_count": 1024,
                                 "bucket_count": buckets,
-                                "permutation_seed": seed,
                             },
                             "permutation": torch.arange(1024),
                         },
                     },
                 )
             paths = [ckpt_dir / name for name in TRI_PAIR_TEACHER_CHECKPOINTS]
-            migrate_teacher_checkpoints_permutations(paths)
+            seeds = [seed for _, _, seed in specs]
+            migrate_teacher_checkpoints_permutations(paths, permutation_seeds=seeds)
             assert_tri_pair_teacher_permutations_match(project_root=root)
             for name, buckets, seed in specs:
                 payload = load_training_checkpoint(

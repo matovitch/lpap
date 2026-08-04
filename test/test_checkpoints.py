@@ -42,7 +42,6 @@ class CheckpointTest(unittest.TestCase):
                 mode="min",
                 training_state={
                     "seen": 16,
-                    "permutation_seed": 123,
                     "permutation": torch.tensor([2, 0, 1]),
                 },
             )
@@ -67,7 +66,7 @@ class CheckpointTest(unittest.TestCase):
             self.assertFalse(second.improved)
 
             payload = load_training_checkpoint(path)
-            self.assertEqual(payload["training_state"]["permutation_seed"], 123)
+            self.assertNotIn("permutation_seed", payload["training_state"])
             torch.testing.assert_close(
                 payload["training_state"]["permutation"], torch.tensor([2, 0, 1])
             )
@@ -101,8 +100,7 @@ class CheckpointTest(unittest.TestCase):
                         "lpap_pairs": [
                             {
                                 "name": "c4",
-                                "surrogate_checkpoint_path": "checkpoints/s.pt",
-                                "decoder_checkpoint_path": "checkpoints/d.pt",
+                                "permutation": torch.arange(4),
                             }
                         ],
                     },
@@ -112,6 +110,10 @@ class CheckpointTest(unittest.TestCase):
             self.assertEqual(payload["step"], 7)
             self.assertEqual(
                 payload["training_state"]["lpap_pairs"][0]["name"], "c4"
+            )
+            torch.testing.assert_close(
+                payload["training_state"]["lpap_pairs"][0]["permutation"],
+                torch.arange(4),
             )
 
 

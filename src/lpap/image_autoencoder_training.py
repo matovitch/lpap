@@ -47,10 +47,12 @@ from lpap.surrogate import (
     prepare_lpap_surrogate_batch,
 )
 from lpap.teacher_checkpoints import (
+    apply_ae_lpap_pair_permutations,
     load_decoder_source,
     load_surrogate_source,
     lpap_pair_model_config_record,
     lpap_pair_training_state_record,
+    parse_ae_lpap_pair_permutations,
     require_matching_pair_permutation,
     resolve_checkpoint_path,
     validate_lpap_pair_matches_sequence_length,
@@ -845,18 +847,28 @@ def create_image_autoencoder_training_session(
         metadata={
             "device": str(target_device),
             "image_dataset_path": str(image_dataset_path),
-            "lpap_pairs": [
-                lpap_pair_training_state_record(
-                    name=runtime.name,
-                    surrogate_checkpoint_path=runtime.surrogate_checkpoint_path,
-                    decoder_checkpoint_path=runtime.decoder_checkpoint_path,
-                )
-                for runtime in pair_runtimes
-            ],
             "flow_checkpoint_path": str(flow_checkpoint_path),
         },
     )
     resume_info = training_run.resume_or_initialize()
+    if resume_info.resumed:
+        from lpap.checkpoints import load_training_checkpoint
+
+        payload = load_training_checkpoint(checkpoint_path, map_location="cpu")
+        training_state = payload.get("training_state", {})
+        if not isinstance(training_state, dict):
+            raise ValueError("AE checkpoint training_state must be a dictionary")
+        pair_runtimes = list(
+            apply_ae_lpap_pair_permutations(
+                pair_runtimes,
+                parse_ae_lpap_pair_permutations(
+                    training_state,
+                    pair_count=len(pair_runtimes),
+                    value_count=config.value_count,
+                ),
+                device=target_device,
+            )
+        )
     generator = torch.Generator(device=target_device).manual_seed(
         config.run.seed + resume_info.start_step
     )
@@ -1176,15 +1188,15 @@ def iter_image_autoencoder_training(
                 "seed": config.run.seed,
                 "validation_seed": config.validation.seed,
                 "image_dataset_path": str(session.image_dataset_path),
+                "flow_checkpoint_path": str(session.flow_checkpoint_path),
                 "lpap_pairs": [
                     lpap_pair_training_state_record(
                         name=runtime.name,
-                        surrogate_checkpoint_path=runtime.surrogate_checkpoint_path,
-                        decoder_checkpoint_path=runtime.decoder_checkpoint_path,
+                        permutation=runtime.permutation,
+                        value_count=config.value_count,
                     )
                     for runtime in session.lpap_pairs
                 ],
-                "flow_checkpoint_path": str(session.flow_checkpoint_path),
             },
         )
 

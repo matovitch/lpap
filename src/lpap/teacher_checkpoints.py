@@ -228,37 +228,106 @@ def lpap_pair_model_config_record(
     surrogate: dict[str, Any],
     decoder: dict[str, Any],
 ) -> dict[str, Any]:
-    """Teacher-shaped pair entry for AE ``model_config.lpap_pairs``."""
+    """Pair entry for AE ``model_config.lpap_pairs`` (no seed fields)."""
     return {
         "name": name,
-        "surrogate": dict(surrogate),
-        "decoder": dict(decoder),
+        "surrogate": _without_permutation_seed(surrogate),
+        "decoder": _without_permutation_seed(decoder),
     }
 
 
 def lpap_pair_training_state_record(
     *,
     name: str,
-    surrogate_checkpoint_path: Path | str,
-    decoder_checkpoint_path: Path | str,
-) -> dict[str, str]:
-    """Teacher-pair path record for AE ``training_state.lpap_pairs``.
+    permutation: torch.Tensor,
+    value_count: int,
+) -> dict[str, Any]:
+    """Self-contained pair layout for AE ``training_state.lpap_pairs``."""
+    from lpap.permutation import as_long_permutation
 
-    Layout tensors stay on the referenced surrogate/decoder checkpoints
-    (``training_state.permutation``), not duplicated here.
-    """
     return {
         "name": name,
-        "surrogate_checkpoint_path": str(surrogate_checkpoint_path),
-        "decoder_checkpoint_path": str(decoder_checkpoint_path),
+        "permutation": as_long_permutation(permutation, value_count=value_count),
     }
 
 
+def parse_ae_lpap_pair_permutations(
+    training_state: dict[str, Any],
+    *,
+    pair_count: int,
+    value_count: int,
+) -> list[torch.Tensor]:
+    """Require AE ``training_state.lpap_pairs[*].permutation``."""
+    from lpap.permutation import as_long_permutation
+
+    raw_pairs = training_state.get("lpap_pairs")
+    if not isinstance(raw_pairs, list | tuple):
+        raise ValueError("AE checkpoint training_state.lpap_pairs must be a list")
+    if len(raw_pairs) != pair_count:
+        raise ValueError(
+            f"AE lpap_pairs length must be {pair_count}, got {len(raw_pairs)}"
+        )
+    permutations: list[torch.Tensor] = []
+    for index, entry in enumerate(raw_pairs):
+        if not isinstance(entry, dict):
+            raise ValueError(f"AE lpap_pairs[{index}] must be a dict")
+        raw = entry.get("permutation")
+        if raw is None:
+            raise ValueError(
+                f"AE lpap_pairs[{index}] is missing permutation "
+                f"(pair={entry.get('name')!r})"
+            )
+        permutations.append(
+            as_long_permutation(torch.as_tensor(raw), value_count=value_count)
+        )
+    return permutations
+
+
+def apply_ae_lpap_pair_permutations(
+    pairs: tuple[Any, ...] | list[Any],
+    permutations: list[torch.Tensor],
+    *,
+    device: torch.device,
+) -> tuple[Any, ...]:
+    """Replace in-memory pair layouts with AE-checkpoint permutations."""
+    if len(pairs) != len(permutations):
+        raise ValueError("pairs and permutations lengths must match")
+    updated = []
+    for runtime, permutation in zip(pairs, permutations, strict=True):
+        updated.append(
+            type(runtime)(
+                name=runtime.name,
+                surrogate_checkpoint_path=runtime.surrogate_checkpoint_path,
+                decoder_checkpoint_path=runtime.decoder_checkpoint_path,
+                permutation=permutation.to(device=device, dtype=torch.long),
+                surrogate_model_config=runtime.surrogate_model_config,
+                decoder_model_config=runtime.decoder_model_config,
+            )
+        )
+    return tuple(updated)
+
+
+def _without_permutation_seed(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _without_permutation_seed(item)
+            for key, item in value.items()
+            if key != "permutation_seed"
+        }
+    if isinstance(value, list):
+        return [_without_permutation_seed(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_without_permutation_seed(item) for item in value)
+    return value
+
+
 __all__ = [
+    "apply_ae_lpap_pair_permutations",
     "load_decoder_source",
     "load_surrogate_source",
     "lpap_pair_model_config_record",
     "lpap_pair_training_state_record",
+    "parse_ae_lpap_pair_permutations",
     "permutation_from_training_state",
     "require_matching_pair_permutation",
     "resolve_checkpoint_path",

@@ -96,6 +96,21 @@ def metric_improved(
     raise ValueError("mode must be 'min' or 'max'")
 
 
+def _without_permutation_seed(value: object) -> object:
+    """Drop ``permutation_seed`` keys from checkpoint training_state trees."""
+    if isinstance(value, dict):
+        return {
+            str(key): _without_permutation_seed(item)
+            for key, item in value.items()
+            if key != "permutation_seed"
+        }
+    if isinstance(value, list):
+        return [_without_permutation_seed(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_without_permutation_seed(item) for item in value)
+    return value
+
+
 def save_training_checkpoint(
     path: str | Path,
     *,
@@ -127,6 +142,11 @@ def save_training_checkpoint(
         else state_dict_to_cpu(best_model_state)
     )
     stored_best_metric = float(current_metric) if improved else best_metric
+    sanitized_training_state = _without_permutation_seed(
+        {} if training_state is None else dict(training_state)
+    )
+    if not isinstance(sanitized_training_state, dict):
+        raise ValueError("training_state must be a dictionary")
 
     payload: dict[str, Any] = {
         "step": step,
@@ -138,7 +158,7 @@ def save_training_checkpoint(
         "model_state": current_model_state,
         "best_model_state": stored_best_model_state,
         "optimizer_state": None if optimizer is None else optimizer.state_dict(),
-        "training_state_json": _training_state_to_json(training_state),
+        "training_state_json": _training_state_to_json(sanitized_training_state),
     }
     partial_path = checkpoint_path.with_suffix(checkpoint_path.suffix + ".partial")
     try:
@@ -200,7 +220,10 @@ def write_training_checkpoint_payload(
         training_state = payload["training_state"]
         if not isinstance(training_state, dict):
             raise ValueError("training_state must be a dictionary")
-        to_save["training_state_json"] = _training_state_to_json(training_state)
+        sanitized = _without_permutation_seed(dict(training_state))
+        if not isinstance(sanitized, dict):
+            raise ValueError("training_state must be a dictionary")
+        to_save["training_state_json"] = _training_state_to_json(sanitized)
     elif "training_state_json" not in to_save:
         to_save["training_state_json"] = _training_state_to_json({})
     partial_path = checkpoint_path.with_suffix(checkpoint_path.suffix + ".partial")

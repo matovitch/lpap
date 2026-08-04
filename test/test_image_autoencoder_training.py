@@ -86,7 +86,6 @@ def _save_tiny_teacher_pair(
                 "hidden_dim": 16,
                 "layer_count": 1,
                 "head_count": 4,
-                "permutation_seed": permutation_seed,
             },
             "permutation": permutation,
         },
@@ -112,7 +111,6 @@ def _save_tiny_teacher_pair(
                 "hidden_dim": 16,
                 "layer_count": 1,
                 "head_count": 4,
-                "permutation_seed": permutation_seed,
             },
             "permutation": permutation,
         },
@@ -600,7 +598,7 @@ class ImageAutoencoderTrainingTest(unittest.TestCase):
                     device="cpu",
                 )
 
-    def test_resume_uses_matching_teacher_permutations(self) -> None:
+    def test_resume_uses_ae_checkpoint_permutations(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             session = _build_tiny_autoencoder_session(root)
@@ -609,15 +607,42 @@ class ImageAutoencoderTrainingTest(unittest.TestCase):
             payload = load_training_checkpoint(
                 session.checkpoint_path, map_location="cpu"
             )
-            self.assertNotIn("lpap_pair_permutations", payload["training_state"])
-            self.assertEqual(
-                payload["training_state"]["lpap_pairs"][0]["name"],
-                session.lpap_pairs[0].name,
+            pair0 = payload["training_state"]["lpap_pairs"][0]
+            self.assertEqual(pair0["name"], session.lpap_pairs[0].name)
+            self.assertNotIn("surrogate_checkpoint_path", pair0)
+            torch.testing.assert_close(
+                torch.as_tensor(pair0["permutation"]), trained_perm
             )
-            self.assertIn(
-                "surrogate_checkpoint_path",
-                payload["training_state"]["lpap_pairs"][0],
+
+            # Poison teachers; resume must keep AE-stored layouts.
+            other_perm = make_grouped_permutation_indices(
+                value_count=session.config.value_count,
+                bucket_count=4,
+                seed=999,
+                device=torch.device("cpu"),
             )
+            for path, module in (
+                (
+                    session.lpap_pairs[0].surrogate_checkpoint_path,
+                    session.model.surrogates[0],
+                ),
+                (
+                    session.lpap_pairs[0].decoder_checkpoint_path,
+                    session.model.decoders[0],
+                ),
+            ):
+                teacher_payload = load_training_checkpoint(path, map_location="cpu")
+                teacher_state = dict(teacher_payload["training_state"])
+                teacher_state["permutation"] = other_perm
+                save_training_checkpoint(
+                    path,
+                    model=module,
+                    step=int(teacher_payload["step"]),
+                    best_metric=teacher_payload.get("best_metric"),
+                    best_model_state=teacher_payload.get("best_model_state"),
+                    optimizer=None,
+                    training_state=teacher_state,
+                )
 
             resume_config = ImageAutoencoderTrainingConfig(
                 image=session.config.image,
@@ -644,6 +669,53 @@ class ImageAutoencoderTrainingTest(unittest.TestCase):
             torch.testing.assert_close(
                 resumed.lpap_pairs[0].permutation.cpu(), trained_perm
             )
+            self.assertFalse(
+                torch.equal(resumed.lpap_pairs[0].permutation.cpu(), other_perm)
+            )
+
+    def test_resume_missing_ae_pair_permutation_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            session = _build_tiny_autoencoder_session(root)
+            list(iter_image_autoencoder_training(session))
+            payload = load_training_checkpoint(
+                session.checkpoint_path, map_location="cpu"
+            )
+            training_state = dict(payload["training_state"])
+            training_state["lpap_pairs"] = [
+                {"name": session.lpap_pairs[0].name}
+            ]
+            save_training_checkpoint(
+                session.checkpoint_path,
+                model=session.model,
+                optimizer=session.optimizer,
+                step=int(payload["step"]),
+                best_metric=payload.get("best_metric"),
+                best_model_state=payload.get("best_model_state"),
+                training_state=training_state,
+            )
+            resume_config = ImageAutoencoderTrainingConfig(
+                image=session.config.image,
+                source=session.config.source,
+                image_to_energy_flow=session.config.image_to_energy_flow,
+                energy_to_image_flow=session.config.energy_to_image_flow,
+                integration=session.config.integration,
+                loss=session.config.loss,
+                optimizer=session.config.optimizer,
+                validation=session.config.validation,
+                run=ImageAutoencoderRunConfig(
+                    steps=2,
+                    display_every=1,
+                    run_id=session.config.run.run_id,
+                    checkpoint_name=session.config.run.checkpoint_name,
+                    log_name=session.config.run.log_name,
+                    resume_from_checkpoint=True,
+                ),
+            )
+            with self.assertRaisesRegex(ValueError, "missing permutation"):
+                create_image_autoencoder_training_session(
+                    project_root=root, config=resume_config, device="cpu"
+                )
 
     def test_create_missing_decoder_permutation_raises(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
