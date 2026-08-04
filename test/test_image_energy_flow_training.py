@@ -58,7 +58,7 @@ class ImageEnergyFlowTrainingTest(unittest.TestCase):
         self.assertTrue(bool((times > 0).any()))
 
     def test_sample_lognormal_prior_shape_and_signs(self) -> None:
-        prior = ImageEnergyFlowPriorConfig(sigma=2.0, scale=2.0e-3)
+        prior = ImageEnergyFlowPriorConfig(sigma=2.0, scale=0.5)
         gen = torch.Generator().manual_seed(0)
         sample = sample_image_energy_prior(
             prior,
@@ -103,7 +103,7 @@ class ImageEnergyFlowTrainingTest(unittest.TestCase):
                     normalize=True,
                     shuffle=False,
                 ),
-                prior=ImageEnergyFlowPriorConfig(sigma=2.0, scale=2.0e-3),
+                prior=ImageEnergyFlowPriorConfig(sigma=2.0, scale=0.5),
                 flow=FlowModelConfig(
                     sequence_length=16,
                     width=8,
@@ -139,7 +139,7 @@ class ImageEnergyFlowTrainingTest(unittest.TestCase):
                 "validation_reconstructed_image_rms_steps_1", results[-1].metrics
             )
             self.assertEqual(session.config.prior.sigma, 2.0)
-            self.assertEqual(session.config.prior.scale, 2.0e-3)
+            self.assertEqual(session.config.prior.scale, 0.5)
 
     def test_gallery_both_directions(self) -> None:
         model = DilatedConvFlow1d(

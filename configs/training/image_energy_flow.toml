@@ -13,7 +13,7 @@ num_workers = 0
 # |e| = scale * exp(sigma * Z), Z~N(0,1); scale is the median of |e|.
 # Signs are i.i.d. fair coin ±1.
 sigma = 2.0
-scale = 2.0e-3
+scale = 0.5
 
 [flow]
 sequence_length = 1024
