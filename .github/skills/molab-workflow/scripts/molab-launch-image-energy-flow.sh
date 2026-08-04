@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
-# Launch the bidirectional image↔energy flow worker on molab (signed log-normal prior).
+# Launch the bidirectional image↔energy flow worker on molab.
 #
-# Artifacts: image_energy_flow.{pt,sqlite}
+# Reads hyperparameters from configs/training/image_energy_flow.toml on /marimo
+# (this script pushes the local TOML first). Artifacts: image_energy_flow.{pt,sqlite}
 #
-# Requires a prior molab-sync. Refuses if the previous bg pid is still alive.
+# Requires a prior molab-sync for helpers/secrets (and usually lpap). Refuses if
+# the previous bg pid is still alive.
 #
 # Required env: MOLAB_URL, MOLAB_TOKEN or MARIMO_TOKEN
 #
 # Usage:
+#   # edit configs/training/image_energy_flow.toml, then:
 #   bash .github/skills/molab-workflow/scripts/molab-launch-image-energy-flow.sh --target-steps 10000
 #   bash .github/skills/molab-workflow/scripts/molab-launch-image-energy-flow.sh --target-steps 20000 --resume
 #   bash .github/skills/molab-workflow/scripts/molab-launch-image-energy-flow.sh --target-steps 10000 --json
@@ -49,7 +52,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     -h|--help)
-      sed -n '2,15p' "$0" | sed 's/^# \?//'
+      sed -n '2,18p' "$0" | sed 's/^# \?//'
       exit 0
       ;;
     *)
@@ -67,6 +70,9 @@ if [[ ! "$target_steps" =~ ^[0-9]+$ ]]; then
   echo "molab-launch-image-energy-flow: --target-steps must be an integer" >&2
   exit 1
 fi
+
+# Always refresh helpers + training TOMLs so local edits apply without git/pip.
+bash "$script_dir/molab-sync.sh" --skip-install --skip-secrets --skip-storage
 
 comment_b64=""
 if [[ -n "$comment" ]]; then

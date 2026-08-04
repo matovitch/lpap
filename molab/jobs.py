@@ -43,13 +43,18 @@ def image_energy_flow_worker_source(
     notify_on_finished: bool = True,
     comment: str | None = None,
     resume_from_checkpoint: bool = False,
+    config_relpath: str = "configs/training/image_energy_flow.toml",
 ) -> str:
-    """Return Python source for the bidirectional image-energy flow worker."""
+    """Return Python source for the bidirectional image-energy flow worker.
+
+    Base hyperparameters (prior, flow, validation, …) come from the project TOML
+    at ``config_relpath``. Launch overrides only run cadence / resume / artifacts.
+    """
     if target_steps <= 0:
         raise ValueError("target_steps must be positive")
     root = Path(project_root)
     resolved_comment = comment or (
-        f"image_energy_flow signed log-normal prior; bg to {target_steps}"
+        f"image_energy_flow from {config_relpath}; bg to {target_steps}"
     )
     upload = "True" if upload_artifacts_on_checkpoint else "False"
     notify = "True" if notify_on_finished else "False"
@@ -61,14 +66,20 @@ from pathlib import Path
 
 from lpap.training_notebook import (
     create_training_session,
-    default_image_energy_flow_training_config,
     iter_training,
+    training_config_from_file,
 )
 
 project_root = Path({str(root)!r})
 TARGET = {int(target_steps)}
 KIND = "image_energy_flow"
-base = default_image_energy_flow_training_config()
+config_path = project_root / {config_relpath!r}
+if not config_path.is_file():
+    raise FileNotFoundError(
+        f"flow training TOML missing: {{config_path}} "
+        "(sync configs/training via molab-sync or the launch script)"
+    )
+base = training_config_from_file(config_path, KIND)
 config = replace(
     base,
     run=replace(
@@ -92,7 +103,8 @@ session.training_run.config = replace(
     notify_on_finished={notify},
 )
 print(
-    f"device={{session.device}} kind={{KIND}} start={{session.resume_info.start_step}} "
+    f"device={{session.device}} kind={{KIND}} config={{config_path}} "
+    f"start={{session.resume_info.start_step}} "
     f"target={{config.run.steps}} prior_sigma={{config.prior.sigma}} "
     f"prior_scale={{config.prior.scale}} "
     f"val_batches={{config.validation.num_batches}} "

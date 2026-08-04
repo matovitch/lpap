@@ -46,12 +46,13 @@ All under `.github/skills/molab-workflow/scripts/` (require `MOLAB_URL` +
 | Script | Purpose |
 |--------|---------|
 | `molab-exec.sh` | Scratchpad / `cm` against the paired kernel |
-| `molab-sync.sh` | Reinstall `lpap` from git + storage/helpers/secrets |
+| `molab-sync.sh` | Reinstall `lpap` from git + storage/training TOMLs/helpers/secrets |
+| `molab-push-training-configs.sh` | Copy `configs/training/*.toml` → `/marimo/configs/training/` |
 | `molab-inject-secrets.sh` | Secrets → kernel env only |
 | `molab-train-status.sh` | On-demand AE bg / ckpt / SQLite summary (not a completion waiter) |
 | `molab-notify.sh` | Pushover ping (job finished / agent handoff) |
 | `molab-launch-ae-bidirectional-flow.sh` | Detached multi-pair AE from `image_energy_flow.pt` |
-| `molab-launch-image-energy-flow.sh` | Detached signed log-normal bidirectional flow |
+| `molab-launch-image-energy-flow.sh` | Detached flow worker (pushes local flow TOML + helpers first) |
 | `molab-launch-lpap-teacher.sh` | Detached surrogate or decoder teacher |
 | `molab-push-package-file.sh` | Hot-patch one local `src/lpap/*.py` into site-packages + reload |
 | `molab-export-notebook.sh` | Backport live cells → `molab/lab.py` |
@@ -169,9 +170,11 @@ Implementation: repo [`molab/jobs.py`](../../../molab/jobs.py)
 `training_logs/train_image_autoencoder_tri_flow_bg.py` and spawns with
 pid/log under `image_autoencoder_tri_flow_bg.*`.
 
-Image-energy flow train:
+Image-energy flow train (hparams from `configs/training/image_energy_flow.toml`;
+the launch script pushes that TOML + `molab/` helpers before spawn):
 
 ```bash
+# edit prior/validation in configs/training/image_energy_flow.toml, then:
 bash .github/skills/molab-workflow/scripts/molab-launch-image-energy-flow.sh \
   --target-steps 10000
 ```

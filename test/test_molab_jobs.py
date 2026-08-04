@@ -62,17 +62,19 @@ class MolabJobsTest(unittest.TestCase):
         self.assertIn("KIND = 'surrogate'", source)
         compile(source, "<surr_worker>", "exec")
 
-    def test_flow_worker_source_signed_lognormal_prior(self) -> None:
+    def test_flow_worker_source_loads_project_toml(self) -> None:
         source = image_energy_flow_worker_source(
             target_steps=10000,
             project_root="/marimo",
         )
         self.assertIn("TARGET = 10000", source)
         self.assertIn("image_energy_flow", source)
-        self.assertIn("default_image_energy_flow_training_config", source)
+        self.assertIn("training_config_from_file", source)
+        self.assertIn("configs/training/image_energy_flow.toml", source)
         self.assertIn("IMAGE_ENERGY_FLOW_DONE", source)
         self.assertIn("upload_artifacts_on_checkpoint=True", source)
         self.assertIn("resume_from_checkpoint=False", source)
+        self.assertNotIn("default_image_energy_flow_training_config", source)
         compile(source, "<flow_worker>", "exec")
 
     def test_flow_worker_source_resume(self) -> None:

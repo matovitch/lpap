@@ -4,8 +4,9 @@
 # Steps:
 #   1. Force-reinstall lpap from git (default ref: main)
 #   2. Copy configs/storage.toml → /marimo/configs/storage.toml
-#   3. Copy repo molab/ helpers → /marimo/molab/ (not part of lpap)
-#   4. Inject configs/secrets.toml → kernel env (molab-inject-secrets.sh)
+#   3. Copy configs/training/*.toml → /marimo/configs/training/
+#   4. Copy repo molab/ helpers → /marimo/molab/ (not part of lpap)
+#   5. Inject configs/secrets.toml → kernel env (molab-inject-secrets.sh)
 #
 # Required env: MOLAB_URL, MOLAB_TOKEN or MARIMO_TOKEN
 # Optional: MOLAB_SESSION (prefer unset unless the server has multiple sessions)
@@ -16,11 +17,14 @@
 #   --skip-install                skip pip reinstall
 #   --skip-secrets                skip inject
 #   --skip-storage                skip storage.toml copy
+#   --skip-training-configs       skip configs/training/*.toml copy
 #   --skip-helpers                skip molab/ helper copy
 #
 # Usage:
 #   bash .github/skills/molab-workflow/scripts/molab-sync.sh
 #   bash .github/skills/molab-workflow/scripts/molab-sync.sh --ref abd69b3
+#   # prior/hparams only (no pip):
+#   bash .github/skills/molab-workflow/scripts/molab-sync.sh --skip-install
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -34,6 +38,7 @@ do_install=1
 do_secrets=1
 do_storage=1
 do_helpers=1
+do_training_configs=1
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -57,8 +62,12 @@ while [[ $# -gt 0 ]]; do
       do_helpers=0
       shift
       ;;
+    --skip-training-configs)
+      do_training_configs=0
+      shift
+      ;;
     -h|--help)
-      sed -n '2,26p' "$0" | sed 's/^# \?//'
+      sed -n '2,30p' "$0" | sed 's/^# \?//'
       exit 0
       ;;
     *)
@@ -123,6 +132,11 @@ path.parent.mkdir(parents=True, exist_ok=True)
 path.write_bytes(base64.b64decode('${payload}'))
 print('wrote', path, 'bytes', path.stat().st_size)
 "
+fi
+
+if [[ "$do_training_configs" -eq 1 ]]; then
+  echo "molab-sync: copying configs/training/*.toml → /marimo/configs/training/"
+  bash "$script_dir/molab-push-training-configs.sh"
 fi
 
 if [[ "$do_helpers" -eq 1 ]]; then

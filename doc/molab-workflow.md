@@ -50,11 +50,13 @@ bash .github/skills/molab-workflow/scripts/molab-inject-secrets.sh
 ```
 
 Prefer the one-shot post-push sync (reinstall `lpap`, copy `storage.toml`,
-copy repo `molab/` helpers → `/marimo/molab/`, inject secrets):
+copy `configs/training/*.toml`, copy repo `molab/` helpers → `/marimo/molab/`,
+inject secrets):
 
 ```bash
 bash .github/skills/molab-workflow/scripts/molab-sync.sh
 # or pin a SHA:  bash …/molab-sync.sh --ref abd69b3
+# hparams/helpers only (no pip):  bash …/molab-sync.sh --skip-install
 ```
 
 Do not put secrets in notebook cells. Re-run sync/inject after every kernel
@@ -79,6 +81,7 @@ Extra molab-workflow helpers (same `MOLAB_*` env):
 
 - `molab-push-package-file.sh` — hot-patch one `src/lpap/*.py` into the kernel
   (ephemeral; prefer commit + `molab-sync` for durable updates)
+- `molab-push-training-configs.sh` — copy `configs/training/*.toml` → `/marimo`
 - `molab-export-notebook.sh` — backport live cells → `molab/lab.py`
 - `molab-train-status.sh` / `molab-launch-ae-bidirectional-flow.sh` / `molab-launch-image-energy-flow.sh` — long AE / image-energy flow runs
 - `molab-notify.sh` — Pushover on job finish / handoff (prefer over agent polling)
@@ -148,6 +151,15 @@ blocking code-mode cell:
 bash .github/skills/molab-workflow/scripts/molab-sync.sh
 bash .github/skills/molab-workflow/scripts/molab-launch-ae-bidirectional-flow.sh --target-steps 20000
 bash .github/skills/molab-workflow/scripts/molab-train-status.sh
+```
+
+**Image-energy flow:** edit `configs/training/image_energy_flow.toml` (prior,
+validation, …). The launch script pushes that TOML + `molab/` helpers, then
+spawns a worker that **loads the TOML** (not hardcoded Python defaults):
+
+```bash
+bash .github/skills/molab-workflow/scripts/molab-launch-image-energy-flow.sh \
+  --target-steps 10000
 ```
 
 Launcher refuses if the previous bg pid is still alive. Status reports
