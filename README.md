@@ -28,8 +28,8 @@ Each DIB only locates a peak up to a collision set, so a single bucket does not
 pin an exact source index — the pooled table is not strictly invertible on its
 own. In practice the autoencoder can learn a latent geometry where those
 ambiguities rarely bite: attention across buckets usually resolves the source.
-Learned path: surrogate (emulate LPAP) → `(amp, DIB, entropy)` frontend → decoder.
-[lpap.md](doc/lpap.md#why-amplitude-and-dib-inverting-the-table).
+
+See [lpap.md](doc/lpap.md#why-amplitude-and-dib-inverting-the-table) for more details.
 
 ## Training procedure
 
