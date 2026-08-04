@@ -2,7 +2,7 @@
 # Launch multi-pair AE from one bidirectional image-energy flow on molab.
 #
 # Uses image_energy_flow.pt + c128_k16 / c256_k24 / c512_k32 teachers.
-# Artifacts: image_autoencoder_tri_flow.{pt,sqlite}.
+# Artifacts: image_autoencoder_tri_lnorm.{pt,sqlite}.
 # Requires a prior molab-sync (so lpap + secrets are present). Refuses if the
 # previous bg pid is still alive.
 #

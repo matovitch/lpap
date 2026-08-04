@@ -19,12 +19,12 @@ from molab.bg_worker import (
 )
 
 # Tri-pair AE from one bidirectional image↔energy flow
-# (c128_k16 + c256_k24 + c512_k32).
-AE_BIDIR_FLOW_RUN_ID = "image_autoencoder_tri_flow"
-AE_BIDIR_FLOW_CHECKPOINT = "image_autoencoder_tri_flow.pt"
-AE_BIDIR_FLOW_LOG = "image_autoencoder_tri_flow.sqlite"
-AE_BIDIR_FLOW_BG_STEM = "image_autoencoder_tri_flow_bg"
-AE_BIDIR_FLOW_SCRIPT = "train_image_autoencoder_tri_flow_bg.py"
+# (c128_k16 + c256_k24 + c512_k32). Fresh stem for lognormal-flow teachers.
+AE_BIDIR_FLOW_RUN_ID = "image_autoencoder_tri_lnorm"
+AE_BIDIR_FLOW_CHECKPOINT = "image_autoencoder_tri_lnorm.pt"
+AE_BIDIR_FLOW_LOG = "image_autoencoder_tri_lnorm.sqlite"
+AE_BIDIR_FLOW_BG_STEM = "image_autoencoder_tri_lnorm_bg"
+AE_BIDIR_FLOW_SCRIPT = "train_image_autoencoder_tri_lnorm_bg.py"
 
 FLOW_RUN_ID = "image_energy_flow"
 FLOW_CHECKPOINT = "image_energy_flow.pt"
@@ -243,6 +243,13 @@ config = replace(
         train_surrogate=True,
         train_decoder=True,
         train_energy_to_image_flow=True,
+    ),
+    # Match configs/training/image_autoencoder.toml
+    loss=replace(
+        base.loss,
+        signed_mass_floor_tau=0.1,
+        signed_mass_balance_weight=1.0e-2,
+        energy_l1_weight=0.05,
     ),
     validation=replace(
         base.validation, every=250, batch_size=32, num_batches=8

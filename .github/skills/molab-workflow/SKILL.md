@@ -167,8 +167,8 @@ bash .github/skills/molab-workflow/scripts/molab-train-status.sh
 
 Implementation: repo [`molab/jobs.py`](../../../molab/jobs.py)
 (`launch_ae_bidirectional_flow_bg`, synced to `/marimo/molab/`) writes
-`training_logs/train_image_autoencoder_tri_flow_bg.py` and spawns with
-pid/log under `image_autoencoder_tri_flow_bg.*`.
+`training_logs/train_image_autoencoder_tri_lnorm_bg.py` and spawns with
+pid/log under `image_autoencoder_tri_lnorm_bg.*`.
 
 Image-energy flow train (hparams from `configs/training/image_energy_flow.toml`;
 the launch script pushes that TOML + `molab/` helpers before spawn):
@@ -192,10 +192,10 @@ bash .github/skills/molab-workflow/scripts/molab-launch-image-energy-flow.sh \
 bash .github/skills/molab-workflow/scripts/molab-train-status.sh
 # or locally / in molab-exec:
 python -m lpap.training_status --project-root /marimo \
-  --checkpoint image_autoencoder_tri_flow.pt \
-  --log image_autoencoder_tri_flow.sqlite \
-  --run-id image_autoencoder_tri_flow \
-  --bg-stem image_autoencoder_tri_flow_bg
+  --checkpoint image_autoencoder_tri_lnorm.pt \
+  --log image_autoencoder_tri_lnorm.sqlite \
+  --run-id image_autoencoder_tri_lnorm \
+  --bg-stem image_autoencoder_tri_lnorm_bg
 ```
 
 Reports ckpt step, SQLite max step, and bg alive / last log step.

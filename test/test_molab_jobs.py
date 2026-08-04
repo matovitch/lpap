@@ -37,7 +37,7 @@ class MolabJobsTest(unittest.TestCase):
         self.assertIn('name="c512_k32"', source)
         self.assertIn("comment='unit-bidir'", source)
         self.assertIn("AE_TRI_BIDIR_FLOW_DONE", source)
-        self.assertIn("image_autoencoder_tri_flow", source)
+        self.assertIn("image_autoencoder_tri_lnorm", source)
         compile(source, "<ae_bidir_worker>", "exec")
 
     def test_ae_worker_source_resume(self) -> None:
