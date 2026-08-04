@@ -11,6 +11,7 @@ from lpap.checkpoints import (
     load_training_checkpoint,
     metric_improved,
     save_training_checkpoint,
+    write_training_checkpoint_payload,
 )
 
 
@@ -81,6 +82,34 @@ class CheckpointTest(unittest.TestCase):
             restored_best = nn.Linear(2, 1)
             load_training_checkpoint(path, model=restored_best, load_best=True)
             torch.testing.assert_close(restored_best.weight, torch.full((1, 2), 1.0))
+
+    def test_write_training_checkpoint_payload_round_trips_training_state(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "model.pt"
+            model = nn.Linear(2, 1)
+            write_training_checkpoint_payload(
+                path,
+                {
+                    "step": 7,
+                    "best_metric": 0.1,
+                    "model_state": model.state_dict(),
+                    "best_model_state": model.state_dict(),
+                    "optimizer_state": None,
+                    "training_state": {
+                        "lpap_pair_names": ["c4"],
+                        "lpap_pair_permutations": [torch.arange(4)],
+                    },
+                },
+            )
+            payload = load_training_checkpoint(path, map_location="cpu")
+            self.assertEqual(payload["step"], 7)
+            self.assertEqual(payload["training_state"]["lpap_pair_names"], ["c4"])
+            torch.testing.assert_close(
+                payload["training_state"]["lpap_pair_permutations"][0],
+                torch.arange(4),
+            )
 
 
 if __name__ == "__main__":

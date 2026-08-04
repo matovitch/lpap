@@ -16,6 +16,7 @@ from lpap.checkpoints import (
     load_training_checkpoint,
     metric_improved,
     save_training_checkpoint,
+    write_training_checkpoint_payload,
 )
 from lpap.data import (
     ImageTensorDataset,
@@ -375,6 +376,7 @@ __all__ = sorted(
         "start_run_attempt",
         "train_lpap_decoder_step",
         "train_lpap_surrogate",
+        "write_training_checkpoint_payload",
         "train_lpap_surrogate_step",
         "unfold_grouped_permutation_tokens",
         "upsert_run",

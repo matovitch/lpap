@@ -38,6 +38,14 @@ description = "Benchmark PyTorch and Triton LPAP implementations."
 cmd = "PYTHONPATH=src python -m lpap.image_autoencoder_loss --project-root . --suggest"
 description = "Probe AE loss-component magnitudes and suggest lambda dials."
 
+[tasks.migrate-ae-permutations]
+cmd = "PYTHONPATH=src python -m lpap.migrate_ae_permutations --checkpoint {{ checkpoint }} --output {{ output }}"
+args = [
+	{ arg = "checkpoint", default = "checkpoints/image_autoencoder_tri_lnorm.pt" },
+	{ arg = "output", default = "checkpoints/image_autoencoder_tri_lnorm.pt" },
+]
+description = "Embed CPU-seed lpap_pair_permutations into an AE checkpoint."
+
 [tasks.notebook-lab]
 cmd = "PYTHONPATH=src:. marimo edit molab/lab.py --no-token"
 description = "Open the molab lab marimo notebook (local preview)."

@@ -23,14 +23,20 @@ originally built; they are not used to reconstruct AE session permutations.
 
 ## Phases
 
-1. **Checkpoint save/load (this PR)** — implement rules above + unit tests.
-2. **Migration script** — rewrite `image_autoencoder_tri_lnorm.pt` training_state
-   with the concrete perms the weights need (CPU-seed regen for this salvage),
-   dump/upload.
+1. **Checkpoint save/load** — done (`d3636dc`). AE requires teacher perms when
+   fresh and `lpap_pair_permutations` when resuming; no seed fallback.
+2. **Migration script** — `python -m lpap.migrate_ae_permutations` regenerates
+   CPU-seed pair permutations from `model_config` and writes them into an AE
+   checkpoint without touching weights/optimizer/step.
 3. **SQLite cleanup** — drop failed-resume / probe noise after step 32000.
 4. **Molab resume** — sync new `lpap` + migrated artifacts; resume to 70k.
 
-## Step 1 touch list
+## Migration usage
 
-- `src/lpap/image_autoencoder_training.py`
-- `test/test_image_autoencoder_training.py`
+```bash
+PYTHONPATH=src python -m lpap.migrate_ae_permutations \
+  --checkpoint checkpoints/image_autoencoder_tri_lnorm.pt \
+  --output checkpoints/image_autoencoder_tri_lnorm.pt
+```
+
+Then upload the migrated checkpoint via artifact sync before molab resume.

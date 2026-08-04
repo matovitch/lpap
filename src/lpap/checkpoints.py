@@ -180,3 +180,33 @@ def load_training_checkpoint(
     if optimizer is not None and payload.get("optimizer_state") is not None:
         optimizer.load_state_dict(payload["optimizer_state"])
     return payload
+
+
+def write_training_checkpoint_payload(
+    path: str | Path,
+    payload: dict[str, Any],
+) -> Path:
+    """Write a checkpoint dict, encoding ``training_state`` as JSON when present.
+
+    Preserves ``model_state`` / ``optimizer_state`` / metrics fields as given.
+    Does not re-derive best weights from a live module.
+    """
+    checkpoint_path = Path(path)
+    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+    to_save = {
+        key: value for key, value in payload.items() if key != "training_state"
+    }
+    if "training_state" in payload:
+        training_state = payload["training_state"]
+        if not isinstance(training_state, dict):
+            raise ValueError("training_state must be a dictionary")
+        to_save["training_state_json"] = _training_state_to_json(training_state)
+    elif "training_state_json" not in to_save:
+        to_save["training_state_json"] = _training_state_to_json({})
+    partial_path = checkpoint_path.with_suffix(checkpoint_path.suffix + ".partial")
+    try:
+        torch.save(to_save, partial_path)
+        os.replace(partial_path, checkpoint_path)
+    finally:
+        partial_path.unlink(missing_ok=True)
+    return checkpoint_path
