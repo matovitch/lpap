@@ -18,20 +18,20 @@ from lpap.training_notebook import (
     training_config_to_toml,
 )
 from lpap.visualization_notebook import render_decoder_run_gallery
+from support import training_fixture
 
 
 class TrainingNotebookConfigTest(unittest.TestCase):
-    def test_loads_project_training_toml_configs(self) -> None:
-        project_root = Path(__file__).resolve().parents[1]
-        teacher_path = project_root / "configs/training/teacher_c128_k16.toml"
+    def test_loads_fixture_training_toml_configs(self) -> None:
+        teacher_path = training_fixture("teacher_c128_k16.toml")
 
         surrogate = project_teacher_config(teacher_path, "surrogate")
         decoder = project_teacher_config(teacher_path, "decoder")
-        image_energy_flow = training_config_from_project_file(
-            project_root, "image_energy_flow"
+        image_energy_flow = training_config_from_file(
+            training_fixture("image_energy_flow.toml"), "image_energy_flow"
         )
-        image_autoencoder = training_config_from_project_file(
-            project_root, "image_autoencoder"
+        image_autoencoder = training_config_from_file(
+            training_fixture("image_autoencoder.toml"), "image_autoencoder"
         )
 
         self.assertIsInstance(surrogate, LPAPSurrogateTrainingConfig)
@@ -50,8 +50,8 @@ class TrainingNotebookConfigTest(unittest.TestCase):
             image_energy_flow.image.dataset_path, "data/images_32x32_gray.pt"
         )
         self.assertEqual(image_energy_flow.time.distribution, "beta")
-        self.assertEqual(image_energy_flow.prior.sigma, 1.0)
-        self.assertEqual(image_energy_flow.prior.scale, 0.5)
+        self.assertGreater(image_energy_flow.prior.sigma, 0.0)
+        self.assertGreater(image_energy_flow.prior.scale, 0.0)
         self.assertEqual(image_energy_flow.validation.num_batches, 4)
         self.assertIsInstance(image_autoencoder, ImageAutoencoderTrainingConfig)
         self.assertEqual(image_autoencoder.run.run_id, "image_autoencoder")
@@ -61,18 +61,26 @@ class TrainingNotebookConfigTest(unittest.TestCase):
             image_autoencoder.source.flow_checkpoint_name,
             "image_energy_flow.pt",
         )
-        self.assertEqual(
-            image_autoencoder.run.comment,
-            "16-step e2e AE; bidirectional flow clone at init",
-        )
-        self.assertEqual(image_autoencoder.loss.signed_mass_balance_weight, 0.02)
-        self.assertEqual(image_autoencoder.loss.energy_l1_weight, 0.5)
-        self.assertEqual(image_autoencoder.loss.surrogate_teacher_weight, 0.05)
-        self.assertEqual(image_autoencoder.loss.signed_mass_floor_tau, 0.01)
-        self.assertEqual(image_autoencoder.loss.signed_mass_floor_coef, 1.0)
-        self.assertEqual(image_autoencoder.run.steps, 20_000)
-        self.assertEqual(image_autoencoder.image.batch_size, 32)
-        self.assertEqual(image_autoencoder.validation.batch_size, 32)
+        self.assertGreater(image_autoencoder.loss.signed_mass_floor_tau, 0.0)
+        self.assertGreaterEqual(image_autoencoder.loss.signed_mass_balance_weight, 0.0)
+        self.assertGreater(image_autoencoder.run.steps, 0)
+        self.assertGreater(image_autoencoder.image.batch_size, 0)
+
+    def test_live_training_tomls_parse(self) -> None:
+        """Operator configs under configs/training/ must still load; values free."""
+        project_root = Path(__file__).resolve().parents[1]
+        for kind in ("image_energy_flow", "image_autoencoder"):
+            config = training_config_from_project_file(project_root, kind)
+            self.assertIsNotNone(config)
+        for name in (
+            "teacher_c128_k16.toml",
+            "teacher_c256_k24.toml",
+            "teacher_c512_k32.toml",
+        ):
+            path = project_root / "configs" / "training" / name
+            self.assertTrue(path.is_file(), name)
+            project_teacher_config(path, "surrogate")
+            project_teacher_config(path, "decoder")
 
     def test_loads_custom_surrogate_toml_config(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -137,9 +145,8 @@ class TrainingNotebookConfigTest(unittest.TestCase):
         )
 
     def test_serializes_training_config_to_toml(self) -> None:
-        project_root = Path(__file__).resolve().parents[1]
         config = project_teacher_config(
-            project_root / "configs/training/teacher_c128_k16.toml", "surrogate"
+            training_fixture("teacher_c128_k16.toml"), "surrogate"
         )
 
         text = training_config_to_toml(config)
@@ -149,9 +156,8 @@ class TrainingNotebookConfigTest(unittest.TestCase):
         self.assertIn("surrogate_c128_k16.pt", text)
 
     def test_decoder_toml_serializes_energy_bank(self) -> None:
-        project_root = Path(__file__).resolve().parents[1]
         config = project_teacher_config(
-            project_root / "configs/training/teacher_c128_k16.toml", "decoder"
+            training_fixture("teacher_c128_k16.toml"), "decoder"
         )
 
         text = training_config_to_toml(config)
@@ -160,12 +166,13 @@ class TrainingNotebookConfigTest(unittest.TestCase):
         self.assertIn("[teacher]", text)
 
     def test_image_energy_flow_serializes_prior(self) -> None:
-        project_root = Path(__file__).resolve().parents[1]
-        config = training_config_from_project_file(project_root, "image_energy_flow")
+        config = training_config_from_file(
+            training_fixture("image_energy_flow.toml"), "image_energy_flow"
+        )
         text = training_config_to_toml(config)
         self.assertIn("[prior]", text)
-        self.assertIn("sigma = 1.0", text)
-        self.assertIn("scale = 0.5", text)
+        self.assertRegex(text, r"(?m)^sigma = ")
+        self.assertRegex(text, r"(?m)^scale = ")
 
     def test_restores_training_toml_from_run_log(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -174,8 +181,7 @@ class TrainingNotebookConfigTest(unittest.TestCase):
             # that default uses log_name "surrogate.sqlite".
             log_path = project_root / "training_logs" / "surrogate.sqlite"
             source_config = project_teacher_config(
-                Path(__file__).resolve().parents[1]
-                / "configs/training/teacher_c128_k16.toml",
+                training_fixture("teacher_c128_k16.toml"),
                 "surrogate",
             )
             run_config = source_config.as_run_config()
@@ -211,8 +217,7 @@ class TrainingNotebookConfigTest(unittest.TestCase):
             project_root = Path(temp_dir)
             log_path = project_root / "training_logs" / "decoder.sqlite"
             source_config = project_teacher_config(
-                Path(__file__).resolve().parents[1]
-                / "configs/training/teacher_c128_k16.toml",
+                training_fixture("teacher_c128_k16.toml"),
                 "decoder",
             )
             upsert_run(

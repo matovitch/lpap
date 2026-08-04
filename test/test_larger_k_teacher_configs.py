@@ -1,21 +1,20 @@
 from __future__ import annotations
 
 import unittest
-from pathlib import Path
 
 from lpap.teacher_config import load_teacher_pair_toml, project_teacher_config
+from support import training_fixture
 
 
 class TeacherPairConfigTest(unittest.TestCase):
     def test_c128_c256_c512_shared_pair_and_projection(self) -> None:
-        root = Path(__file__).resolve().parents[1]
         specs = [
             ("teacher_c128_k16.toml", "c128_k16", 128, 8, 16, 123),
             ("teacher_c256_k24.toml", "c256_k24", 256, 4, 24, 256),
             ("teacher_c512_k32.toml", "c512_k32", 512, 2, 32, 512),
         ]
         for name, pair_name, buckets, probes, k_max, perm in specs:
-            path = root / "configs/training" / name
+            path = training_fixture(name)
             pair = load_teacher_pair_toml(path)
             self.assertEqual(pair.name, pair_name, name)
             self.assertEqual(pair.bucket_count, buckets, name)

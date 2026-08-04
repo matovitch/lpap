@@ -26,6 +26,7 @@ When working in this repository:
 
 - Before committing, run `pixi run lint` (Ruff) and `pixi run test` (the unittest suite); both must pass.
 - Tests live under `test/` with one module per `src/lpap/` source module. When you change a module, add or update its matching test instead of leaving it uncovered.
+- Training TOML parse/projection tests load `test/resources/training/` fixtures, not live `configs/training/` (molab dials those freely). Update fixtures only when the schema or teacher projection contract changes.
 - Keep the suite CPU-runnable. CUDA and Triton-GPU parity tests are gated with `unittest.skipUnless(torch.cuda.is_available(), ...)`. CI uses CPU-only runners and mocks the `__cuda` virtual package via `CONDA_OVERRIDE_CUDA` (set in `.github/workflows/test.yml`), so anything not gated must run without a GPU. `lpap_triton` already falls back to `lpap_torch` on non-CUDA tensors.
 - Ruff ignores the jaxtyping shape-string false positives (`F722`/`F821`) globally through `pyproject.toml`; do not sprinkle inline `# noqa` for them.
 

@@ -19,12 +19,12 @@ from lpap.permutation import make_grouped_permutation_indices
 from lpap.surrogate import LPAPSurrogateTransformer
 from lpap.surrogate_training import LPAPSurrogateDataConfig
 from lpap.teacher_config import project_teacher_config
+from support import training_fixture
 
 
 class TeacherConfigProjectionTest(unittest.TestCase):
-    def test_project_from_repo_toml(self) -> None:
-        root = Path(__file__).resolve().parents[1]
-        path = root / "configs/training/teacher_c128_k16.toml"
+    def test_project_from_fixture_toml(self) -> None:
+        path = training_fixture("teacher_c128_k16.toml")
         surrogate = project_teacher_config(path, "surrogate")
         decoder = project_teacher_config(path, "decoder")
         self.assertEqual(surrogate.run.run_id, "surrogate_c128_k16")
