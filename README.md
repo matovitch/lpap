@@ -33,6 +33,8 @@ See [lpap.md](doc/lpap.md#why-amplitude-and-dib-inverting-the-table) for more de
 
 ## Training procedure
 
+*DISCLAIMER: Because of the flow matching model, the VRAM usage is ridiculous for such an autoencoder (author's ML naivety). We plan to explore replacing it with few layers model (no integration) without log normal target but similar bank pretraining of the teachers. While Hilbert curve buys a continuity prior on the images we don't have 2D structure like a regular CNN here. Focus was on latent geometry like for CLIP or world models.*
+
 How artifacts depend on each other. `data` is the training distribution (here
 32×32 grayscale images). `Cᵢ` means one teacher width (and later one AE path);
 all widths are pretrained the same way on the shared bank.
@@ -87,7 +89,7 @@ practice — details in [training stack](doc/training-stack.md).
 ## Snapshot
 
 Tri-pair AE (`c128_k16` / `c256_k24` / `c512_k32`) on 32×32 grayscale images —
-gallery and curves around 100k steps (`image_autoencoder_tri_lnorm`).
+gallery and curves around 100k steps with batch size of 32 i.e ~2.5 epochs (`image_autoencoder_tri_lnorm`).
 
 ![AE gallery](doc/assets/ae-gallery.png)
 
