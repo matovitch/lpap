@@ -17,7 +17,7 @@ It attempts to select the largest-amplitude values of a length-`N` tensor into `
 buckets (`N` multiple of `C`), recording a DIB (distance to initial bucket) for
 each pick using a linear probing budget of `K` rolls.
 
-We use multiple instances of LPAP and a flow matching network in an autoencoder to map datasets (here simple grayscale images 1d-flatten with a hilbert curve) to **progressively compressible** latent representations.
+We use multiple instances of LPAP and a flow matching model in an autoencoder to map data (here simple grayscale images 1d-flatten with a hilbert curve) to **progressively compressible** latent representations.
 
 This design is also inspired by wavelets: largest-amplitude coeffs usually
 carry the global picture; finer scales add detail. A small `C` is meant to keep
@@ -35,7 +35,7 @@ See [lpap.md](doc/lpap.md#why-amplitude-and-dib-inverting-the-table) for more de
 
 How artifacts depend on each other. `data` is the training distribution (here
 32×32 grayscale images). `Cᵢ` means one teacher width (and later one AE path);
-several widths are trained the same way on the shared bank / flow.
+all widths are pretrained the same way on the shared bank.
 
 ```mermaid
 flowchart TB
