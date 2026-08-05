@@ -31,6 +31,11 @@ On molab, call the same `lpap` modules inside `molab-exec` after git install. De
 - **jaxtyping** on tensor APIs (`batch`, `n`, `buckets`, … + `Float`/`Int`/`UInt8`). Ruff ignores `F722`/`F821` globally — no inline `# noqa`.
 - **Lab notebook** at [`molab/lab.py`](molab/lab.py) (Pixi: `pixi run notebook-lab`). Training/checkpoint/log logic lives in `src/lpap/`; long GPU runs use molab bg workers. Live session → `marimo._code_mode`, not disk edits. Prefer `--no-token` for pairing discovery.
 - **Artifacts**: `checkpoints/` (`model_state` + `best_model_state`) and `training_logs/` SQLite — keep out of Git. No backward compat; regenerate when schemas change. Cadence writes (`log_every`, `display_every`, …), not every step.
+- **Present tense only** in docs, comments, and agent replies about the project:
+  describe the system as it is. **MUST NOT** narrate corrections, migrations, or
+  removed APIs (“no longer X”, “not the old Y”, “unlike previously”, parenthetical
+  “not the black-box Z”). Git history covers archaeology; stale local artifacts
+  are regenerated, not compatibility-shimmed.
 - **Verify** with `pixi run lint` and `pixi run test` before commit. One test module per `src/lpap/` module; keep tests CPU-runnable; gate CUDA/Triton with `torch.cuda.is_available()`. Training TOML contract tests use `test/resources/training/` fixtures — not live `configs/training/` (operator knobs).
 
 ## Molab

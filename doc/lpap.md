@@ -60,41 +60,72 @@ rarely remain after cross-bucket attention.
 
 ## Current Model Context
 
-The current training stack uses LPAP as a supervised projection target and as the
-source of the decoder’s compact `(amplitude, DIB[, entropy])` view of energy:
+The training stack uses LPAP as a supervised target for the surrogate and as the
+recipe for the decoder’s compact `(amplitude, DIB[, entropy])` tokens. The
+diagram is the image-autoencoder forward path. Teacher training runs the same
+inner LPAP block on length-`N` rows from an empirical i2e energy bank (offline
+encodings of the same kind of energy).
 
 ```mermaid
 flowchart TD
-    energy_bank[Empirical i2e energy bank]
+    image[32×32 image]
+    i2e[Image→energy flow]
+    energy[Encoded length-N energy]
     permute[Fixed grouped permutation]
-    lpap[LPAP teacher]
+    fold["Fold to C × (N/C) tokens"]
     surrogate[Surrogate transformer]
+    teacher[Exact LPAP teacher]
+    logits[Full-N source-index logits]
+    frontend[Decoder frontend]
+    tokens["(amplitude, DIB, entropy) tokens"]
     decoder[Decoder transformer]
-    image_flow[Image to energy flow]
-    reverse_flow[Energy to image flow]
-    image[32x32 image]
-    prior[Signed log-normal prior at t=0]
+    recon[Decoded length-N energy]
+    e2i[Energy→image flow]
+    image_hat[Reconstructed image]
 
-    energy_bank --> permute --> lpap
-    lpap --> surrogate
-    surrogate --> decoder
-    gaussian --> image_flow
-    image --> image_flow --> energy_bank
-    energy_bank --> surrogate --> decoder --> reverse_flow --> image
+    image --> i2e --> energy --> permute --> fold
+    fold --> surrogate --> logits
+    fold --> teacher
+    teacher -. "λ_ce · weighted teacher CE" .-> logits
+    energy --> frontend
+    logits --> frontend --> tokens --> decoder --> recon
+    recon --> e2i --> image_hat
+    energy -. "λ_energy · L1" .-> recon
+    image -. "λ_image · L2" .-> image_hat
 ```
+
+Code paths: `prepare_lpap_surrogate_batch`, `lpap_surrogate_targets`,
+`prepare_lpap_decoder_batch`, and AE loss assembly.
+
+- Teacher and surrogate both consume the permuted/folded tokens. Weighted CE
+  compares exact LPAP targets to the full-`N` source-index **logits**.
+- The decoder transformer consumes frontend tokens
+  `(amplitude, DIB, entropy)`. Amplitudes are a soft expectation of encoded
+  energy under the surrogate distribution.
+- Surrogate/decoder teacher runs end at decoded energy. Image L2 and `e2i`
+  belong to the autoencoder. The bidirectional flow prior at `t=0` is signed
+  log-normal (`σ`, `scale`) when training `image_energy_flow`.
 
 The grouped permutation is seeded once and fixed for training. It is generated
 with a **CPU** RNG (then moved to the training device) so the seed is
-device-stable; checkpoints also store the concrete tensor and loaders prefer
-that tensor over regenerating from seed. It acts as the LPAP front end:
-amplitudes are scattered so each contiguous source group of size `N // C`
-contributes approximately uniformly to the bucket columns when viewed as
-`(N // C) x C`. The inverse permutation is the corresponding back end for
-returning values to the original energy ordering.
+device-stable. Checkpoints store the concrete permutation tensor and loaders
+read that tensor. It acts as the LPAP front end: amplitudes are scattered so
+each contiguous source group of size `N // C` contributes approximately
+uniformly to the bucket columns when viewed as `(N // C) x C`. The inverse
+permutation returns values to the original energy ordering.
 
-The surrogate model consumes `C` tokens of dimension `N // C`. Its local RoPE attention mask is circular-backward: bucket token `i` can attend to the rolled source lanes that LPAP may inspect, `(i - roll) mod C` for `roll < k_max`. It predicts full-`N` source-index logits for each output bucket instead of only local probe indices — i.e. it learns to emulate LPAP’s selection. The training loss is weighted cross entropy, with per-bucket weights equal to the absolute selected amplitudes.
+The surrogate model consumes `C` tokens of dimension `N // C`. Its local RoPE
+attention mask is circular-backward: bucket token `i` can attend to the rolled
+source lanes that LPAP may inspect, `(i - roll) mod C` for `roll < k_max`. It
+predicts full-`N` source-index logits for each output bucket. The training loss
+is weighted cross entropy, with per-bucket weights equal to the absolute
+selected amplitudes.
 
-The decoder does not see raw length-`N` energy. It consumes the frontend reduction of frozen surrogate logits into `(amplitude, DIB, entropy)` tokens and reconstructs source energy (see [Why amplitude and DIB](#why-amplitude-and-dib-inverting-the-table)). Decoder training uses a reconstruction objective plus an adaptive weighted source-logit cross-entropy regularizer. Surrogate and decoder both sample from the same empirical energy bank; the flow prior is signed log-normal (configurable `σ`, median `scale`), not bank rows.
+The decoder reconstructs source energy from frontend tokens built from
+surrogate logits (frozen during decoder teacher training); see
+[Why amplitude and DIB](#why-amplitude-and-dib-inverting-the-table). Decoder
+training uses a reconstruction objective plus an adaptive weighted source-logit
+cross-entropy regularizer.
 
 ## Tensor View
 
