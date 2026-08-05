@@ -87,7 +87,7 @@ practice — details in [training stack](doc/training-stack.md).
 ## Snapshot
 
 Tri-pair AE (`c128_k16` / `c256_k24` / `c512_k32`) on 32×32 grayscale images —
-gallery and curves around 70k steps (`image_autoencoder_tri_lnorm`).
+gallery and curves around 100k steps (`image_autoencoder_tri_lnorm`).
 
 ![AE gallery](doc/assets/ae-gallery.png)
 
