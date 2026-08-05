@@ -107,3 +107,11 @@ pixi run notebook-lab
 TOMLs under [`configs/training/`](configs/training/) (`teacher_*.toml`, flow, AE).
 Checkpoints in `checkpoints/`, logs in `training_logs/` (schemas not kept
 backward-compatible). Remote GPU: [molab workflow](doc/molab-workflow.md).
+
+## Future Experiments: LPAP-Regularized Recurrent States
+
+An extension of LPAP to sequence modeling, forcing an RNN’s continuous hidden state $h_t \in \mathbb{R}^N$ to learn a progressively compressible temporal memory.
+
+* **Additive Decay Spectrum:** Update state as $h_t = \gamma \odot h_{t-1} + W x_t$ with a fixed gradient of decay half-lives $\gamma \in [0, 1]^N$. Unrefreshed historical context naturally drops in amplitude over time.
+* **Parallel Multi-C Supervision:** Attach parallel LPAP surrogate branches ($C_1 < C_2 < \dots < C_M$) directly to $h_t$ during BPTT, all sharing the main task loss.
+* **Progressive Summarization:** Forces $h_t$ to self-organize by amplitude—requiring critical long-term context to occupy top-amplitude slots that survive tight $C_1$ bottlenecks, while transient details take up lower-amplitude tiers.
