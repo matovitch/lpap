@@ -33,20 +33,22 @@ See [lpap.md](doc/lpap.md#why-amplitude-and-dib-inverting-the-table) for more de
 
 ## Training procedure
 
-How artifacts depend on each other. `Cᵢ` means one teacher width (and later one
-AE path); several widths are trained the same way on the shared bank / flow.
+How artifacts depend on each other. `data` is the training distribution (here
+32×32 grayscale images). `Cᵢ` means one teacher width (and later one AE path);
+several widths are trained the same way on the shared bank / flow.
 
 ```mermaid
 flowchart TB
   subgraph s1 ["1 · Flow"]
-    prior(["signed log-normal"]) --> flow[flow]
+    data1([data]) --> flow[flow]
+    prior([signed log-normal]) --> flow
   end
   subgraph s2 ["2 · Teachers · Cᵢ"]
-    bank[energy bank] --> sur["surrogate · Cᵢ"]
+    bank([energy bank]) --> sur["surrogate · Cᵢ"]
     sur --> dec["decoder · Cᵢ"]
   end
   subgraph s3 ["3 · Autoencoder"]
-    ae["AE · parallel Cᵢ"]
+    data3([data]) --> ae["AE · parallel Cᵢ"]
   end
   flow --> bank
   flow --> ae
