@@ -56,9 +56,10 @@ flowchart TB
 
 ## Autoencoder
 
-Shared flow both ways; the latent is read by several LPAP · `Cᵢ` paths in
-parallel (each = surrogate → decoder). Pair losses are averaged over `Cᵢ`; λ’s
-live in TOML — [training stack](doc/training-stack.md).
+Shared i2e / e2i modules; the latent is read by several LPAP · `Cᵢ` paths in
+parallel (each = surrogate → decoder). The e2i module runs once per decoded
+energy, so each `Cᵢ` has its own reconstruction. Pair losses are averaged over
+`Cᵢ`; λ’s live in TOML — [training stack](doc/training-stack.md).
 
 ```mermaid
 flowchart LR
@@ -67,10 +68,12 @@ flowchart LR
   e --> c1["LPAP · C₁"]
   e --> c2["LPAP · C₂"]
   e --> c3["LPAP · C₃"]
-  c1 --> fout[flow]
-  c2 --> fout
-  c3 --> fout
-  fout --> xh["reconstruction · Cᵢ"]
+  c1 --> fout1[flow]
+  c2 --> fout2[flow]
+  c3 --> fout3[flow]
+  fout1 --> xh1["reconstruction · C₁"]
+  fout2 --> xh2["reconstruction · C₂"]
+  fout3 --> xh3["reconstruction · C₃"]
 ```
 
 ![Autoencoder loss](doc/assets/ae-loss.png)
@@ -78,6 +81,15 @@ flowchart LR
 *[Source TeX](doc/tex/ae_loss.tex)* · regenerate with `pixi run tex-ae-loss`.
 Optional signed-mass on $e$ is configured in TOML but has been a minor lever in
 practice — details in [training stack](doc/training-stack.md).
+
+## Snapshot
+
+Tri-pair AE (`c128_k16` / `c256_k24` / `c512_k32`) on 32×32 grayscale images —
+gallery and curves around 70k steps (`image_autoencoder_tri_lnorm`).
+
+![AE gallery](doc/assets/ae-gallery.png)
+
+![AE training curves](doc/assets/ae-training-curves.png)
 
 ## Documentation
 
