@@ -4,14 +4,13 @@ import torch
 from jaxtyping import Float, Int
 
 
-def make_grouped_permutation_indices(
+def make_permutation_indices(
     *,
     value_count: int,
-    bucket_count: int,
     seed: int,
     device: str | torch.device | None = None,
 ) -> Int[torch.Tensor, "n"]:
-    """Build a fixed grouped LPAP permutation from ``seed``.
+    """Build a fixed seeded random LPAP permutation.
 
     RNG always runs on **CPU** (then the tensor is moved to ``device``) so the
     same seed yields the same layout on CPU and CUDA. Checkpoints also store the
@@ -20,36 +19,12 @@ def make_grouped_permutation_indices(
     """
     if value_count <= 0:
         raise ValueError("value_count must be positive")
-    if bucket_count <= 0:
-        raise ValueError("bucket_count must be positive")
-    if value_count % bucket_count != 0:
-        raise ValueError("value_count must be divisible by bucket_count")
 
+    target_device = torch.device("cpu") if device is None else torch.device(device)
     # Always draw with a CPU generator so seed→permutation is device-stable.
     # (CUDA Generator(manual_seed=s) != CPU Generator(manual_seed=s).)
-    target_device = torch.device("cpu") if device is None else torch.device(device)
-    probe_count = value_count // bucket_count
     generator = torch.Generator(device="cpu").manual_seed(seed)
-    by_bucket: list[list[int]] = [[] for _ in range(bucket_count)]
-
-    for source_group in range(bucket_count):
-        source_start = source_group * probe_count
-        local_order = torch.randperm(probe_count, generator=generator).tolist()
-        for local_position, source_offset in enumerate(local_order):
-            target_bucket = (local_position + source_group) % bucket_count
-            by_bucket[target_bucket].append(source_start + int(source_offset))
-
-    permutation = torch.empty(value_count, dtype=torch.long, device="cpu")
-    for target_bucket, source_indices in enumerate(by_bucket):
-        if len(source_indices) != probe_count:
-            raise RuntimeError(
-                "grouped permutation construction violated bucket balance"
-            )
-        row_order = torch.randperm(probe_count, generator=generator).tolist()
-        for target_row, source_list_index in enumerate(row_order):
-            destination_index = target_row * bucket_count + target_bucket
-            permutation[destination_index] = source_indices[int(source_list_index)]
-
+    permutation = torch.randperm(value_count, generator=generator, device="cpu")
     return permutation.to(device=target_device)
 
 
@@ -83,7 +58,7 @@ def invert_permutation_indices(
     return inverse
 
 
-def apply_grouped_permutation(
+def apply_permutation(
     values: Float[torch.Tensor, "... n"],
     permutation: Int[torch.Tensor, "n"],
 ) -> Float[torch.Tensor, "... n"]:
@@ -92,7 +67,7 @@ def apply_grouped_permutation(
     return values.index_select(-1, permutation.to(device=values.device))
 
 
-def reverse_grouped_permutation(
+def reverse_permutation(
     values: Float[torch.Tensor, "... n"],
     permutation: Int[torch.Tensor, "n"],
 ) -> Float[torch.Tensor, "... n"]:
@@ -100,7 +75,7 @@ def reverse_grouped_permutation(
     return values.index_select(-1, inverse)
 
 
-def fold_grouped_permutation_tokens(
+def fold_permutation_tokens(
     values: Float[torch.Tensor, "... n"],
     *,
     bucket_count: int,
@@ -114,7 +89,7 @@ def fold_grouped_permutation_tokens(
     return values.reshape(*values.shape[:-1], probe_count, bucket_count).movedim(-1, -2)
 
 
-def unfold_grouped_permutation_tokens(
+def unfold_permutation_tokens(
     tokens: Float[torch.Tensor, "... buckets probe"],
 ) -> Float[torch.Tensor, "... n"]:
     if tokens.ndim < 2:

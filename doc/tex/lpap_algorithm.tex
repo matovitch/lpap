@@ -53,12 +53,9 @@ $P = N/C$
   \item The reference implementation also returns $\mathrm{flatten}(V)$, the
         residual work array after in-place swap-backs. It is scratch state,
         not part of the pooled representation $(a,d)$; $\Delta$ likewise.
-  \item In the full stack, a fixed \emph{grouped permutation} is applied to
-        $x$ before this procedure and inverted afterward. Contiguous source
-        groups are scattered across bucket lanes so structure in the input
-        cannot concentrate large amplitudes in a few lanes. With large enough
-        $K$, the $C$ largest-magnitude values then have a fair chance to enter
-        the table.
+  \item In the full stack, a fixed seeded \emph{random permutation} is applied
+        to $x$ before this procedure and inverted afterward, so structured
+        locality in the input does not align with the folded bucket lanes.
 \end{enumerate}
 }
 \end{minipage}

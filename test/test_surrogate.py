@@ -5,7 +5,7 @@ import unittest
 import torch
 
 from lpap.ops import lpap_torch
-from lpap.permutation import make_grouped_permutation_indices
+from lpap.permutation import make_permutation_indices
 from lpap.surrogate import (
     LPAPSurrogateTransformer,
     circular_previous_attention_mask,
@@ -46,9 +46,9 @@ class LPAPSurrogateTest(unittest.TestCase):
 
     def test_model_loss_and_training_step_report_kpis(self) -> None:
         values = torch.randn(4, 16, generator=torch.Generator().manual_seed(7))
-        permutation = make_grouped_permutation_indices(
-            value_count=16, bucket_count=4, seed=5
-        )
+        permutation = make_permutation_indices(
+            value_count=16, seed=5,
+)
         tokens = prepare_lpap_surrogate_batch(
             values, bucket_count=4, permutation=permutation
         )

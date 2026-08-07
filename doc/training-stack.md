@@ -59,7 +59,7 @@ Checkpoint payloads include:
 - `training_state.model_config`
 - lightweight metadata such as run id and display name
 
-SQLite logs include run configuration, metadata, attempts, scalar KPIs, and checkpoint paths. SQLite is informational and ergonomic; checkpoints are authoritative for model-dependent configuration (including the concrete LPAP `permutation` tensor — regenerate from `permutation_seed` only for fresh runs; that seed is always drawn on CPU for device stability). Decoder and AE loads that require a surrogate checkpoint also require the saved `training_state.permutation` tensor.
+SQLite logs include run configuration, metadata, attempts, scalar KPIs, and checkpoint paths. SQLite is informational and ergonomic; checkpoints are authoritative for model-dependent configuration (including the concrete LPAP `permutation` tensor — regenerate from `permutation_seed` only for fresh runs via CPU `randperm(N)`; that seed is always drawn on CPU for device stability). Decoder and AE loads that require a surrogate checkpoint also require the saved `training_state.permutation` tensor.
 
 Teacher pairs use one shared file per pair under `configs/training/teacher_*.toml` (layout, bank, `k_max`, and `permutation_seed` live under `[pair]`). Launch with `--backend surrogate|decoder` against the same file; checkpoint stems remain `surrogate_{name}.pt` / `decoder_{name}.pt`.
 

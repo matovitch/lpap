@@ -36,7 +36,7 @@ from lpap.flow_training import (
     FlowOptimizerConfig,
     FlowValidationConfig,
 )
-from lpap.permutation import make_grouped_permutation_indices
+from lpap.permutation import make_permutation_indices
 from lpap.surrogate import LPAPSurrogateTransformer
 from lpap.surrogate_training import LPAPSurrogateDataConfig
 
@@ -59,12 +59,11 @@ def _save_tiny_teacher_pair(
         layer_count=1,
         head_count=4,
     )
-    permutation = make_grouped_permutation_indices(
+    permutation = make_permutation_indices(
         value_count=value_count,
-        bucket_count=bucket_count,
         seed=permutation_seed,
         device=torch.device("cpu"),
-    )
+)
     save_training_checkpoint(
         checkpoint_dir / surrogate_name,
         model=surrogate,
@@ -573,12 +572,11 @@ class ImageAutoencoderTrainingTest(unittest.TestCase):
             decoder_payload = load_training_checkpoint(
                 decoder_path, map_location="cpu"
             )
-            other_perm = make_grouped_permutation_indices(
+            other_perm = make_permutation_indices(
                 value_count=session.config.value_count,
-                bucket_count=4,
                 seed=999,
                 device=torch.device("cpu"),
-            )
+)
             self.assertFalse(torch.equal(other_perm, trained_perm))
             decoder_state = dict(decoder_payload["training_state"])
             decoder_state["permutation"] = other_perm
@@ -615,12 +613,11 @@ class ImageAutoencoderTrainingTest(unittest.TestCase):
             )
 
             # Poison teachers; resume must keep AE-stored layouts.
-            other_perm = make_grouped_permutation_indices(
+            other_perm = make_permutation_indices(
                 value_count=session.config.value_count,
-                bucket_count=4,
                 seed=999,
                 device=torch.device("cpu"),
-            )
+)
             for path, module in (
                 (
                     session.lpap_pairs[0].surrogate_checkpoint_path,

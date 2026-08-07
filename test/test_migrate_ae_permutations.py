@@ -12,7 +12,7 @@ from lpap.checkpoints import (
     write_training_checkpoint_payload,
 )
 from lpap.migrate_ae_permutations import migrate_ae_checkpoint_permutations
-from lpap.permutation import make_grouped_permutation_indices
+from lpap.permutation import make_permutation_indices
 from lpap.teacher_checkpoints import parse_ae_lpap_pair_permutations
 
 
@@ -22,12 +22,12 @@ class MigrateAePermutationsTest(unittest.TestCase):
             path = Path(temp_dir) / "ae.pt"
             model = nn.Linear(2, 1)
             original = model.weight.detach().clone()
-            perm_a = make_grouped_permutation_indices(
-                value_count=16, bucket_count=4, seed=123, device="cpu"
-            )
-            perm_b = make_grouped_permutation_indices(
-                value_count=16, bucket_count=8, seed=456, device="cpu"
-            )
+            perm_a = make_permutation_indices(
+                value_count=16, seed=123, device="cpu",
+)
+            perm_b = make_permutation_indices(
+                value_count=16, seed=456, device="cpu",
+)
             write_training_checkpoint_payload(
                 path,
                 {

@@ -20,7 +20,7 @@ from lpap.decoder import (
 from lpap.energy_bank import cycle_energy_bank_batches, energy_bank_config_from_dict
 from lpap.hilbert import hilbert_unflatten_images
 from lpap.surrogate import prepare_lpap_surrogate_batch
-from lpap.permutation import make_grouped_permutation_indices
+from lpap.permutation import make_permutation_indices
 from lpap.surrogate import LPAPSurrogateTransformer
 from lpap.surrogate_training import (
     LPAPSurrogateDataConfig,
@@ -466,9 +466,8 @@ def create_lpap_decoder_training_session(
                 "surrogate checkpoint is missing training_state.permutation: "
                 f"{surrogate_checkpoint_path}"
             )
-        permutation = make_grouped_permutation_indices(
+        permutation = make_permutation_indices(
             value_count=config.value_count,
-            bucket_count=config.data.bucket_count,
             seed=config.run.permutation_seed,
             device=target_device,
         )

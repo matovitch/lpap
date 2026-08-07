@@ -24,7 +24,7 @@ from lpap.checkpoints import (
     load_training_checkpoint,
     write_training_checkpoint_payload,
 )
-from lpap.permutation import as_long_permutation, make_grouped_permutation_indices
+from lpap.permutation import as_long_permutation, make_permutation_indices
 from lpap.teacher_checkpoints import (
     lpap_pair_model_config_record,
     lpap_pair_training_state_record,
@@ -108,7 +108,6 @@ def _seed_permutations_from_model_config(
             surrogate = entry.get("surrogate")
             if not isinstance(surrogate, dict):
                 raise ValueError(f"missing surrogate config for pair {name}")
-            bucket_count = int(surrogate["bucket_count"])
             seed = int(
                 surrogate.get("permutation_seed")
                 or entry.get("permutation_seed")
@@ -117,9 +116,8 @@ def _seed_permutations_from_model_config(
             if seed <= 0:
                 raise ValueError(f"missing permutation_seed for pair {name}")
             permutations.append(
-                make_grouped_permutation_indices(
+                make_permutation_indices(
                     value_count=value_count,
-                    bucket_count=bucket_count,
                     seed=seed,
                     device="cpu",
                 )
@@ -133,9 +131,8 @@ def _seed_permutations_from_model_config(
             if not isinstance(surrogate, dict):
                 raise ValueError(f"lpap_pair_surrogates entry for {name} must be dict")
             permutations.append(
-                make_grouped_permutation_indices(
+                make_permutation_indices(
                     value_count=value_count,
-                    bucket_count=int(surrogate["bucket_count"]),
                     seed=int(surrogate["permutation_seed"]),
                     device="cpu",
                 )
@@ -147,13 +144,12 @@ def _seed_permutations_from_model_config(
         name for name, *_ in _TRI_PAIR_FALLBACK
     ] == pair_names:
         return [
-            make_grouped_permutation_indices(
+            make_permutation_indices(
                 value_count=value_count,
-                bucket_count=buckets,
                 seed=seed,
                 device="cpu",
             )
-            for _name, buckets, seed in _TRI_PAIR_FALLBACK
+            for _name, _buckets, seed in _TRI_PAIR_FALLBACK
         ]
     raise ValueError(
         "cannot rebuild AE permutations: no legacy tensors and no pair seed metadata"

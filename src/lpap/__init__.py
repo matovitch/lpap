@@ -70,13 +70,13 @@ from lpap.hilbert import (
 )
 from lpap.ops import lpap_torch
 from lpap.permutation import (
-    apply_grouped_permutation,
-    fold_grouped_permutation_tokens,
+    apply_permutation,
+    fold_permutation_tokens,
     invert_permutation_indices,
-    make_grouped_permutation_indices,
+    make_permutation_indices,
     as_long_permutation,
-    reverse_grouped_permutation,
-    unfold_grouped_permutation_tokens,
+    reverse_permutation,
+    unfold_permutation_tokens,
 )
 from lpap.surrogate import (
     LPAPSurrogateMetrics,
@@ -319,7 +319,7 @@ __all__ = sorted(
         "TrainingRunConfig",
         "TrainingStepResult",
         "TransformerBlock",
-        "apply_grouped_permutation",
+        "apply_permutation",
         "apply_rope",
         "as_long_permutation",
         "assert_energies_not_raw_image_like",
@@ -334,7 +334,7 @@ __all__ = sorted(
         "finish_run_attempt",
         "float_image_batch",
         "flow_matching_loss",
-        "fold_grouped_permutation_tokens",
+        "fold_permutation_tokens",
         "hilbert_flatten_images",
         "hilbert_metadata",
         "hilbert_permutation",
@@ -360,7 +360,7 @@ __all__ = sorted(
         "lpap_surrogate_targets",
         "lpap_torch",
         "lpap_triton",
-        "make_grouped_permutation_indices",
+        "make_permutation_indices",
         "make_run_display_name",
         "make_run_instance_id",
         "mark_run_status",
@@ -372,7 +372,7 @@ __all__ = sorted(
         "reconstruct_lpap_decoder_values",
         "relative_rmse",
         "resolve_energy_bank_path",
-        "reverse_grouped_permutation",
+        "reverse_permutation",
         "sample_energy_bank_values",
         "save_training_checkpoint",
         "start_run_attempt",
@@ -380,7 +380,7 @@ __all__ = sorted(
         "train_lpap_surrogate",
         "write_training_checkpoint_payload",
         "train_lpap_surrogate_step",
-        "unfold_grouped_permutation_tokens",
+        "unfold_permutation_tokens",
         "upsert_run",
     }
     | set(_LAZY_NAME_TO_MODULE)

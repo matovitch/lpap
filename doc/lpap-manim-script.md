@@ -60,7 +60,7 @@ Reading left→right along a row: probes → selected amplitude → its dib → 
 
 - `N=12 values`, `C=4 buckets`, `K=3 iterations` (do not say `P=N/C` on screen for now).
 - Probe count `P=3` is implicit in the grid width.
-- Do **not** discuss seeded grouped permutation.
+- Do **not** discuss seeded random permutation.
 
 ### Notes
 

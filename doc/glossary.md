@@ -9,7 +9,10 @@
 - **Probe**: A source slot inside a bucket before LPAP selection.
 - **DIB**: Distance in buckets from a value's original bucket to the bucket where it is selected (bucket-modulo position of the pick).
 - **Collision set**: The set of length-`N` source indices compatible with a given bucket’s DIB / probe class. One `(amplitude, DIB)` underdetermines exact placement; joint attention over the full table is meant to disambiguate within each set. See [lpap.md](lpap.md#why-amplitude-and-dib-inverting-the-table).
-- **Grouped permutation**: The fixed seeded permutation applied before LPAP tokenization so each bucket receives balanced source positions. Generation always uses a **CPU** RNG (then moves the tensor to the training device) so the same `permutation_seed` is device-stable. Checkpoints store both the seed and the concrete `permutation` tensor — decoder/AE loads that require a surrogate checkpoint must reload that tensor (do not regenerate from a decoder-local seed).
+- **Permutation**: The fixed seeded random permutation applied before LPAP
+  tokenization (CPU `randperm(N)` from `permutation_seed`, then moved to the
+  training device). Checkpoints store the concrete `permutation` tensor —
+  decoder/AE loads that require a surrogate checkpoint must reload that tensor.
 
 ## LPAP Models
 

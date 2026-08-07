@@ -14,7 +14,7 @@ from lpap.energy_bank import (
     ensure_energy_bank,
     sample_energy_bank_values,
 )
-from lpap.permutation import make_grouped_permutation_indices
+from lpap.permutation import make_permutation_indices
 from lpap.surrogate import (
     LPAPSurrogateMetrics,
     LPAPSurrogateTransformer,
@@ -326,9 +326,8 @@ def create_lpap_surrogate_training_session(
     checkpoint_path = root / "checkpoints" / config.run.checkpoint_name
     log_path = root / "training_logs" / config.run.log_name
     energy_bank = load_teacher_energy_bank(root, config.data)
-    permutation = make_grouped_permutation_indices(
+    permutation = make_permutation_indices(
         value_count=config.value_count,
-        bucket_count=config.data.bucket_count,
         seed=config.run.permutation_seed,
         device=target_device,
     )

@@ -8,7 +8,7 @@ from jaxtyping import Float, Int
 from torch import nn
 from torch.nn import functional as torch_functional
 
-from lpap.permutation import apply_grouped_permutation, fold_grouped_permutation_tokens
+from lpap.permutation import apply_permutation, fold_permutation_tokens
 from lpap.transformer import TransformerBlock
 
 
@@ -243,8 +243,8 @@ def prepare_lpap_surrogate_batch(
     if values.ndim != 2:
         raise ValueError("values must have shape batch x n")
     if permutation is not None:
-        values = apply_grouped_permutation(values, permutation)
-    return fold_grouped_permutation_tokens(values, bucket_count=bucket_count)
+        values = apply_permutation(values, permutation)
+    return fold_permutation_tokens(values, bucket_count=bucket_count)
 
 
 def train_lpap_surrogate_step(

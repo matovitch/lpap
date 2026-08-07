@@ -17,7 +17,7 @@ from lpap.decoder_training import (
     iter_lpap_decoder_training,
 )
 from lpap.energy_bank import EnergyBankConfig
-from lpap.permutation import make_grouped_permutation_indices
+from lpap.permutation import make_permutation_indices
 from lpap.surrogate import LPAPSurrogateTransformer
 from lpap.surrogate_training import (
     LPAPSurrogateDataConfig,
@@ -44,9 +44,9 @@ class LPAPDecoderTrainingTest(unittest.TestCase):
                 layer_count=1,
                 head_count=4,
             )
-            permutation = make_grouped_permutation_indices(
-                value_count=16, bucket_count=4, seed=123, device=torch.device("cpu")
-            )
+            permutation = make_permutation_indices(
+                value_count=16, seed=123, device=torch.device("cpu"),
+)
             save_training_checkpoint(
                 root / "checkpoints" / "surrogate_synthetic.pt",
                 model=surrogate,

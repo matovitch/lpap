@@ -36,9 +36,8 @@ write a dense energy. Coarse `C` tends to keep near the strongest magnitudes
 (global sketch); larger `C` adds the next amplitude tiers. That soft
 size-ordering — not a nested basis — is what makes several `C`s in parallel a
 path toward a **progressively compressible** latent. See also the
-[grouped-permutation note](lpap-pseudocode.md#notes-on-the-figure): with large
-enough `K`, the `C` largest-magnitude values have a fair chance to enter the
-table.
+[permutation note](lpap-pseudocode.md#notes-on-the-figure): a seeded random
+permutation keeps structured locality from aligning with the fold lanes.
 
 In the learned stack this splits cleanly:
 
@@ -71,7 +70,7 @@ flowchart TD
     image[32×32 image]
     i2e[Image→energy flow]
     energy[Encoded length-N energy]
-    permute[Fixed grouped permutation]
+    permute[Fixed seeded random permutation]
     fold["Fold to C × (N/C) tokens"]
     surrogate[Surrogate transformer]
     teacher[Exact LPAP teacher]
@@ -106,12 +105,11 @@ Code paths: `prepare_lpap_surrogate_batch`, `lpap_surrogate_targets`,
   belong to the autoencoder. The bidirectional flow prior at `t=0` is signed
   log-normal (`σ`, `scale`) when training `image_energy_flow`.
 
-The grouped permutation is seeded once and fixed for training. It is generated
-with a **CPU** RNG (then moved to the training device) so the seed is
+The permutation is seeded once and fixed for training: CPU `randperm(N)` from
+`permutation_seed`, then moved to the training device so the seed is
 device-stable. Checkpoints store the concrete permutation tensor and loaders
-read that tensor. It acts as the LPAP front end: amplitudes are scattered so
-each contiguous source group of size `N // C` contributes approximately
-uniformly to the bucket columns when viewed as `(N // C) x C`. The inverse
+read that tensor. It acts as the LPAP front end: the fold into `C` buckets no
+longer sees contiguous source locality aligned with bucket lanes. The inverse
 permutation returns values to the original energy ordering.
 
 The surrogate model consumes `C` tokens of dimension `N // C`. Its local RoPE

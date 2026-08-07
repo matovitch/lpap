@@ -15,7 +15,7 @@ from lpap.decoder_training import (
     create_lpap_decoder_training_session,
 )
 from lpap.energy_bank import EnergyBankConfig
-from lpap.permutation import make_grouped_permutation_indices
+from lpap.permutation import make_permutation_indices
 from lpap.surrogate import LPAPSurrogateTransformer
 from lpap.surrogate_training import LPAPSurrogateDataConfig
 from lpap.teacher_config import project_teacher_config
@@ -96,9 +96,9 @@ class DecoderRequiresSurrogatePermutationTest(unittest.TestCase):
             bank = root / "data" / "bank.pt"
             bank.parent.mkdir(parents=True)
             torch.save({"energies": torch.randn(8, 16)}, bank)
-            permutation = make_grouped_permutation_indices(
-                value_count=16, bucket_count=4, seed=999, device=torch.device("cpu")
-            )
+            permutation = make_permutation_indices(
+                value_count=16, seed=999, device=torch.device("cpu"),
+)
             surrogate = LPAPSurrogateTransformer(
                 value_count=16,
                 probe_count=4,

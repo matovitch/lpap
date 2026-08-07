@@ -73,15 +73,14 @@ is a bijection, so the body is one vectorized step.
    is scratch state, not part of the pooled representation $(a,d)$; $\Delta$
    likewise.
 
-2. **Grouped permutation.** In the full stack, a fixed grouped permutation is
-   applied to $x$ before this procedure and inverted afterward. Contiguous
-   source groups are scattered across bucket lanes so structure in the input
-   cannot concentrate large amplitudes in a few lanes. With large enough $K$,
-   the $C$ largest-magnitude values then have a fair chance to enter the table.
+2. **Random permutation.** In the full stack, a fixed seeded random
+   permutation is applied to $x$ before this procedure and inverted afterward,
+   so structured locality in the input does not align with the folded bucket
+   lanes.
 
 Keep the “preference for random algorithms” motivation out of user-facing text;
-the figure states the operational reason (decorrelation / coverage under bounded
-$K$).
+the figure states the operational reason (decorrelate input structure from the
+fold).
 
 ---
 

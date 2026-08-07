@@ -17,7 +17,7 @@ from lpap.migrate_teacher_permutations import (
     migrate_teacher_checkpoint_permutation,
     migrate_teacher_checkpoints_permutations,
 )
-from lpap.permutation import as_long_permutation, make_grouped_permutation_indices
+from lpap.permutation import as_long_permutation, make_permutation_indices
 from lpap.teacher_checkpoints import require_matching_pair_permutation
 
 
@@ -50,9 +50,9 @@ class MigrateTeacherPermutationsTest(unittest.TestCase):
                 path, permutation_seed=123
             )
             payload = load_training_checkpoint(path, map_location="cpu")
-            expected = make_grouped_permutation_indices(
-                value_count=16, bucket_count=4, seed=123, device="cpu"
-            )
+            expected = make_permutation_indices(
+                value_count=16, seed=123, device="cpu",
+)
             torch.testing.assert_close(
                 payload["training_state"]["permutation"], expected
             )
@@ -110,12 +110,11 @@ class MigrateTeacherPermutationsTest(unittest.TestCase):
                 payload = load_training_checkpoint(
                     ckpt_dir / name, map_location="cpu"
                 )
-                expected = make_grouped_permutation_indices(
+                expected = make_permutation_indices(
                     value_count=1024,
-                    bucket_count=buckets,
                     seed=seed,
                     device="cpu",
-                )
+)
                 torch.testing.assert_close(
                     payload["training_state"]["permutation"], expected
                 )

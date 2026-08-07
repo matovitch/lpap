@@ -2,9 +2,8 @@
 
 One-shot salvage when a surrogate/decoder checkpoint has a stale or
 device-dependent layout tensor. Rebuilds the concrete ``permutation`` from
-``model_config`` (``permutation_seed`` + ``bucket_count`` + ``value_count``)
-using the device-stable seed builder, then writes it back. Weights / optimizer
-/ step are untouched.
+``model_config`` geometry + ``permutation_seed`` using the device-stable seed
+builder, then writes it back. Weights / optimizer / step are untouched.
 
 Prefer stored ``training_state.permutation`` everywhere else — do not use this
 as a normal load path.
@@ -27,7 +26,7 @@ from lpap.checkpoints import (
     load_training_checkpoint,
     write_training_checkpoint_payload,
 )
-from lpap.permutation import as_long_permutation, make_grouped_permutation_indices
+from lpap.permutation import as_long_permutation, make_permutation_indices
 from lpap.teacher_checkpoints import require_matching_pair_permutation
 
 # Surrogate + decoder for each pair used by image_autoencoder_tri_lnorm.
@@ -65,13 +64,11 @@ def permutation_from_teacher_model_config(
         raise ValueError(
             f"value_count {value_count} not divisible by bucket_count {bucket_count}"
         )
-    return make_grouped_permutation_indices(
+    return make_permutation_indices(
         value_count=value_count,
-        bucket_count=bucket_count,
         seed=permutation_seed,
         device="cpu",
     )
-
 
 def _permutation_seed_from_training_state(training_state: dict[str, Any]) -> int:
     """Salvage seed: prefer run_config (TOML mirror), else legacy model_config."""

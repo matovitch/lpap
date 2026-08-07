@@ -12,6 +12,9 @@ LPAP stands for **Linear Probing Amplitude Pooling**.
 *[Source TeX](doc/tex/lpap_algorithm.tex)* · regenerate with `pixi run tex-lpap-algo`
 
 **LPAP** is a tensor operation inspired by the design of open addressing hash tables.
+A fixed seeded random permutation plays the role of the hash function: it scatters
+sources into bucket lanes while keeping collision sets and buckets balanced under
+the fold.
 
 It attempts to select the largest-amplitude values of a length-`N` tensor into `C`
 buckets (`N` multiple of `C`), recording a DIB (distance to initial bucket) for
@@ -90,6 +93,11 @@ practice — details in [training stack](doc/training-stack.md).
 
 Tri-pair AE (`c128_k16` / `c256_k24` / `c512_k32`) on 32×32 grayscale images —
 gallery and curves around 100k steps with batch size of 32 i.e ~2.5 epochs (`image_autoencoder_tri_lnorm`).
+
+*Caveat: these results used the earlier **grouped** permutation layout (balanced
+contiguous source groups scattered across buckets). The code now uses a seeded
+full `randperm(N)`; the grouped constructor lives on
+[`archive/grouped-permutation`](https://github.com/matovitch/lpap/tree/archive/grouped-permutation).*
 
 ![AE gallery](doc/assets/ae-gallery.png)
 

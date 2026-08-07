@@ -13,7 +13,7 @@ from lpap.decoder import (
     reconstruct_lpap_decoder_values,
     train_lpap_decoder_step,
 )
-from lpap.permutation import make_grouped_permutation_indices
+from lpap.permutation import make_permutation_indices
 from lpap.surrogate import LPAPSurrogateTransformer, prepare_lpap_surrogate_batch
 
 
@@ -47,9 +47,9 @@ class LPAPDecoderTest(unittest.TestCase):
 
     def test_model_loss_and_training_step_report_kpis(self) -> None:
         values = torch.randn(3, 16, generator=torch.Generator().manual_seed(11))
-        permutation = make_grouped_permutation_indices(
-            value_count=16, bucket_count=4, seed=5
-        )
+        permutation = make_permutation_indices(
+            value_count=16, seed=5,
+)
         surrogate = LPAPSurrogateTransformer(
             value_count=16,
             probe_count=4,
