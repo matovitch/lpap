@@ -133,8 +133,10 @@ Current AE lab roles (rename/extend as the notebook evolves):
 2. **Default long-train path = detached bg worker** (`molab-launch-ae-bidirectional-flow.sh`
    + pid/log + Pushover/HF). Use **visible code-mode cells** only for short /
    shared chunks the human should watch. Scratchpad = probes / installs / sync.
-3. **No parallel `execute-code` during a train cell** — and do not spawn a
-   second bg worker while one is alive (launcher refuses).
+3. **No parallel `execute-code` while any notebook cell or scratchpad is
+   running** (gallery and status included — not only train cells).
+   `notebook-map.sh` / `notebook-ready.sh` / `molab-exec` all count.
+   Do not spawn a second bg worker while one is alive (launcher refuses).
 4. **Prefer Pushover over polling for long bg work.** Launch with
    `notify_on_finished=True` (or explicit `send_pushover` in custom encode
    scripts). Confirm spawn + that notify/secrets are on, then **stop** —

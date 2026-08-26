@@ -177,7 +177,10 @@ Never `sleep` in the kernel to wait on bg work.
 progress bar / `mo.output.replace`) when the human should watch the run.
 Scratchpad is for probes, installs, and artifact sync — not long training.
 
-- Do not start a second `execute-code` while a train cell runs (`MarimoInterrupt`).
+- Do not start a second `execute-code` while any cell or scratchpad is running
+  (`MarimoInterrupt`). `notebook-map.sh` counts. Gallery and status included,
+  not only train cells. Cell `status=interrupted` with empty errors is that
+  abort — not slowness or an HTTP timeout.
 - For cell chunks: status checks **between** chunks; resume with
   `resume_from_checkpoint=True`.
 - DAG: do not redefine `mo` / `torch` / `lpap`; use `_` locals; import training
