@@ -91,13 +91,9 @@ practice — details in [training stack](doc/training-stack.md).
 
 ## Snapshot
 
-Tri-pair AE (`c128_k16` / `c256_k24` / `c512_k32`) on 32×32 grayscale images —
-gallery and curves around 100k steps with batch size of 32 i.e ~2.5 epochs (`image_autoencoder_tri_lnorm`).
-
-*Caveat: these results used the earlier **grouped** permutation layout (balanced
-contiguous source groups scattered across buckets). The code now uses a seeded
-full `randperm(N)`; the grouped constructor lives on
-[`archive/grouped-permutation`](https://github.com/matovitch/lpap/tree/archive/grouped-permutation).*
+Tri-pair AE (`c128_k16` / `c256_k24` / `c512_k32`) on 32×32 grayscale, 4 Euler
+steps per flow direction, batch 64 (~5.6 epochs at 117k steps;
+`image_autoencoder_tri_lnorm_4step`).
 
 ![AE gallery](doc/assets/ae-gallery.png)
 
