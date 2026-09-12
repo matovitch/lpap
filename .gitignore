@@ -34,3 +34,6 @@ animations/__pycache__/
 
 # Tectonic / TeX build intermediates (keep committed PNG in doc/assets/)
 doc/tex/build/
+
+# local agent/ops notes (do not commit)
+doc/local/
