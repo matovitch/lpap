@@ -9,6 +9,7 @@ description: >-
 # Molab workflow skill
 
 Read [doc/molab-workflow.md](../../doc/molab-workflow.md) for full notes.
+New machine checklist: [doc/molab-workflow.md](../../doc/molab-workflow.md#new-machine).
 
 ## Setup
 

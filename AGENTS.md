@@ -40,6 +40,7 @@ On molab, call the same `lpap` modules inside `molab-exec` after git install. De
 
 ## Molab
 
+New machine: [doc/molab-workflow.md](doc/molab-workflow.md#new-machine).
 Worktree `lpap-molab` on `main` (default). Sibling `../lpap` parks the pre-molab
 tip on `main-pre-molab`. Human opens
 GPU + pair and pastes **URL/token** (`MOLAB_URL` / `MOLAB_TOKEN`); leave

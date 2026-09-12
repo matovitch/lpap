@@ -112,7 +112,7 @@ pixi run notebook-lab
 
 TOMLs under [`configs/training/`](configs/training/) (`teacher_*.toml`, flow, AE).
 Checkpoints in `checkpoints/`, logs in `training_logs/` (schemas not kept
-backward-compatible). Remote GPU: [molab workflow](doc/molab-workflow.md).
+backward-compatible). Remote GPU: [molab workflow](doc/molab-workflow.md) ([new machine](doc/molab-workflow.md#new-machine)).
 
 ## Future Experiments: LPAP-Regularized Recurrent States
 

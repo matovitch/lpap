@@ -24,6 +24,43 @@ Laptop agent (Cursor/Zed)     molab sandbox
 
 Push package/notebook changes on `main` and install that ref on molab.
 
+## New machine
+
+Bootstrap a laptop that should drive molab the same way this repo does.
+Session URL/token stay out of `secrets.toml` (paste them when you pair).
+
+1. Clone [`matovitch/lpap`](https://github.com/matovitch/lpap) on `main`. The
+   `lpap-molab` worktree / sibling `../lpap` layout is optional parking, not
+   required for pairing.
+2. Host tools on `PATH`: `bash`, `curl`, `jq`, `git`. Local lab/tests also
+   need [Pixi](https://pixi.sh). Pairing needs `npx` (or `uvx`).
+3. Install official marimo-pair (`execute-code.sh` only):
+
+   ```bash
+   npx skills add marimo-team/marimo-pair
+   ```
+
+   Default path: `~/.cursor/skills/marimo-pair/scripts/execute-code.sh`.
+   If the CLI drops it elsewhere, set `MARIMO_PAIR_SCRIPTS` to that `scripts/`
+   directory. Map / ready / watch wrappers live in this repo and call that
+   binary.
+4. Restore gitignored [`configs/secrets.toml`](../configs/secrets.toml) from
+   the password manager (HF + Pushover). If you have no vault copy, start from
+   [`configs/secrets.toml.example`](../configs/secrets.toml.example) and fill
+   it. Do not commit the filled file.
+5. Local CPU lab (optional): `pixi install && pixi run test`. Images:
+   `pixi run data-download`. Checkpoints/logs/banks come from the HF artifacts
+   bucket in [`configs/storage.toml`](../configs/storage.toml) and need the
+   token in `secrets.toml`.
+6. Open a molab notebook, attach a GPU, **Pair with an agent**, paste
+   `MOLAB_URL` / `MOLAB_TOKEN`. Leave `MOLAB_SESSION` unset unless the server
+   has several sessions.
+7. `bash .github/skills/molab-workflow/scripts/molab-sync.sh` then
+   `molab-exec.sh -c 'print(1)'`.
+
+Open this checkout in Cursor (or another agent that reads `AGENTS.md`) so the
+molab-workflow skill and scripts are visible.
+
 ## Pairing commands
 
 ```bash
@@ -43,7 +80,8 @@ and fails loudly if stale.
 ### Secrets injection
 
 Keep real credentials in gitignored [`configs/secrets.toml`](../configs/secrets.toml)
-(start from [`configs/secrets.toml.example`](../configs/secrets.toml.example)).
+(restore from the password manager, or start from
+[`configs/secrets.toml.example`](../configs/secrets.toml.example)).
 That file is the only secret store — inject sets kernel env only (no
 `/marimo/.hf_token` / `.pushover_*` files):
 

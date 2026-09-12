@@ -16,7 +16,7 @@ Start here when navigating the LPAP research stack.
 ## Data And Artifacts
 
 - [Dataset storage notes](data-storage.md): public HF image archive download, local `.pt` cache, `configs/storage.toml`, and ignored large artifacts.
-- [Molab remote GPU workflow](molab-workflow.md): pairing, `molab-sync`, detached AE runs, secrets, artifact sync.
+- [Molab remote GPU workflow](molab-workflow.md): new-machine bootstrap, pairing, `molab-sync`, detached AE runs, secrets, artifact sync.
 
 ## Common Workflows
 
