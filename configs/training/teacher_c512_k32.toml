@@ -9,7 +9,7 @@ k_max = 32
 permutation_seed = 512
 
 [pair.energy_bank]
-path = "data/encoded_energies_bank_flow_best.pt"
+path = "data/encoded_energies_bank_flow_best_4step.pt"
 energies_key = "energies"
 
 [data]
