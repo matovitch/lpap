@@ -13,6 +13,9 @@ Read [doc/molab-workflow.md](../../doc/molab-workflow.md) for full notes.
 ## Setup
 
 - Worktree: `lpap-molab` on `main`. Sibling `../lpap` parks `main-pre-molab`.
+- Host pairing: `npx skills add marimo-team/marimo-pair` so
+  `~/.cursor/skills/marimo-pair/scripts/execute-code.sh` exists (override with
+  `MARIMO_PAIR_SCRIPTS`).
 - Export targeting env once per session:
 
   ```bash
@@ -36,7 +39,10 @@ Read [doc/molab-workflow.md](../../doc/molab-workflow.md) for full notes.
   ```
 
   Override script location with `MARIMO_PAIR_SCRIPTS` if needed (default
-  `~/.cursor/skills/marimo-pair/scripts`).
+  `~/.cursor/skills/marimo-pair/scripts`). Install that skill with
+  `npx skills add marimo-team/marimo-pair`. Host extras (`notebook-map`,
+  `notebook-ready`, `execute-watch`) live in this repo and call that
+  `execute-code.sh`.
 
 ## Script index
 
@@ -46,6 +52,9 @@ All under `.github/skills/molab-workflow/scripts/` (require `MOLAB_URL` +
 | Script | Purpose |
 |--------|---------|
 | `molab-exec.sh` | Scratchpad / `cm` against the paired kernel |
+| `notebook-map.sh` | DAG / detached-cell audit (calls `execute-code`) |
+| `notebook-ready.sh` | Gate that public names exist in `ctx.globals` |
+| `execute-watch.sh` | Agent-side short probes until a log pattern matches |
 | `molab-sync.sh` | Reinstall `lpap` from git + storage/training TOMLs/helpers/secrets |
 | `molab-push-training-configs.sh` | Copy `configs/training/*.toml` → `/marimo/configs/training/` |
 | `molab-inject-secrets.sh` | Secrets → kernel env only |
@@ -91,8 +100,8 @@ stabilize, run `molab-export-notebook.sh` (or `--dry-run`) before committing
 - Before cell surgery on a messy remote notebook:
 
   ```bash
-  bash ~/.cursor/skills/marimo-pair/scripts/notebook-map.sh --url "$MOLAB_URL" --token "$MOLAB_TOKEN"
-  bash ~/.cursor/skills/marimo-pair/scripts/notebook-ready.sh --url "$MOLAB_URL" --token "$MOLAB_TOKEN" mo torch
+  bash .github/skills/molab-workflow/scripts/notebook-map.sh
+  bash .github/skills/molab-workflow/scripts/notebook-ready.sh mo torch
   ```
 
   Prefer `edit_cell` / delete detached POC cells over stacking new ones.

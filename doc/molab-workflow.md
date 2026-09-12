@@ -18,8 +18,9 @@ Laptop agent (Cursor/Zed)     molab sandbox
 | --- | --- |
 | Molab / agent home | `../lpap-molab` on `main` |
 | Parked pre-molab tip | `../lpap` on `main-pre-molab` |
-| Pair skill | `~/.cursor/skills/marimo-pair` |
+| Pair skill | `npx skills add marimo-team/marimo-pair` → `~/.cursor/skills/marimo-pair` (`execute-code.sh`) |
 | Molab wrapper | `.github/skills/molab-workflow/scripts/molab-exec.sh` |
+| Map / ready / watch | `.github/skills/molab-workflow/scripts/notebook-map.sh` (and `notebook-ready.sh`, `execute-watch.sh`) |
 
 Push package/notebook changes on `main` and install that ref on molab.
 
@@ -34,9 +35,10 @@ bash .github/skills/molab-workflow/scripts/molab-exec.sh -c 'print(1)'
 ```
 
 `molab-exec` forwards to marimo-pair `execute-code.sh` (override scripts dir
-with `MARIMO_PAIR_SCRIPTS`). Prefer it over pasting long `--url` / `--token`
-flags on every call. When `MOLAB_SESSION` / `--session` is set, it validates
-the id against `/api/sessions` and fails loudly if stale.
+with `MARIMO_PAIR_SCRIPTS`; install with `npx skills add marimo-team/marimo-pair`).
+Prefer it over pasting long `--url` / `--token` flags on every call. When
+`MOLAB_SESSION` / `--session` is set, it validates the id against `/api/sessions`
+and fails loudly if stale.
 
 ### Secrets injection
 
@@ -70,8 +72,8 @@ Prefer **omitting** `MOLAB_SESSION` unless the server has multiple sessions.
 When set, `molab-exec` checks `/api/sessions` and exits if the id is missing
 (stale ids used to fail silently).
 
-Companion marimo-pair tools (pass URL/token explicitly, or reuse env via
-wrappers you compose):
+Companion host tools in `.github/skills/molab-workflow/scripts/` (reuse
+`MOLAB_URL` / `MOLAB_TOKEN`; they call marimo-pair `execute-code.sh`):
 
 - `notebook-map.sh` — DAG / detached-cell audit before cell surgery
 - `notebook-ready.sh` — gate that public names exist in `ctx.globals`

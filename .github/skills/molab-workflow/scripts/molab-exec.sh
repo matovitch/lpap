@@ -11,6 +11,7 @@
 #                             and fails loudly on a stale id.
 #   MARIMO_PAIR_SCRIPTS       override path to marimo-pair scripts dir
 #                             (default: ~/.cursor/skills/marimo-pair/scripts)
+#                             Install: npx skills add marimo-team/marimo-pair
 #
 # Usage (same payload forms as execute-code.sh):
 #   molab-exec.sh -c 'print(1)'
@@ -22,14 +23,12 @@
 # Extra passthrough: --session ID overrides MOLAB_SESSION for one call.
 set -euo pipefail
 
-scripts_dir="${MARIMO_PAIR_SCRIPTS:-$HOME/.cursor/skills/marimo-pair/scripts}"
-execute_code="$scripts_dir/execute-code.sh"
-
-if [[ ! -x "$execute_code" ]]; then
-  echo "molab-exec: execute-code.sh not found or not executable: $execute_code" >&2
-  echo "Set MARIMO_PAIR_SCRIPTS to the marimo-pair scripts directory." >&2
-  exit 1
-fi
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=molab_pair_lib.sh
+source "$script_dir/molab_pair_lib.sh"
+MOLAB_PAIR_CALLER="molab-exec"
+molab_require_execute_code || exit 1
+execute_code="$MOLAB_EXECUTE_CODE"
 
 url="${MOLAB_URL:-}"
 token="${MOLAB_TOKEN:-${MARIMO_TOKEN:-}}"
