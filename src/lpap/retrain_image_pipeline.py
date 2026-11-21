@@ -321,7 +321,12 @@ def _stage_autocast(perf: PipelinePerformanceConfig, device: Any) -> Any:
         target = torch.device(device)
     else:
         target = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    return torch.autocast(device_type=target.type, dtype=torch.bfloat16)
+    # cache_enabled=False: this context spans a whole stage (many optimizer
+    # steps). The autocast weight-cast cache is only cleared on context exit,
+    # so caching would keep feeding stale bf16 weight copies to the forward.
+    return torch.autocast(
+        device_type=target.type, dtype=torch.bfloat16, cache_enabled=False
+    )
 
 
 def _bank_to_device(session: Any, perf: PipelinePerformanceConfig) -> Any:
