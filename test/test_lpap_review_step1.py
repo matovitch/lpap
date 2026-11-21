@@ -1,4 +1,4 @@
-"""LPAP operator correctness and edge-case tests for code review STEP 1."""
+"""LPAP operator correctness and edge-case invariant tests."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import unittest
 import torch
 
 from lpap.decoder import (
-    decoder_dibs_from_source_logits,
+    decoder_dibs_from_local_logits,
     prepare_lpap_decoder_batch,
 )
 from lpap.ops import lpap_torch
@@ -23,19 +23,19 @@ from lpap.surrogate import (
 from lpap.triton_ops import lpap_triton
 
 
-class LpapSuspectedBugsTest(unittest.TestCase):
-    """Tests asserting expected invariants that currently fail on the codebase."""
+class LpapInvariantsTest(unittest.TestCase):
+    """Core LPAP operator, permutation, surrogate, and decoder invariants."""
 
-    @unittest.expectedFailure
     def test_oracle_decoder_dibs_match_lpap_targets_with_permutation(self) -> None:
-        """Oracle surrogate logits must yield decoder DIBs equal to LPAP DIBs."""
+        """Oracle local surrogate logits yield decoder DIBs equal to LPAP DIBs."""
         perm = make_permutation_indices(value_count=16, seed=123)
         values = torch.randn(4, 16, generator=torch.Generator().manual_seed(0))
         tokens = prepare_lpap_surrogate_batch(values, bucket_count=4, permutation=perm)
         targets = lpap_surrogate_targets(tokens, k_max=2, permutation=perm)
 
-        oracle_logits = torch.full((4, 4, 16), -100.0)
-        oracle_logits.scatter_(2, targets.source_indices.unsqueeze(-1), 100.0)
+        # Local logits have k_max * probe_count = 2 * 4 = 8 classes per bucket.
+        oracle_logits = torch.full((4, 4, 8), -100.0)
+        oracle_logits.scatter_(2, targets.local_classes.unsqueeze(-1), 100.0)
         decoder_batch = prepare_lpap_decoder_batch(
             values=values,
             surrogate_logits=oracle_logits,
@@ -46,10 +46,10 @@ class LpapSuspectedBugsTest(unittest.TestCase):
         )
 
         torch.testing.assert_close(decoder_batch.dibs.long(), targets.dibs)
+        torch.testing.assert_close(decoder_batch.amplitudes, targets.buckets)
 
-    @unittest.expectedFailure
     def test_lpap_torch_matches_surrogate_targets_on_same_flat_input(self) -> None:
-        """lpap_torch and prepare_lpap_surrogate_batch+targets must share fold layout."""
+        """lpap_torch and prepare_lpap_surrogate_batch+targets share column-major fold."""
         values = torch.arange(1, 17, dtype=torch.float32).unsqueeze(0)
 
         op_buckets, op_dibs, _remaining = lpap_torch(values, bucket_count=4, k_max=2)
@@ -59,9 +59,8 @@ class LpapSuspectedBugsTest(unittest.TestCase):
         torch.testing.assert_close(op_buckets, targets.buckets)
         torch.testing.assert_close(op_dibs, targets.dibs)
 
-    @unittest.expectedFailure
     def test_sparse_input_source_indices_map_back_to_bucket_values(self) -> None:
-        """Every target source_index must gather the exact bucket value without aliasing."""
+        """Every target source_index gathers the exact bucket value without aliasing."""
         values = torch.zeros(1, 16)
         values[0, 0] = 10.0
         tokens = prepare_lpap_surrogate_batch(values, bucket_count=4, permutation=None)
@@ -71,7 +70,6 @@ class LpapSuspectedBugsTest(unittest.TestCase):
         torch.testing.assert_close(gathered, targets.buckets)
         self.assertEqual(targets.source_indices[0].unique().numel(), 4)
 
-    @unittest.expectedFailure
     def test_c_equals_n_zero_element_keeps_zero_dib(self) -> None:
         """When C == N (probe_count == 1), zero elements experience no collisions."""
         values = torch.tensor([[1.0, -2.0, 0.0, 4.0]])
@@ -80,27 +78,27 @@ class LpapSuspectedBugsTest(unittest.TestCase):
 
         torch.testing.assert_close(dibs, torch.zeros_like(dibs))
 
-    @unittest.expectedFailure
-    def test_c_equals_1_with_tie_keeps_zero_dib(self) -> None:
-        """A single-bucket table (C == 1) must always report DIB == 0."""
+    def test_c_equals_1_rejects_k_max_gt_1_and_keeps_zero_dib(self) -> None:
+        """A single-bucket table (C == 1) allows only k_max == 1 and reports DIB == 0."""
         values = torch.tensor([[5.0, -5.0, 3.0, 2.0]])
+        with self.assertRaisesRegex(ValueError, "at most bucket_count"):
+            lpap_torch(values, bucket_count=1, k_max=3)
 
-        _buckets, dibs, _remaining = lpap_torch(values, bucket_count=1, k_max=3)
-
+        buckets, dibs, _remaining = lpap_torch(values, bucket_count=1, k_max=1)
+        torch.testing.assert_close(buckets, torch.tensor([[5.0]]))
         torch.testing.assert_close(dibs, torch.tensor([[0]]))
 
-    @unittest.expectedFailure
-    def test_k_max_gt_bucket_count_with_ties_keeps_dib_below_c(self) -> None:
-        """DIBs must stay strictly below bucket_count even when k_max > C with ties."""
+    def test_k_max_gt_bucket_count_is_rejected(self) -> None:
+        """k_max > bucket_count is rejected so DIBs stay strictly below bucket_count."""
         values = torch.tensor([[10.0, -10.0, 10.0, 1.0, 0.0, 0.0]])
+        with self.assertRaisesRegex(ValueError, "at most bucket_count"):
+            lpap_torch(values, bucket_count=2, k_max=5)
 
-        _buckets, dibs, _remaining = lpap_torch(values, bucket_count=2, k_max=5)
-
+        _buckets, dibs, _remaining = lpap_torch(values, bucket_count=2, k_max=2)
         self.assertTrue(bool((dibs < 2).all()))
 
-    @unittest.expectedFailure
     def test_all_zero_input_preserves_nonzero_autograd_grad_for_k_gt_1(self) -> None:
-        """All-zero inputs with k_max > 1 must still route gradients to selected slots."""
+        """All-zero inputs with k_max > 1 route gradients cleanly to selected slots."""
         values = torch.zeros(1, 6, requires_grad=True)
 
         buckets, _dibs, _remaining = lpap_torch(values, bucket_count=3, k_max=2)
@@ -109,42 +107,38 @@ class LpapSuspectedBugsTest(unittest.TestCase):
         assert values.grad is not None
         self.assertAlmostEqual(float(values.grad.sum()), 3.0)
 
-    @unittest.expectedFailure
     def test_empty_value_dimension_raises_value_error(self) -> None:
-        """Zero-length last dimension (N == 0) must fail validation with ValueError."""
+        """Zero-length last dimension (N == 0) fails validation with ValueError."""
         with self.assertRaises(ValueError):
             lpap_torch(torch.empty(2, 0), bucket_count=4, k_max=1)
 
-    @unittest.expectedFailure
     def test_nan_in_lane_does_not_mask_finite_values(self) -> None:
-        """A NaN in one probe slot must not hide finite values while staying unpicked."""
-        values = torch.tensor([[float("nan"), 10.0, 2.0, 3.0]])
+        """A NaN in one probe slot does not hide finite values while staying unpicked."""
+        # Column-major (C=2, P=2): lane 0 = [nan, 10.0], lane 1 = [2.0, 3.0].
+        values = torch.tensor([[float("nan"), 2.0, 10.0, 3.0]])
 
         buckets, _dibs, _remaining = lpap_torch(values, bucket_count=2, k_max=1)
 
         torch.testing.assert_close(buckets, torch.tensor([[10.0, 3.0]]))
 
-    @unittest.expectedFailure
     def test_as_long_permutation_rejects_non_bijection(self) -> None:
-        """Non-bijective index tensors must be rejected as permutations."""
+        """Non-bijective index tensors are rejected as permutations."""
         bad = torch.tensor([0, 0, 0, 0])
         with self.assertRaises(ValueError):
             as_long_permutation(bad, value_count=4)
 
-    @unittest.expectedFailure
     def test_invert_permutation_rejects_non_bijection(self) -> None:
-        """invert_permutation_indices must reject duplicate indices instead of leaving uninit memory."""
+        """invert_permutation_indices rejects duplicate indices."""
         bad = torch.tensor([0, 0, 0, 0])
         with self.assertRaises(ValueError):
             invert_permutation_indices(bad)
 
-    @unittest.expectedFailure
     def test_prepare_decoder_batch_rejects_non_positive_tensor_temperature(
         self,
     ) -> None:
-        """Tensor temperatures <= 0 must raise ValueError like scalar temperatures."""
+        """Tensor temperatures <= 0 raise ValueError like scalar temperatures."""
         values = torch.randn(1, 8)
-        logits = torch.randn(1, 4, 8)
+        logits = torch.randn(1, 4, 4)
         with self.assertRaises(ValueError):
             prepare_lpap_decoder_batch(
                 values=values,
@@ -154,21 +148,22 @@ class LpapSuspectedBugsTest(unittest.TestCase):
                 temperature=torch.tensor(-1.0),
             )
 
-    @unittest.expectedFailure
     def test_decoder_dibs_validates_bucket_count_matches_logits_dim1(self) -> None:
-        """Mismatched bucket_count and logits.shape[1] must raise ValueError."""
-        logits = torch.zeros(1, 2, 8)
+        """Mismatched bucket_count and logits.shape[1] raises ValueError."""
+        logits = torch.zeros(1, 2, 4)
         with self.assertRaises(ValueError):
-            decoder_dibs_from_source_logits(logits, bucket_count=4)
+            decoder_dibs_from_local_logits(
+                logits, bucket_count=4, probe_count=2, k_max=2
+            )
 
 
 class LpapEdgeCasesTest(unittest.TestCase):
-    """Edge-case behavior currently satisfied by the LPAP implementation."""
+    """Edge-case behavior satisfied by the unified LPAP implementation."""
 
     def test_k_exhausted_leaves_unplaced_peaks_in_residual(self) -> None:
-        # Four large peaks concentrated in lane 0; k_max=2 can place at most 2 of them.
+        # Column-major (C=3, P=4): place 4 peaks in lane 0 (flat indices 0, 3, 6, 9).
         values = torch.tensor(
-            [[100.0, 90.0, 80.0, 70.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]]
+            [[100.0, 1.0, 1.0, 90.0, 1.0, 1.0, 80.0, 1.0, 1.0, 70.0, 1.0, 1.0]]
         )
         buckets, dibs, remaining = lpap_torch(values, bucket_count=3, k_max=2)
 
@@ -191,7 +186,8 @@ class LpapEdgeCasesTest(unittest.TestCase):
             self.assertTrue(bool(((dibs >= 0) & (dibs < bucket_count)).all()))
 
     def test_negative_and_signed_values_preserve_sign_by_abs_amplitude(self) -> None:
-        values = torch.tensor([[-1.0, -9.0, -3.0, -8.0, -2.0, -7.0]])
+        # Column-major (C=3, P=2): lane 0=[-1, -9], lane 1=[-3, -8], lane 2=[-2, -7].
+        values = torch.tensor([[-1.0, -3.0, -2.0, -9.0, -8.0, -7.0]])
         buckets, dibs, _remaining = lpap_torch(values, bucket_count=3, k_max=2)
 
         torch.testing.assert_close(buckets, torch.tensor([[-9.0, -8.0, -7.0]]))
@@ -244,9 +240,12 @@ class LpapEdgeCasesTest(unittest.TestCase):
             lpap_torch(torch.ones(2, 8, dtype=torch.int32), bucket_count=4, k_max=2)
 
     def test_autograd_routes_gradients_through_multihop_swap_back(self) -> None:
-        # 80.0 starts in lane 1 -> bucket 1 (k=0), evicted to lane 0 (k=1), re-picked into bucket 2 (k=2).
+        # Column-major (C=3, P=3):
+        # lane 0=[100, 90, 1], lane 1=[80, 70, 1], lane 2=[2, 1, 1].
+        # 80.0 starts in lane 1 -> bucket 1 (k=0), evicted to lane 0 (k=1),
+        # re-picked into bucket 2 (k=2).
         values = torch.tensor(
-            [[100.0, 90.0, 1.0, 80.0, 70.0, 1.0, 2.0, 1.0, 1.0]],
+            [[100.0, 80.0, 2.0, 90.0, 70.0, 1.0, 1.0, 1.0, 1.0]],
             requires_grad=True,
         )
         with torch.autograd.detect_anomaly():
@@ -259,13 +258,14 @@ class LpapEdgeCasesTest(unittest.TestCase):
         assert values.grad is not None
         torch.testing.assert_close(
             values.grad,
-            torch.tensor([[1.0, 2.0, 0.0, 3.0, 0.0, 0.0, 0.0, 0.0, 0.0]]),
+            torch.tensor([[1.0, 3.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0]]),
         )
 
     def test_decoder_frontend_gradient_flow_components(self) -> None:
         values = torch.randn(2, 16, generator=torch.Generator().manual_seed(23))
         values.requires_grad_(True)
-        logits = torch.randn(2, 4, 16, generator=torch.Generator().manual_seed(29))
+        # Local logits: (B=2, C=4, k_max * P = 2 * 4 = 8).
+        logits = torch.randn(2, 4, 8, generator=torch.Generator().manual_seed(29))
         logits.requires_grad_(True)
         temp = torch.tensor(0.25, requires_grad=True)
         perm = make_permutation_indices(value_count=16, seed=42)
