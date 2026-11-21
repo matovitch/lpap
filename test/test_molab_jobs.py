@@ -36,7 +36,7 @@ class MolabJobsTest(unittest.TestCase):
         self.assertIn("training_config_from_file", source)
         self.assertIn("comment='unit-bidir'", source)
         self.assertIn("AE_TRI_BIDIR_FLOW_DONE", source)
-        self.assertIn("image_autoencoder_tri_lnorm", source)
+        self.assertIn("image_autoencoder_tri_lnorm-v2", source)
         self.assertNotIn("default_image_autoencoder_training_config", source)
         compile(source, "<ae_bidir_worker>", "exec")
 

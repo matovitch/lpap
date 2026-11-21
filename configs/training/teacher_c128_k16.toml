@@ -2,7 +2,7 @@
 # Launch: --config configs/training/teacher_c128_k16.toml --backend surrogate|decoder
 
 [pair]
-name = "c128_k16"
+name = "c128_k16-v2"
 bucket_count = 128
 probe_count = 8
 k_max = 16

@@ -2,7 +2,7 @@
 # Launch: --config configs/training/teacher_c512_k32.toml --backend surrogate|decoder
 
 [pair]
-name = "c512_k32"
+name = "c512_k32-v2"
 bucket_count = 512
 probe_count = 2
 k_max = 32

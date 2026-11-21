@@ -253,18 +253,18 @@ def default_image_autoencoder_training_config() -> ImageAutoencoderTrainingConfi
         source=ImageAutoencoderSourceConfig(
             lpap_pairs=(
                 ImageAutoencoderLpapPairConfig(
-                    surrogate_checkpoint_name="surrogate_c128_k16.pt",
-                    decoder_checkpoint_name="decoder_c128_k16.pt",
+                    surrogate_checkpoint_name="surrogate_c128_k16-v2.pt",
+                    decoder_checkpoint_name="decoder_c128_k16-v2.pt",
                     name="c128_k16",
                 ),
                 ImageAutoencoderLpapPairConfig(
-                    surrogate_checkpoint_name="surrogate_c256_k24.pt",
-                    decoder_checkpoint_name="decoder_c256_k24.pt",
+                    surrogate_checkpoint_name="surrogate_c256_k24-v2.pt",
+                    decoder_checkpoint_name="decoder_c256_k24-v2.pt",
                     name="c256_k24",
                 ),
                 ImageAutoencoderLpapPairConfig(
-                    surrogate_checkpoint_name="surrogate_c512_k32.pt",
-                    decoder_checkpoint_name="decoder_c512_k32.pt",
+                    surrogate_checkpoint_name="surrogate_c512_k32-v2.pt",
+                    decoder_checkpoint_name="decoder_c512_k32-v2.pt",
                     name="c512_k32",
                 ),
             ),

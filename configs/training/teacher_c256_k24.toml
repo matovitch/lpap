@@ -2,7 +2,7 @@
 # Launch: --config configs/training/teacher_c256_k24.toml --backend surrogate|decoder
 
 [pair]
-name = "c256_k24"
+name = "c256_k24-v2"
 bucket_count = 256
 probe_count = 4
 k_max = 24

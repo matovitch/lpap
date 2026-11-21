@@ -248,13 +248,66 @@ comment = "smoke exact fine-tune"
 
 
 class RetrainImagePipelineTest(unittest.TestCase):
-    def test_live_pipeline_toml_parses_and_validates(self) -> None:
+    def test_live_pipeline_toml_parses_and_uses_v2_artifact_names(self) -> None:
+        from lpap.teacher_config import project_teacher_config
+        from lpap.training_notebook import training_config_from_file
+
         repo_root = Path(__file__).resolve().parents[1]
         cfg = load_retrain_pipeline_config(
             repo_root / "configs" / "training" / "retrain_image_pipeline.toml"
         )
         self.assertEqual(cfg.enabled_stages(), ALL_PIPELINE_STAGES)
         self.assertEqual(len(cfg.teacher_configs), 3)
+        self.assertEqual(cfg.flow_checkpoint, "image_energy_flow.pt")
+        self.assertEqual(
+            cfg.energy_bank, "data/encoded_energies_bank_flow_best_4step.pt"
+        )
+
+        expected_surrogates: list[str] = []
+        expected_decoders: list[str] = []
+        for relpath in cfg.teacher_configs:
+            surr = project_teacher_config(repo_root / relpath, "surrogate")
+            dec = project_teacher_config(repo_root / relpath, "decoder")
+            self.assertTrue(surr.run.run_id.endswith("-v2"))
+            self.assertTrue(surr.run.checkpoint_name.endswith("-v2.pt"))
+            self.assertTrue(surr.run.log_name.endswith("-v2.sqlite"))
+            self.assertTrue(dec.run.run_id.endswith("-v2"))
+            self.assertTrue(dec.run.checkpoint_name.endswith("-v2.pt"))
+            self.assertTrue(dec.run.log_name.endswith("-v2.sqlite"))
+            self.assertEqual(dec.teacher.checkpoint_name, surr.run.checkpoint_name)
+            expected_surrogates.append(surr.run.checkpoint_name)
+            expected_decoders.append(dec.run.checkpoint_name)
+
+        ae_cfg = training_config_from_file(
+            repo_root / cfg.autoencoder_config, "image_autoencoder"
+        )
+        self.assertEqual(ae_cfg.source.flow_checkpoint_name, "image_energy_flow.pt")
+        self.assertEqual(
+            [pair.surrogate_checkpoint_name for pair in ae_cfg.source.lpap_pairs],
+            expected_surrogates,
+        )
+        self.assertEqual(
+            [pair.decoder_checkpoint_name for pair in ae_cfg.source.lpap_pairs],
+            expected_decoders,
+        )
+        self.assertEqual(ae_cfg.run.run_id, "image_autoencoder_tri_lnorm-v2")
+        self.assertEqual(
+            ae_cfg.run.checkpoint_name, "image_autoencoder_tri_lnorm-v2.pt"
+        )
+        self.assertEqual(
+            ae_cfg.run.log_name, "image_autoencoder_tri_lnorm-v2.sqlite"
+        )
+        self.assertEqual(
+            cfg.decoder_exact_finetune.run_id, "image_autoencoder_tri_exact_ft-v2"
+        )
+        self.assertEqual(
+            cfg.decoder_exact_finetune.checkpoint_name,
+            "image_autoencoder_tri_exact_ft-v2.pt",
+        )
+        self.assertEqual(
+            cfg.decoder_exact_finetune.log_name,
+            "image_autoencoder_tri_exact_ft-v2.sqlite",
+        )
 
     def test_end_to_end_cpu_smoke_runs_all_four_stages(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

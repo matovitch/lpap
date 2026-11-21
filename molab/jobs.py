@@ -19,15 +19,15 @@ from molab.bg_worker import (
 )
 
 # Tri-pair AE from one bidirectional image↔energy flow
-# (c128_k16 + c256_k24 + c512_k32).
-AE_BIDIR_FLOW_RUN_ID = "image_autoencoder_tri_lnorm"
-AE_BIDIR_FLOW_CHECKPOINT = "image_autoencoder_tri_lnorm.pt"
-AE_BIDIR_FLOW_LOG = "image_autoencoder_tri_lnorm.sqlite"
-AE_BIDIR_FLOW_BG_STEM = "image_autoencoder_tri_lnorm_bg"
-AE_BIDIR_FLOW_SCRIPT = "train_image_autoencoder_tri_lnorm_bg.py"
+# (c128_k16 + c256_k24 + c512_k32, -v2 artifact stems).
+AE_BIDIR_FLOW_RUN_ID = "image_autoencoder_tri_lnorm-v2"
+AE_BIDIR_FLOW_CHECKPOINT = "image_autoencoder_tri_lnorm-v2.pt"
+AE_BIDIR_FLOW_LOG = "image_autoencoder_tri_lnorm-v2.sqlite"
+AE_BIDIR_FLOW_BG_STEM = "image_autoencoder_tri_lnorm-v2_bg"
+AE_BIDIR_FLOW_SCRIPT = "train_image_autoencoder_tri_lnorm-v2_bg.py"
 
-RETRAIN_PIPELINE_BG_STEM = "retrain_image_pipeline_bg"
-RETRAIN_PIPELINE_SCRIPT = "run_retrain_image_pipeline_bg.py"
+RETRAIN_PIPELINE_BG_STEM = "retrain_image_pipeline-v2_bg"
+RETRAIN_PIPELINE_SCRIPT = "run_retrain_image_pipeline-v2_bg.py"
 RETRAIN_PIPELINE_DONE_MARKER = "RETRAIN_IMAGE_PIPELINE_DONE"
 
 FLOW_RUN_ID = "image_energy_flow"
@@ -341,7 +341,7 @@ def launch_retrain_image_pipeline_bg(
             notify_on_finished=notify_on_finished,
         ),
         target_steps=0,
-        run_id="retrain_image_pipeline",
+        run_id="retrain_image_pipeline-v2",
         checkpoint_name=AE_BIDIR_FLOW_CHECKPOINT,
         log_name=f"{RETRAIN_PIPELINE_BG_STEM}.log",
         upload_artifacts_on_checkpoint=upload_artifacts_on_checkpoint,

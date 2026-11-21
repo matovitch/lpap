@@ -22,20 +22,21 @@ def ae_status():
     )
 
     _root = _Path("/marimo")
-    _run_id_prefix = "image_autoencoder_tri_lnorm"
-    _ckpt_name = "image_autoencoder_tri_lnorm.pt"
-    _log_name = "image_autoencoder_tri_lnorm.sqlite"
-    _bg_stem = "image_autoencoder_tri_lnorm_bg"
+    _run_id_prefix = "image_autoencoder_tri_lnorm-v2"
+    _ckpt_name = "image_autoencoder_tri_lnorm-v2.pt"
+    _log_name = "image_autoencoder_tri_lnorm-v2.sqlite"
+    _bg_stem = "image_autoencoder_tri_lnorm-v2_bg"
 
     _needed = {
         "flow": _root / "checkpoints" / "image_energy_flow.pt",
-        "c128_s": _root / "checkpoints" / "surrogate_c128_k16.pt",
-        "c128_d": _root / "checkpoints" / "decoder_c128_k16.pt",
-        "c256_s": _root / "checkpoints" / "surrogate_c256_k24.pt",
-        "c256_d": _root / "checkpoints" / "decoder_c256_k24.pt",
-        "c512_s": _root / "checkpoints" / "surrogate_c512_k32.pt",
-        "c512_d": _root / "checkpoints" / "decoder_c512_k32.pt",
+        "c128_s": _root / "checkpoints" / "surrogate_c128_k16-v2.pt",
+        "c128_d": _root / "checkpoints" / "decoder_c128_k16-v2.pt",
+        "c256_s": _root / "checkpoints" / "surrogate_c256_k24-v2.pt",
+        "c256_d": _root / "checkpoints" / "decoder_c256_k24-v2.pt",
+        "c512_s": _root / "checkpoints" / "surrogate_c512_k32-v2.pt",
+        "c512_d": _root / "checkpoints" / "decoder_c512_k32-v2.pt",
         "ae": _root / "checkpoints" / _ckpt_name,
+        "ae_exact_ft": _root / "checkpoints" / "image_autoencoder_tri_exact_ft-v2.pt",
     }
     _ckpt_lines = []
     for _label, _path in _needed.items():
@@ -258,7 +259,7 @@ def ae_gallery():
     from lpap.training_plots import render_image_autoencoder_gallery_html as _render_ae
 
     _root = _Path("/marimo")
-    _ckpt_name = "image_autoencoder_tri_lnorm.pt"
+    _ckpt_name = "image_autoencoder_tri_lnorm-v2.pt"
     _gamma = 1.0
     _base = _ae_cfg_from_project(_root, "image_autoencoder")
     _ensure_checkpoint(_root, _base.source.flow_checkpoint_name)
@@ -363,7 +364,7 @@ def ae_energy_latent():
     from lpap.training_plots import render_signed_triplet_gallery_html as _render_triplet
 
     _root = _Path("/marimo")
-    _ckpt_name = "image_autoencoder_tri_lnorm.pt"
+    _ckpt_name = "image_autoencoder_tri_lnorm-v2.pt"
     _gamma = 1.0
     _sample_count = 6
     _focus = 0  # 0-based; sample 1 in the UI
