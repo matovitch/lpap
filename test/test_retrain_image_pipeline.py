@@ -346,6 +346,49 @@ class RetrainImagePipelineTest(unittest.TestCase):
                 self.assertIsNotNone(loss)
                 self.assertTrue(loss == loss, f"NaN loss in {item.name}")
 
+    def test_bf16_autocast_fails_loudly_when_cuda_bf16_unsupported(self) -> None:
+        from unittest.mock import patch
+
+        from lpap.retrain_image_pipeline import (
+            PipelinePerformanceConfig,
+            _stage_autocast,
+        )
+
+        perf = PipelinePerformanceConfig(autocast_dtype="bf16")
+        with (
+            patch("torch.cuda.is_available", return_value=True),
+            patch("torch.cuda.is_bf16_supported", return_value=False),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "bfloat16 support"):
+                _stage_autocast(perf, "cuda")
+            with self.assertRaisesRegex(RuntimeError, "bfloat16 support"):
+                _stage_autocast(perf, None)
+
+        with (
+            patch("torch.cuda.is_available", return_value=True),
+            patch("torch.cuda.is_bf16_supported", return_value=True),
+        ):
+            ctx = _stage_autocast(perf, "cuda")
+            self.assertIsInstance(ctx, torch.autocast)
+
+        with self.assertRaisesRegex(RuntimeError, "unsupported on device"):
+            _stage_autocast(perf, "meta")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            pipeline_path = _write_tiny_pipeline_workspace(root)
+            with pipeline_path.open("a", encoding="utf-8") as handle:
+                handle.write('\n[performance]\nautocast_dtype = "bf16"\n')
+            cfg = load_retrain_pipeline_config(pipeline_path)
+            with (
+                patch("torch.cuda.is_available", return_value=True),
+                patch("torch.cuda.is_bf16_supported", return_value=False),
+                self.assertRaisesRegex(RuntimeError, "bfloat16 support"),
+            ):
+                run_image_retrain_pipeline(
+                    project_root=root, config=cfg, device="cuda"
+                )
+
     def test_end_to_end_cpu_smoke_runs_all_four_stages(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

@@ -313,14 +313,24 @@ def _ensure_prerequisites(
 def _stage_autocast(perf: PipelinePerformanceConfig, device: Any) -> Any:
     import contextlib
 
-    import torch
-
     if perf.autocast_dtype != "bf16":
         return contextlib.nullcontext()
     if device is not None:
         target = torch.device(device)
     else:
         target = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if target.type == "cuda":
+        if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():
+            raise RuntimeError(
+                "performance.autocast_dtype='bf16' requires a CUDA device with "
+                "bfloat16 support (torch.cuda.is_bf16_supported() is False); "
+                "set performance.autocast_dtype='none'"
+            )
+    elif target.type != "cpu":
+        raise RuntimeError(
+            f"performance.autocast_dtype='bf16' is unsupported on device {target!s}; "
+            "set performance.autocast_dtype='none'"
+        )
     # cache_enabled=False: this context spans a whole stage (many optimizer
     # steps). The autocast weight-cast cache is only cleared on context exit,
     # so caching would keep feeding stale bf16 weight copies to the forward.
@@ -426,9 +436,9 @@ def run_image_retrain_pipeline(
     )
     overrides = step_overrides or {}
     perf = config.performance
+    # Fail loudly before loading artifacts or starting stages if bf16 is unsupported.
+    _stage_autocast(perf, device)
     if perf.allow_tf32:
-        import torch
-
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
 
