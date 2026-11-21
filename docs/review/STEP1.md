@@ -40,7 +40,7 @@ flowchart TB
 
   subgraph Stage3["3 · Teachers per C_i (teacher_c{C}_k{K}.toml)"]
     bank --> perm["apply_permutation + fold_permutation_tokens<br/>(B, C, N/C)"]
-    perm --> sur["LPAPSurrogateTransformer<br/>logits (B, C, N)"]
+    perm --> sur["LPAPSurrogateTransformer<br/>local logits (B, C, k_max*P)"]
     perm --> oracle["lpap_surrogate_targets<br/>(exact Python LPAP)"]
     oracle -->|"weighted CE"| sur
     sur --> sur_ckpt["checkpoints/surrogate_{name}.pt"]
@@ -73,7 +73,7 @@ flowchart TB
   - `configs/training/image_energy_flow.toml`, `image_autoencoder.toml`, `teacher_c{128_k16,256_k24,512_k32}.toml`: live operator configs.
   - `test/resources/training/*.toml`: frozen contract fixtures for unit tests.
   - `configs/secrets.toml.example`: gitignored `HF_TOKEN` and Pushover template.
-- **Note on config drift**: `configs/training/image_autoencoder.toml` defines a single legacy pair (`surrogate_c128_k4.pt` / `decoder_c128_k4.pt`), whereas `molab/jobs.py:218-272` and `molab/lab.py:275-318` hardcode the tri-pair AE config (`c128_k16`, `c256_k24`, `c512_k32`) in Python instead of loading `image_autoencoder.toml`.
+- **AE config**: `configs/training/image_autoencoder.toml` is the tri-pair AE (`c128_k16`, `c256_k24`, `c512_k32`, `-v2` checkpoints, batch 128, 17,500 steps). `molab/jobs.py` loads that TOML. The image retrain pipeline is `configs/training/retrain_image_pipeline.toml` (teacher stages 7,500 steps at batch 128); see [RETRAIN.md](../RETRAIN.md).
 
 ### 4. Environment & Dependencies
 
@@ -137,7 +137,7 @@ flowchart TB
    - **Location**: `src/lpap/surrogate.py:50-106`, `src/lpap/ops.py:47-88`, `src/lpap/triton_ops.py:48-79`, `src/lpap/decoder.py:127, 232-240`
    - **What**: `buckets` is initialized to `0.0` (with `dibs = 0`, `bucket_indices = 0`) and swaps whenever `abs(candidate) >= abs(bucket)`. At `k = 0`, every bucket swaps its synthetic initial `0.0` (carrying `bucket_indices = 0`) into `work`.
    - **Why**:
-     - **Duplicate/false `source_indices`**: On sparse inputs (e.g., `[10, 0, ..., 0]`, or ReLU/zero-padded LLM activations), at `k >= 1` `argmax` picks the phantom zero carrying `work_indices = 0`, assigning another bucket the exact `source_index` of `10.0`. `values.gather(1, targets.source_indices)` returns `[10, 0, 10, 0]` instead of `[10, 0, 0, 0]`. In `lpap_decoder_loss`, because `batch.weights = amplitudes.abs()` (soft surrogate expectation, typically `> 0`), `source_ce` actively trains the decoder toward that duplicated index.
+     - **Duplicate/false `source_indices`**: On sparse inputs (e.g., `[10, 0, ..., 0]`, or ReLU/zero-padded LLM activations), at `k >= 1` `argmax` picks the phantom zero carrying `work_indices = 0`, assigning another bucket the exact `source_index` of `10.0`. `values.gather(1, targets.source_indices)` returns `[10, 0, 10, 0]` instead of `[10, 0, 0, 0]`. In `lpap_decoder_loss`, because `batch.weights = amplitudes.abs().detach()` (soft surrogate expectation, typically `> 0`), `source_ce` actively trains the decoder toward that duplicated index.
      - **Invalid DIBs on edge cases**: Produces `dib > 0` when `C == N` (`P == 1`, zero collisions), `dib == 1` when `C == 1` with ties (`[5, -5]`), and `dib >= C` when `K > C` with ties (exceeding the `[0, C-1]` decoder range). Equal-amplitude ties at `k >= 1` also evict lower-DIB peaks for higher-DIB ties with zero amplitude gain.
      - **Zeroed autograd gradients**: On all-zero inputs with `k_max >= 2`, `buckets` holds phantom constants at `k = 1`, so `buckets.sum().backward()` produces `values.grad == 0`.
    - **Suggested fix**: Track an explicit occupied/valid mask (or initialize empty buckets with sentinel `-inf` amplitude and mark vacated `work` slots invalid with `-inf` score), never swapping uninitialized sentinels back into `work`, and use strict `>` (`abs(candidate) > abs(bucket)`) for already-occupied buckets. Note: this changes tie/zero semantics relative to current `doc/lpap.md:155`; update the spec accordingly.
@@ -213,16 +213,13 @@ flowchart TB
     - **Why**: Unnecessary compute during training/inference; unclear whether encoder gradients from `surrogate_teacher_ce` are intentional (they reward making `encoded_energy` easier for the surrogate to classify).
     - **Suggested fix**: Allow passing precomputed `tokens` / optional `compute_targets: bool = True` to `prepare_lpap_decoder_batch`, and make gradient flow from `surrogate_teacher_ce` to `encoded_energy` an explicit config choice.
 
-13. **Linear RoPE vs circular attention mask in `LPAPSurrogateTransformer`, plus unmasked unreachable output classes**
-    - **Location**: `src/lpap/surrogate.py:130-205`, `src/lpap/transformer.py:54-73`
-    - **What**: `LPAPSurrogateTransformer` applies a circular backward mask `(q - k) % C < k_max`, while `RotarySelfAttention` applies linear RoPE positions `0..C-1` (breaking wrap-around shift equivariance between bucket `0` and bucket `C-1`) and mutates non-persistent `_rope_cosines`/`_rope_sines` buffers in `forward`. The output head predicts all `N` classes without masking the `N - min(k_max, C) * P` unreachable source indices per bucket.
-    - **Why**: Suboptimal inductive bias for surrogate accuracy and wasted softmax/CE capacity as `N` grows for LLM hidden dimensions (`D = 2048..4096`).
-    - **Suggested fix**: Consider masking unreachable source indices in surrogate logits (or predicting relative `(roll, probe)` logits of size `k_max * P` instead of full `N` — also makes the surrogate invariant to `permutation`!), and evaluate circular/relative positional bias.
+13. **Surrogate attention**
+    - **Location**: `src/lpap/surrogate.py`, `src/lpap/transformer.py`
+    - **What**: `LPAPSurrogateTransformer` uses a circular-backward mask `(q - k) % C < k_max`, periodic circular RoPE (frequencies `2π m / N`, `circular=True`), and SDPA. The head predicts local `(dib, probe)` logits of size `k_max * P`. Cosine/sine tables are non-persistent buffers, rebuilt on the forward.
 
-14. **Documentation / code mismatch on in-place mutation**
-    - **Location**: `doc/lpap.md:155, 224`, `doc/lpap-pseudocode.md:23, 38` vs `src/lpap/ops.py:41`, `test/test_lpap.py:20`
-    - **What**: Docs say `values` is modified in place; code clones `values` and `test/test_lpap.py:20` asserts `values` is unchanged.
-    - **Suggested fix**: Update docs to specify that LPAP operates on an internal working copy and returns the residual tensor without mutating `values`.
+14. **LPAP input mutation**
+    - **Location**: `doc/lpap.md`, `doc/lpap-pseudocode.md`, `src/lpap/ops.py`
+    - **What**: The operator clones the input into an internal working copy. `lpap.md` and the pseudocode describe that copy; the caller’s `values` stay unchanged.
 
 ---
 

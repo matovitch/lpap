@@ -35,7 +35,17 @@ It executes four ordered stages:
 All newly trained artifacts carry the `-v2` suffix so HF checkpoint uploads
 never overwrite prior checkpoints. Each saved checkpoint records
 `fold_order = "column_major"` and its concrete `permutation` tensor(s) in
-`training_state`.
+`training_state`. Pair loads require matching `value_count`, `bucket_count`,
+`probe_count`, and `k_max` (and `fold_order` / `frontend_mode` when those
+fields are present).
+
+Surrogate blocks use periodic circular RoPE (frequencies `2π m / N` on `N = C`
+tokens) and SDPA. The cosine/sine tables are non-persistent buffers, so a
+checkpoint trained on another frequency schedule loads and then runs under
+the live tables. This pipeline trains surrogates and the autoencoder from
+scratch. Decoder source-index CE weights are `w_b = |a_b|.detach()` with
+`a_b` the soft frontend amplitude (`source_ce_weight = 0.1`,
+`source_ce_l1_reference = 0.05`, `source_ce_power = 2` in the teacher TOMLs).
 
 ## Entry Points
 
@@ -61,7 +71,9 @@ Useful flags:
 
 ### Molab Detached GPU Worker
 
-After syncing the repo and `configs/training/` into `/marimo` (`molab-sync`):
+`molab-sync` copies this checkout's `configs/training/` into `/marimo`.
+The lab setup cell then calls `lpap.training_configs.sync_training_configs`
+and replaces those TOMLs with the archive of the installed lpap commit.
 
 ```bash
 python -m molab.jobs launch-retrain-image-pipeline \
@@ -83,22 +95,37 @@ python -m molab.jobs launch-retrain-image-pipeline --project-root /marimo --stag
 python -m molab.jobs launch-retrain-image-pipeline --project-root /marimo --stages decoder_exact_finetune
 ```
 
-## Expected GPU Runtime Estimates
+## Scheduled budget
 
-Rough single-GPU wall-clock estimates on a molab L4 / A10G-class GPU (FP32,
-batch size 32, `N = 1024`; expect ~1.5-2x longer on T4, ~0.4-0.6x on A100):
+Teacher and AE stages use batch size 128 (`N = 1024`). Teacher learning rates
+are `1.0e-3`. The AE learning rate is `4.0e-5`. Exact-LPAP fine-tune uses
+`1.0e-4`. Cadence is `display_every = 25`, `log_every = 5`. Validation batch
+size is 256 for teachers and 32 for the AE.
 
-| Stage | Steps | Dominant cost | Rough GPU estimate |
-| --- | --- | --- | --- |
-| `surrogates` (`c128_k16`) | 15,000 | 12-layer RoPE transformer over `C=128`, local `128`-class head + sync-free `lpap_tokens_torch` | ~8-15 min |
-| `surrogates` (`c256_k24`) | 15,000 | 12-layer RoPE transformer over `C=256`, local `96`-class head | ~15-25 min |
-| `surrogates` (`c512_k32`) | 15,000 | 12-layer RoPE transformer over `C=512`, local `64`-class head | ~30-50 min |
-| `decoders` (`c128`, `c256`, `c512`) | 3 x 15,000 | Frozen surrogate forward + 8-layer decoder transformer (`1024`-class output) | ~45-80 min total |
-| `autoencoder` (tri-pair) | 70,000 | 4-step `i2e` + 3 surrogate/decoder pairs + 3x 4-step `e2i` per step | ~2-4 hr |
-| `decoder_exact_finetune` | 3,000 | Frozen 4-step `i2e` + exact `lpap_tokens_triton` + trainable decoders + frozen `e2i` | ~5-10 min |
+| Stage | Steps | What runs |
+| --- | --- | --- |
+| `surrogates` (`c128_k16`) | 7,500 | 12-layer circular-RoPE transformer, `C=128`, local 128-class head, SDPA |
+| `surrogates` (`c256_k24`) | 7,500 | `C=256`, local 96-class head |
+| `surrogates` (`c512_k32`) | 7,500 | `C=512`, local 64-class head |
+| `decoders` (`c128`, `c256`, `c512`) | 3 × 7,500 | Frozen surrogate + 8-layer decoder (`1024`-class output) |
+| `autoencoder` (tri-pair) | 17,500 | 4-step `i2e` + 3 surrogate/decoder pairs + 3× 4-step `e2i` |
+| `decoder_exact_finetune` | 750 | Frozen 4-step `i2e` + exact `lpap_tokens_triton` + trainable decoders + frozen `e2i` |
 
-Total sequential wall time on one L4/A10G: roughly 4-6 hours (dominated by the
-70k-step tri-pair AE stage).
+7,500 teacher steps at batch 128 is 960k samples. 17,500 AE steps is 2.24M
+images. Exact fine-tune is 750 steps at the AE batch.
+
+`[performance]` in `retrain_image_pipeline.toml` (`PipelinePerformanceConfig`):
+
+- `autocast_dtype = "bf16"` wraps every stage in
+  `torch.autocast(dtype=bfloat16, cache_enabled=False)`. The cache stays off
+  because one context covers the whole stage. CUDA bf16 requires
+  `torch.cuda.is_bf16_supported()`; any other non-CPU device raises before
+  stages start.
+- `allow_tf32` enables TF32 matmul and cuDNN.
+- `energy_bank_on_device` keeps the teacher bank on the training device.
+- `compile_flows` wraps each AE flow `forward` with `torch.compile`.
+
+Both flow directions integrate in fp32 inside that autocast.
 
 ## Metrics To Compare Against The Prior Run
 
@@ -117,6 +144,7 @@ evaluate the `-v2` checkpoints:
    - `validation_energy_reconstruction_l1` overall and per pair.
    - `validation_surrogate_teacher_ce` and `validation_weighted_accuracy` per pair.
    - Signed-mass health: `validation_encoded_positive_mass`, `validation_encoded_negative_mass`, `validation_signed_mass_imbalance`, and `validation_encoded_energy_rms` (confirm encoded energies stay bipolar near `floor_tau = 0.1` rather than collapsing toward 0).
+   - RMS: `validation_decoded_energy_rms` and `validation_reconstructed_image_rms` are the mean across pairs. Each pair also logs `validation_decoded_energy_rms/<name>` and `validation_reconstructed_image_rms/<name>`. `validation_image_rms` is the shared input RMS.
    - Visual check in `molab/lab.py` (`ae_gallery` and `ae_energy_latent`: oracle LPAP vs surrogate-hard vs decoder-soft energy and reconstructed images).
 4. **Exact-LPAP decoder fine-tune (`image_autoencoder_tri_exact_ft-v2.sqlite`)**
    - Compare Stage-4 `validation_image_reconstruction_l2` and `validation_energy_reconstruction_l1` (using exact LPAP with `entropy = 0`) directly against Stage-3 surrogate-frontend validation metrics and Stage-3 evaluated at step 0 under exact LPAP (measures closure of the surrogate-to-exact train-test gap).
