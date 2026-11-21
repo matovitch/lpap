@@ -344,6 +344,10 @@ class ImageAutoencoderTrainingTest(unittest.TestCase):
             self.assertIn("energy_reconstruction_l1/c8", metrics)
             self.assertIn("surrogate_teacher_ce/c4", metrics)
             self.assertIn("surrogate_teacher_ce/c8", metrics)
+            self.assertIn("decoded_energy_rms/c4", metrics)
+            self.assertIn("decoded_energy_rms/c8", metrics)
+            self.assertIn("reconstructed_image_rms/c4", metrics)
+            self.assertIn("reconstructed_image_rms/c8", metrics)
             self.assertAlmostEqual(
                 metrics["image_reconstruction_l2"],
                 0.5
@@ -351,6 +355,29 @@ class ImageAutoencoderTrainingTest(unittest.TestCase):
                     metrics["image_reconstruction_l2/c4"]
                     + metrics["image_reconstruction_l2/c8"]
                 ),
+                places=5,
+            )
+            self.assertAlmostEqual(
+                metrics["decoded_energy_rms"],
+                0.5
+                * (
+                    metrics["decoded_energy_rms/c4"]
+                    + metrics["decoded_energy_rms/c8"]
+                ),
+                places=5,
+            )
+            self.assertAlmostEqual(
+                metrics["reconstructed_image_rms"],
+                0.5
+                * (
+                    metrics["reconstructed_image_rms/c4"]
+                    + metrics["reconstructed_image_rms/c8"]
+                ),
+                places=5,
+            )
+            self.assertNotAlmostEqual(
+                metrics["decoded_energy_rms/c4"],
+                metrics["decoded_energy_rms/c8"],
                 places=5,
             )
             gallery = collect_image_autoencoder_gallery(session, sample_count=1)

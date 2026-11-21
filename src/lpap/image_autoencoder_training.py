@@ -988,6 +988,8 @@ def _forward_loss(
     surrogate_ce_terms: list[torch.Tensor] = []
     pair_metric_values: dict[str, float] = {}
     weighted_accuracies: list[float] = []
+    decoded_energy_rms_values: list[float] = []
+    reconstructed_image_rms_values: list[float] = []
     for runtime, pair_output in zip(session.lpap_pairs, output.pairs, strict=True):
         if pair_output.surrogate_logits is None:
             pair_ce = torch.zeros((), device=image.device, dtype=image.dtype)
@@ -1003,10 +1005,18 @@ def _forward_loss(
         pair_energy_l1 = torch_functional.l1_loss(
             pair_output.decoded_energy, energy_target
         )
+        pair_decoded_energy_rms = float(
+            pair_output.decoded_energy.square().mean().sqrt().detach().cpu()
+        )
+        pair_reconstructed_image_rms = float(
+            pair_output.reconstructed_image.square().mean().sqrt().detach().cpu()
+        )
         image_l2_terms.append(pair_image_l2)
         energy_l1_terms.append(pair_energy_l1)
         surrogate_ce_terms.append(pair_ce)
         weighted_accuracies.append(pair_weighted_accuracy)
+        decoded_energy_rms_values.append(pair_decoded_energy_rms)
+        reconstructed_image_rms_values.append(pair_reconstructed_image_rms)
         prefix = runtime.name
         pair_metric_values[f"image_reconstruction_l2/{prefix}"] = float(
             pair_image_l2.detach().cpu()
@@ -1018,6 +1028,10 @@ def _forward_loss(
             pair_ce.detach().cpu()
         )
         pair_metric_values[f"weighted_accuracy/{prefix}"] = pair_weighted_accuracy
+        pair_metric_values[f"decoded_energy_rms/{prefix}"] = pair_decoded_energy_rms
+        pair_metric_values[f"reconstructed_image_rms/{prefix}"] = (
+            pair_reconstructed_image_rms
+        )
 
     image_l2 = torch.stack(image_l2_terms).mean()
     energy_l1 = torch.stack(energy_l1_terms).mean()
@@ -1055,10 +1069,10 @@ def _forward_loss(
             output.encoded_energy.square().mean().sqrt().detach().cpu()
         ),
         decoded_energy_rms=float(
-            output.decoded_energy.square().mean().sqrt().detach().cpu()
+            sum(decoded_energy_rms_values) / len(decoded_energy_rms_values)
         ),
         reconstructed_image_rms=float(
-            output.reconstructed_image.square().mean().sqrt().detach().cpu()
+            sum(reconstructed_image_rms_values) / len(reconstructed_image_rms_values)
         ),
         image_rms=float(image.square().mean().sqrt().detach().cpu()),
         pair_metrics=pair_metric_values,
