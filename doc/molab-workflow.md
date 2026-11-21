@@ -91,7 +91,8 @@ bash .github/skills/molab-workflow/scripts/molab-inject-secrets.sh
 
 Prefer the one-shot post-push sync (reinstall `lpap`, copy `storage.toml`,
 copy `configs/training/*.toml`, copy repo `molab/` helpers → `/marimo/molab/`,
-inject secrets):
+inject secrets). The lab setup cell then replaces those training TOMLs with
+the installed commit's copies (below):
 
 ```bash
 bash .github/skills/molab-workflow/scripts/molab-sync.sh
@@ -101,6 +102,15 @@ bash .github/skills/molab-workflow/scripts/molab-sync.sh
 
 Do not put secrets in notebook cells. Re-run sync/inject after every kernel
 restart; detached workers inherit env at spawn time.
+
+`molab-sync` copies this checkout's `configs/training/*.toml`. The lab setup
+cell then calls `lpap.training_configs.sync_training_configs`, which replaces
+top-level `/marimo/configs/training/*.toml` with the TOMLs from the GitHub
+archive of the installed lpap commit (`direct_url.json` `vcs_info.commit_id`),
+writes `configs/training/.lpap_commit`, and raises if that commit is unknown
+or if `retrain_image_pipeline.toml` references a missing TOML. Subdirectories
+under `configs/training/` stay. `molab-push-training-configs.sh` is the ad-hoc
+path when a local edit should land before that pin.
 
 With Pushover creds present, inject also sets `LPAP_NOTIFY_ON_FINISHED=1` so
 `TrainingRun.mark_finished` pings you (or set `notify_on_finished=True` on the
@@ -121,10 +131,10 @@ Extra molab-workflow helpers (same `MOLAB_*` env):
 
 - `molab-push-package-file.sh` — hot-patch one `src/lpap/*.py` into the kernel
   (ephemeral; prefer commit + `molab-sync` for durable updates)
-- `molab-push-training-configs.sh` — copy `configs/training/*.toml` → `/marimo`
+- `molab-push-training-configs.sh` — copy local `configs/training/*.toml` → `/marimo` (ad-hoc; the lab setup cell re-pins to the installed commit)
 - `molab-export-notebook.sh` — backport live cells → `molab/lab.py`
-- `molab-press.sh` — queue a UI press (e.g. `train_button`) as a normal notebook run
-- `molab-train-watch.sh` — train cell heartbeat via the server file API (safe while training)
+- `molab-press.sh` — queue a UI press (`train_button`, checkbox, …) as a normal notebook run. `ctx.set_ui_value` runs the dependent cells inside the scratch request, and they stop when that request ends
+- `molab-train-watch.sh` — read `/marimo/training_logs/notebook_train_status.json` (state, stage, steps, GPU, VRAM, heartbeat) through the server file API; the kernel is untouched
 - `molab-train-status.sh` / `molab-launch-ae-bidirectional-flow.sh` / `molab-launch-image-energy-flow.sh` — long AE / image-energy flow runs
 - `molab-notify.sh` — Pushover on job finish / handoff (prefer over agent polling)
 
@@ -223,6 +233,13 @@ Scratchpad is for probes, installs, and artifact sync — not long training.
   (`MarimoInterrupt`). `notebook-map.sh` counts. Gallery and status included,
   not only train cells. Cell `status=interrupted` with empty errors is that
   abort — not slowness or an HTTP timeout.
+- `molab-exec` refuses while
+  `/marimo/training_logs/notebook_train_status.json` reports `state=running`
+  and the heartbeat is younger than `MOLAB_BUSY_STALE_S` (default 1800s). A
+  scratch exec would queue behind the train cell, and dropping the client
+  interrupts it. Watch with `molab-train-watch.sh`. `MOLAB_EXEC_FORCE=1` is
+  only for stopping a run on purpose. Long UI actions go through
+  `molab-press.sh`.
 - For cell chunks: status checks **between** chunks; resume with
   `resume_from_checkpoint=True`.
 - DAG: do not redefine `mo` / `torch` / `lpap`; use `_` locals; import training

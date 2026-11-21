@@ -17,9 +17,14 @@
 ## LPAP Models
 
 - **LPAP operator**: The exact pooling rule that selects high-amplitude values into buckets with DIB metadata.
-- **Surrogate**: A transformer that emulates LPAP: predicts full-`N` source-index logits for each bucket.
-- **Decoder frontend**: Softmax reduction of surrogate logits into per-bucket `(amplitude, normalized DIB, entropy)` tokens (`prepare_lpap_decoder_batch`). Entropy is residual doubt; a sharp surrogate drives it toward 0.
-- **Decoder**: A transformer that reconstructs dense energy from those compact tokens (collision-set disambiguation + value placement).
+- **Surrogate**: A transformer that emulates LPAP: local `(dib, probe)` logits
+  (`k_max × probe_count` classes per bucket), periodic circular RoPE
+  (frequencies `2π m / N`), a circular-backward mask, and SDPA.
+- **Decoder frontend**: Softmax reduction of surrogate logits into per-bucket `(amplitude, normalized DIB, entropy)` tokens (`prepare_lpap_decoder_batch`). Entropy is residual doubt; a sharp surrogate drives it toward 0. The soft amplitude `a_b` is the decoder CE weight after `detach`.
+- **Decoder**: A transformer that reconstructs dense energy from those compact
+  tokens (collision-set disambiguation + value placement). Source-index CE
+  uses stop-gradient weights `w_b = |a_b|.detach()`. See
+  [decoder loss](lpap.md#decoder-loss).
 - **Teacher**: A frozen model or exact operator used to supervise another model. The surrogate is supervised by exact LPAP targets.
 
 ## Flow Models

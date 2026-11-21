@@ -9,7 +9,7 @@ Start here when navigating the LPAP research stack.
 
 ## Training Stack
 
-- [Training stack notes](training-stack.md): model dependencies, checkpoint/logging policy, molab lab workflow, AE loss terms / lambda dialing, and the trainable model kinds.
+- [Training stack notes](training-stack.md): model dependencies, checkpoint/logging policy, molab lab workflow, AE loss terms / lambda dialing, image-retrain throughput, and the trainable model kinds.
 - [Sizing probes](sizing-probes.md): capacity / integration exploration before promoting new baselines.
 - [Image-to-energy implementation notes](image-to-energy-implementation.md): bidirectional image↔energy flow with signed log-normal prior at `t=0`.
 

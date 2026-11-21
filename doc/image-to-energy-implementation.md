@@ -23,4 +23,6 @@ The relevant durable surfaces are:
 After training, encode the image dataset once through the flow’s i2e branch to
 build an empirical energy bank for surrogate/decoder teachers. The image
 autoencoder loads one `flow_checkpoint_name` and clones its state into its
-image→energy and energy→image branches at initialization.
+image→energy and energy→image branches at initialization. When the image
+retrain pipeline enables bf16 autocast, both AE rollouts still integrate in
+fp32.

@@ -5,7 +5,7 @@ See the [documentation index](index.md) for the full documentation map and the [
 LPAP trains these model kinds via `lpap.training_notebook` helpers (molab workers
 and [`molab/lab.py`](../molab/lab.py)):
 
-- `surrogate`: learns full-`N` source-index logits for LPAP bucket selections on empirical i2e energy-bank rows.
+- `surrogate`: learns local `(dib, probe)` logits for LPAP bucket selections on empirical i2e energy-bank rows.
 - `decoder`: reconstructs source energy values from frozen surrogate logits (same energy bank).
 - `image_energy_flow`: one bidirectional flow with image at `t=-1`, signed log-normal energy prior at `t=0`, and image reconstruction at `t=+1`.
 - `image_autoencoder`: end-to-end grayscale AE (image → energy → LPAP surrogate/decoder → image) initialized by cloning the bidirectional flow.
@@ -61,7 +61,19 @@ Checkpoint payloads include:
 
 SQLite logs include run configuration, metadata, attempts, scalar KPIs, and checkpoint paths. SQLite is informational and ergonomic; checkpoints are authoritative for model-dependent configuration (including the concrete LPAP `permutation` tensor — regenerate from `permutation_seed` only for fresh runs via CPU `randperm(N)`; that seed is always drawn on CPU for device stability). Decoder and AE loads that require a surrogate checkpoint also require the saved `training_state.permutation` tensor.
 
-Teacher pairs use one shared file per pair under `configs/training/teacher_*.toml` (layout, bank, `k_max`, and `permutation_seed` live under `[pair]`). Launch with `--backend surrogate|decoder` against the same file; checkpoint stems remain `surrogate_{name}.pt` / `decoder_{name}.pt`.
+Pair loads (`validate_lpap_pair_matches_sequence_length`) require both
+`model_config`s to include `value_count`, `bucket_count`, `probe_count`, and
+`k_max`. Those four must agree, `value_count` must equal the energy length,
+`fold_order` must be `column_major` when present, and `frontend_mode` must be
+`surrogate` or `exact` when present. An embedded `model_config.surrogate` on
+the decoder must match the surrogate checkpoint on the same keys. The image
+autoencoder checks each pair's two `k_max` values before the forward
+(`_pair_k_max`). Surrogate RoPE tables are non-persistent, so a surrogate or
+autoencoder checkpoint trained for another frequency schedule loads and then
+runs under the live circular frequencies; regenerate it. See
+[lpap.md](lpap.md#surrogate-attention).
+
+Teacher pairs use one shared file per pair under `configs/training/teacher_*.toml` (layout, bank, `k_max`, and `permutation_seed` live under `[pair]`). Launch with `--backend surrogate|decoder` against the same file; checkpoint stems remain `surrogate_{name}.pt` / `decoder_{name}.pt`. Live teacher files use batch 128 and 7500 steps (`display_every = 25`, `log_every = 5`).
 
 Unit tests that assert TOML structure / teacher projection load fixtures from
 `test/resources/training/`, not live `configs/training/` (those are free to dial
@@ -149,8 +161,9 @@ latents as suspicious. Prefer judging energy scale from galleries / bank stats,
 not only signed-mass KPIs; consider lowering `λ_signed`, raising `tau`, or
 dropping the term until the interaction with the flow prior is better understood.
 
-Current AE defaults use **16-step** Euler in each direction, cloning
-`image_energy_flow.pt` into both AE flow branches, and a longer default budget of **20k** steps.
+Live `configs/training/image_autoencoder.toml` uses **4-step** Euler in each
+direction, batch 128, learning rate `4.0e-5`, and **17500** steps, cloning
+`image_energy_flow.pt` into both AE flow branches.
 
 ### Dialing AE lambdas
 
@@ -167,7 +180,33 @@ energy signs) before committing a long run.
 
 The metric dict also logs raw (unweighted) reconstruction terms, surrogate
 `weighted_accuracy`, signed-mass gap/floor/imbalance and per-side masses, plus
-RMS gauges for encoded/decoded energy and input/reconstructed image.
+RMS gauges. `encoded_energy_rms` and `image_rms` are shared.
+`decoded_energy_rms` and `reconstructed_image_rms` are the mean across pairs.
+Each pair also logs `decoded_energy_rms/<name>` and
+`reconstructed_image_rms/<name>` (and the per-pair loss / accuracy keys).
+
+## Image retrain pipeline
+
+`python -m lpap.retrain_image_pipeline` reads
+`configs/training/retrain_image_pipeline.toml`. Stages are surrogates,
+decoders, the image autoencoder, and a decoder-only exact-LPAP fine-tune
+(`[decoder_exact_finetune]`, 750 steps at the AE batch).
+
+`[performance]` (`PipelinePerformanceConfig`):
+
+- `autocast_dtype = "bf16"` wraps each stage in
+  `torch.autocast(dtype=bfloat16, cache_enabled=False)`. The cache stays off
+  because one context covers the whole stage: autocast clears its weight-cast
+  cache only on exit, so a cached bf16 copy would survive optimizer steps.
+  CUDA bf16 requires `torch.cuda.is_bf16_supported()`; any other non-CPU
+  device raises before stages start. CPU bf16 is accepted.
+- `allow_tf32` turns on TF32 matmul and cuDNN.
+- `energy_bank_on_device` keeps the teacher bank on the training device.
+- `compile_flows` wraps each AE flow `forward` with `torch.compile`.
+  State-dict keys stay the same.
+
+Both flow directions integrate in fp32 inside that autocast (autocast
+disabled, inputs cast with `.float()`). Transformer attention is SDPA.
 
 ## Flow Training Factorization
 

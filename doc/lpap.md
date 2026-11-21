@@ -58,8 +58,9 @@ In the learned stack this splits into three parts:
     `(buckets, normalize_lpap_dibs(dibs), 0)` directly from `lpap_tokens_torch`
     or `lpap_tokens_triton`.
 - **Decoder** (`LPAPDecoderTransformer`) rebuilds the length-`N` energy from
-  that compact table with an optional adaptive weighted source-CE regularizer
-  against global source indices recovered via `local_classes_to_source_indices`.
+  that compact table. Source-index cross-entropy is an adaptive regularizer
+  on global indices from `local_classes_to_source_indices`; its bucket weights
+  are stop-gradient. See [Decoder loss](#decoder-loss).
 
 ## Current Model Context
 
@@ -120,9 +121,48 @@ both `fold_order = "column_major"` and the concrete `permutation` tensor;
 surrogate, decoder, and AE loaders read and validate the stored permutation and
 fold order on resume.
 
-The surrogate model consumes `C` tokens of dimension `P = N // C`. Its local
-RoPE attention mask is circular-backward: bucket token `i` attends to the
-rolled source lanes that LPAP inspects, `(i - roll) mod C` for `roll < k_max`.
+## Decoder loss
+
+`lpap_decoder_loss` scatters the frontend amplitude through a softmax over
+source indices, then adds a weighted source-index cross-entropy. For bucket
+`b`, `a_b` is the soft input amplitude
+`Σ_c softmax(z_b / τ)_c · visible_{b,c}` (exact LPAP bucket value in exact
+mode), `ℓ_b` are the decoder logits, `s_b` is the target source index, and
+`x` is the energy:
+
+```text
+ê  = Σ_b softmax(ℓ_b) · a_b
+L1 = mean(|ê − x|)
+w_b = |a_b|.detach()          # exact mode: w_b = |a_b| on the exact amplitude
+CE = Σ_b w_b · CE(ℓ_b, s_b) / Σ_b w_b
+λ  = λ_0 · clamp(L1.detach() / L1_ref, 0, 1) ^ p
+loss = L1 + λ · CE
+```
+
+`w_b` only rescales the CE. On the soft frontend it is detached, so the CE
+term does not train `a_b` (temperature or surrogate logits). The amplitude
+token and the reconstruction scatter still carry gradient. Teacher TOMLs set
+`λ_0 = source_ce_weight = 0.1`, `L1_ref = 0.05`, `p = 2`.
+
+## Surrogate attention
+
+The surrogate model consumes `C` tokens of dimension `P = N // C`. Its
+attention mask is circular-backward: bucket token `i` attends to the rolled
+source lanes that LPAP inspects, `(i - roll) mod C` for `roll < k_max`.
+Surrogate and decoder blocks attend with `scaled_dot_product_attention`.
+The boolean mask uses `True` = may attend, and every LPAP mask keeps the
+diagonal.
+
+Surrogate blocks (`circular=True`) use periodic circular RoPE. With `N = C`
+tokens and rotary pairs `m = 1 .. head_dim // 2`, the frequencies are
+`2π m / N`, so a shift of `N` positions is the identity and a circular lane
+shift stays equivariant with the mask. Cosine and sine tables are
+non-persistent buffers, rebuilt on the forward from token count, dtype, and
+device; checkpoints do not store them. Surrogate and autoencoder weights
+trained for a different frequency schedule load with no missing-key error
+and then run under these frequencies, so their outputs are wrong. Regenerate
+those checkpoints with the circular schedule. The decoder transformer keeps
+the standard RoPE base `10000` (`circular=False`).
 
 ## Tensor View (Column-Major Fold)
 

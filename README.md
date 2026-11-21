@@ -95,6 +95,11 @@ Tri-pair AE (`c128_k16` / `c256_k24` / `c512_k32`) on 32×32 grayscale, 4 Euler
 steps per flow direction, batch 64 (~5.6 epochs at 117k steps;
 `image_autoencoder_tri_lnorm_4step`).
 
+Checked-in [`configs/training/image_autoencoder.toml`](configs/training/image_autoencoder.toml):
+batch 128, learning rate `4.0e-5`, 4 Euler steps, 17500 steps
+(`image_autoencoder_tri_lnorm-v2`). Retrain throughput is `[performance]` in
+the [training stack](doc/training-stack.md#image-retrain-pipeline).
+
 ![AE gallery](doc/assets/ae-gallery.png)
 
 ![AE training curves](doc/assets/ae-training-curves.png)
