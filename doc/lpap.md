@@ -2,16 +2,17 @@
 
 See the [documentation index](index.md) for the full documentation map and the [glossary](glossary.md) for short definitions of LPAP terms.
 
-Linear Probing Amplitude Pooling, or LPAP, is a pooling operator for reducing a flat tensor of `N` values into a compact table of `C` buckets, where `N` is a multiple of `C`. The operator also receives a maximum roll count, `k_max`, which bounds how far the probing process may advance.
+Linear Probing Amplitude Pooling, or LPAP, is a pooling operator for reducing a flat tensor of `N` values into a compact table of `C` buckets, where `N > 0`, `N % C == 0`, and `1 <= k_max <= C`. The maximum roll count `k_max` bounds how far probing advances.
 
-The operator keeps two small table tensors. The table is always semantically full, even when it contains zeros:
+The operator tracks two output table tensors along with explicit occupancy flags:
 
-- `buckets`: `C` pooled values selected by largest amplitude.
-- `dibs`: `C` integer distances to the selected values' initial buckets.
+- `buckets`: `C` pooled values selected by largest absolute amplitude.
+- `dibs`: `C` integer distances in `[0, k_max - 1]` from each selected value's initial bucket.
+- `bucket_valid`: `C` boolean flags marking whether a bucket holds a real value (initialized `False`).
 
-It also uses an integer work tensor shaped like the projected input view. This tensor stores per-position offsets, called `dibs_diff` here, that are later combined with a roll counter to recover the distance information for values that are displaced and then re-enter the table.
+It also maintains working copies of the folded input (`work`, initialized from `values` without mutating the input), per-slot validity (`work_valid`, initialized `True`), per-slot probe indices (`work_probe`), and per-slot distance offsets (`dibs_diff`, initialized `0`) that reconstruct exact distances when displaced values re-enter the table.
 
-In practice, LPAP is intended to run batched. A single example has input shape `N`, bucket shape `C`, and dib shape `C`; a batched call can be understood as applying that same operator independently across a leading batch dimension, like the result of `vmap`:
+In practice, LPAP runs batched. A single example has input shape `N`, bucket shape `C`, and dib shape `C`; a batched call applies the same operator independently across arbitrary leading batch dimensions:
 
 ```text
 values:  B x N
@@ -19,51 +20,54 @@ buckets: B x C
 dibs:    B x C
 ```
 
-Additional leading dimensions can be treated the same way, as long as each independent item still satisfies `N % C == 0`.
-
 ## Why Amplitude And DIB (Inverting The Table)
 
 LPAP is not bare top-`k`. Each kept peak is an **amplitude** plus a **DIB**
 (bucket-modulo location). In linear-probing language, the DIB pins the source
-only up to a **collision set**: every index compatible with that bucket class /
-probe residue. A single `(amplitude, DIB)` is therefore underdetermined for
+only up to a **collision set**: every index compatible with that bucket class
+and probe residue. A single `(amplitude, DIB)` is therefore underdetermined for
 exact placement on the length-`N` latent.
 
 The design bet is that the **whole table** is enough to invert: given all
-buckets’ values and collision sets together, attention can **cross-reference**
-peaks and pick, for each bucket, which member of its set is consistent — then
-write a dense energy. Coarse `C` tends to keep near the strongest magnitudes
-(global sketch); larger `C` adds the next amplitude tiers. That soft
-size-ordering — not a nested basis — is what makes several `C`s in parallel a
-path toward a **progressively compressible** latent. See also the
-[permutation note](lpap-pseudocode.md#notes-on-the-figure): a seeded random
-permutation keeps structured locality from aligning with the fold lanes.
+buckets' values and collision sets together, attention cross-references peaks
+and selects, for each bucket, which member of its collision set is consistent,
+then writes a dense energy. Coarse `C` tends to keep the strongest magnitudes
+(global sketch); larger `C` adds the next amplitude tiers. Running several `C`
+values in parallel creates a path toward a **progressively compressible**
+latent. See also the [permutation note](lpap-pseudocode.md#notes-on-the-figure):
+a fixed seeded random permutation keeps structured locality from aligning with
+the fold lanes.
 
-In the learned stack this splits cleanly:
+In the learned stack this splits into three parts:
 
-- **Surrogate** emulates LPAP: from folded energy it predicts which sources land
-  in which buckets (full-`N` source-index logits).
-- **Decoder frontend** (`prepare_lpap_decoder_batch`) softmax-reduces those
-  logits (with a temperature) into per-bucket tokens
-  `(amplitude, normalized DIB, entropy)`. Amplitude is a soft expectation over
-  sources; DIB is taken from the argmax source; **entropy** is residual doubt
-  about the distribution. A perfect surrogate collapses this to near-exact LPAP
-  `(a, d)` with entropy ≈ 0 (the entropy channel remains, but carries ~0).
-- **Decoder** then rebuilds energy from that compact table — the collision-set
-  disambiguation story above — with an optional source-CE regularizer.
-
-So amplitude + DIB are not bookkeeping extras: they are a compact pooled code
-that is not strictly invertible alone, but that an autoencoder can often make
-*effectively* invertible by shaping the latent so collision-set ambiguities
-rarely remain after cross-bucket attention.
+- **Surrogate** (`LPAPSurrogateTransformer`) emulates LPAP: from column-major
+  folded energy `(B, C, P)` it predicts local `(dib, probe)` logits of shape
+  `(B, C, k_max * P)`, where class index `c = dib * P + probe` identifies both
+  the circularly preceding source lane `(bucket - dib) mod C` and the probe slot
+  `probe`.
+- **Decoder frontend** (`prepare_lpap_decoder_batch`) gathers the `k_max * P`
+  visible candidates for each bucket, softmax-reduces the local logits at a
+  learned positive temperature into per-bucket tokens
+  `(amplitude, normalized DIB, entropy)`:
+  - `amplitude` is the soft expectation over the `k_max * P` visible candidates.
+  - `dib = argmax(local_logits) // P`, normalized by `max(k_max - 1, 1)` via
+    `normalize_lpap_dibs`.
+  - `entropy` measures residual uncertainty over the `k_max * P` local classes.
+  - Exact-LPAP inference and decoder-only fine-tuning use
+    `prepare_exact_lpap_decoder_batch`, which feeds exact
+    `(buckets, normalize_lpap_dibs(dibs), 0)` directly from `lpap_tokens_torch`
+    or `lpap_tokens_triton`.
+- **Decoder** (`LPAPDecoderTransformer`) rebuilds the length-`N` energy from
+  that compact table with an optional adaptive weighted source-CE regularizer
+  against global source indices recovered via `local_classes_to_source_indices`.
 
 ## Current Model Context
 
-The training stack uses LPAP as a supervised target for the surrogate and as the
-recipe for the decoder’s compact `(amplitude, DIB[, entropy])` tokens. The
-diagram is the image-autoencoder forward path. Teacher training runs the same
-inner LPAP block on length-`N` rows from an empirical i2e energy bank (offline
-encodings of the same kind of energy).
+The training stack uses LPAP as the supervised target for the surrogate and as
+the recipe for the decoder's compact `(amplitude, normalized DIB, entropy)`
+tokens. The diagram shows the image-autoencoder forward path. Teacher training
+runs the same inner LPAP block on length-`N` rows from an empirical i2e energy
+bank.
 
 ```mermaid
 flowchart TD
@@ -71,12 +75,12 @@ flowchart TD
     i2e[Image→energy flow]
     energy[Encoded length-N energy]
     permute[Fixed seeded random permutation]
-    fold["Fold to C × (N/C) tokens"]
+    fold["Column-major fold to C × (N/C) tokens"]
     surrogate[Surrogate transformer]
     teacher[Exact LPAP teacher]
-    logits[Full-N source-index logits]
+    logits["Local (dib, probe) logits (k_max × P)"]
     frontend[Decoder frontend]
-    tokens["(amplitude, DIB, entropy) tokens"]
+    tokens["(amplitude, normalized DIB, entropy) tokens"]
     decoder[Decoder transformer]
     recon[Decoded length-N energy]
     e2i[Energy→image flow]
@@ -85,148 +89,133 @@ flowchart TD
     image --> i2e --> energy --> permute --> fold
     fold --> surrogate --> logits
     fold --> teacher
-    teacher -. "λ_ce · weighted teacher CE" .-> logits
-    energy --> frontend
+    teacher -. "λ_ce · weighted local teacher CE" .-> logits
+    fold --> frontend
     logits --> frontend --> tokens --> decoder --> recon
     recon --> e2i --> image_hat
     energy -. "λ_energy · L1" .-> recon
     image -. "λ_image · L2" .-> image_hat
 ```
 
-Code paths: `prepare_lpap_surrogate_batch`, `lpap_surrogate_targets`,
-`prepare_lpap_decoder_batch`, and AE loss assembly.
+Code paths: `lpap_tokens_torch` / `lpap_tokens_triton` (single LPAP operator
+source of truth), `prepare_lpap_surrogate_batch`, `lpap_surrogate_targets`,
+`prepare_lpap_decoder_batch`, `prepare_exact_lpap_decoder_batch`, and AE loss
+assembly.
 
-- Teacher and surrogate both consume the permuted/folded tokens. Weighted CE
-  compares exact LPAP targets to the full-`N` source-index **logits**.
+- Teacher and surrogate consume the same permuted, column-major folded tokens.
+  Weighted cross-entropy compares exact LPAP local targets
+  `local_class = dib * P + probe` against the surrogate's `k_max * P` local
+  logits, weighted by `|bucket|`.
 - The decoder transformer consumes frontend tokens
-  `(amplitude, DIB, entropy)`. Amplitudes are a soft expectation of encoded
-  energy under the surrogate distribution.
+  `(amplitude, normalized DIB, entropy)`. Amplitudes are a soft expectation over
+  the `k_max * P` visible candidates under the surrogate distribution (or exact
+  LPAP amplitudes with zero entropy in exact mode).
 - Surrogate/decoder teacher runs end at decoded energy. Image L2 and `e2i`
   belong to the autoencoder. The bidirectional flow prior at `t=0` is signed
   log-normal (`σ`, `scale`) when training `image_energy_flow`.
 
-The permutation is seeded once and fixed for training: CPU `randperm(N)` from
-`permutation_seed`, then moved to the training device so the seed is
-device-stable. Checkpoints store the concrete permutation tensor and loaders
-read that tensor. It acts as the LPAP front end: the fold into `C` buckets no
-longer sees contiguous source locality aligned with bucket lanes. The inverse
-permutation returns values to the original energy ordering.
+The permutation is seeded once on CPU (`randperm(N)` from `permutation_seed`)
+and moved to the training device so it is device-stable. Checkpoints record
+both `fold_order = "column_major"` and the concrete `permutation` tensor;
+surrogate, decoder, and AE loaders read and validate the stored permutation and
+fold order on resume.
 
-The surrogate model consumes `C` tokens of dimension `N // C`. Its local RoPE
-attention mask is circular-backward: bucket token `i` can attend to the rolled
-source lanes that LPAP may inspect, `(i - roll) mod C` for `roll < k_max`. It
-predicts full-`N` source-index logits for each output bucket. The training loss
-is weighted cross entropy, with per-bucket weights equal to the absolute
-selected amplitudes.
+The surrogate model consumes `C` tokens of dimension `P = N // C`. Its local
+RoPE attention mask is circular-backward: bucket token `i` attends to the
+rolled source lanes that LPAP inspects, `(i - roll) mod C` for `roll < k_max`.
 
-The decoder reconstructs source energy from frontend tokens built from
-surrogate logits (frozen during decoder teacher training); see
-[Why amplitude and DIB](#why-amplitude-and-dib-inverting-the-table). Decoder
-training uses a reconstruction objective plus an adaptive weighted source-logit
-cross-entropy regularizer.
+## Tensor View (Column-Major Fold)
 
-## Tensor View
-
-Given an input tensor with `N` elements and a bucket count `C`, LPAP views the input as:
+Given an input tensor `values` with `N` elements (`N > 0`, `N % C == 0`,
+`P = N // C`), LPAP folds flat positions in **column-major** order
+(`LPAP_FOLD_ORDER = "column_major"`):
 
 ```text
-C x (N // C)
+tokens[b, p] = values[p * C + b]    for b in 0..C-1, p in 0..P-1
 ```
 
-Each row corresponds to one initial bucket. Each column corresponds to one probe position for that bucket.
-
-For example, if `C = 4` and `N = 16`, the input is interpreted as four bucket lanes with four probe positions each.
+Each row `b` is one initial bucket lane of length `P`. Each column `p` is one
+probe position across all buckets. `fold_permutation_tokens` and
+`unfold_permutation_tokens` implement this bijection (`values.reshape(*batch, P, C).movedim(-1, -2)`),
+and `lpap_torch`, `lpap_triton`, `lpap_surrogate_targets`, and
+`animations/lpap_operator.py` all share it.
 
 ## Projection Step
 
-At each projection step, LPAP compares values by amplitude, using `abs(value)`, along the probe dimension of each bucket lane.
+At each roll step `k = 0 .. k_max - 1`, bucket `i` inspects source lane
+`lane = (i - k) mod C`:
 
-For every bucket lane:
-
-1. Find the index of the value with the largest absolute amplitude.
-2. Compare that value against the current table value for the corresponding bucket.
-3. Use the integer work tensor at the selected position as that value's local displacement.
-
-The integer work tensor is initialized with zeros. When a table value is swapped back into the projected view, the work tensor stores the adjusted distance state needed to reconstruct that displaced value's DIB on a later projection.
+1. Mask out slots where `work_valid` is `False` or `work` is `NaN`.
+2. Select `j = argmax_p |work[lane, p]|` among valid finite slots.
+3. Compute `candidate = work[lane, j]` and `candidate_dib = k + dibs_diff[lane, j]`.
+4. Accept when `has_valid_candidate` and either `not bucket_valid[i]` or
+   `|candidate| >= |buckets[i]|`.
 
 ## Collision And Swap-Back
 
-The table always contains values. There is no empty-bucket or full-bucket state: a table initialized with zeros is still full of zero values.
+Buckets begin empty (`bucket_valid = False`). Empty buckets accept any valid
+finite candidate (including a real `0.0` in the input) and write `work_valid = False`
+back into the vacated candidate slot rather than swapping a phantom zero back
+into `work`.
 
-When a projected value has amplitude greater than or equal to the current table value, LPAP swaps the existing table content back into the input tensor in place. This preserves displaced values so they can be considered by later projection steps.
+When an occupied bucket (`bucket_valid = True`) is displaced by a candidate
+with `|candidate| >= |buckets[i]|`, the previous bucket entry swaps back into
+`work[lane, j]` with:
 
-The swap-back updates both value and distance state:
+- `work[lane, j] = old_bucket`
+- `work_valid[lane, j] = True`
+- `dibs_diff[lane, j] = old_dib - k`
+- `work_probe[lane, j] = old_probe`
 
-- The old bucket value is written back into the input tensor.
-- Its associated distance information is preserved through the integer work tensor.
-- If the displaced value later returns to the table, its final dib can be reconstructed.
-
-## Rolling And DIB Computation
-
-After each projection attempt, LPAP advances the probing process by rolling the projected tensors by one position and incrementing a roll counter `k`. The process stops when `k` reaches `k_max`.
-
-Conceptually:
-
-```text
-k = k + 1
-roll(value_view, shift=1)
-roll(dibs_diff_view, shift=1)
-```
-
-When a value is projected into a bucket after rolling, its distance to its initial bucket is computed as:
-
-```text
-dib = k + dibs_diff
-```
-
-Here:
-
-- `k` counts how many probing rolls have occurred.
-- `dibs_diff` is the local offset stored in the integer work tensor.
-
-Together, they describe how far the value has traveled from its initial bucket before landing in the table.
-
-## Equivalent Rolling Strategy
-
-Instead of rolling the larger `C x (N // C)` projected views, an implementation may roll the smaller `buckets` and `dibs` tensors. The two strategies describe the same probing process, but rolling the smaller tensors may be preferable for an optimized implementation.
+If that displaced value re-enters another bucket on a later roll `k' > k`, its
+reconstructed DIB is `k' + (old_dib - k)`, which equals its exact distance from
+its original lane. Because `1 <= k_max <= C`, every valid DIB lies in
+`[0, k_max - 1]`.
 
 ## High-Level Algorithm
 
 ```text
 input: values with N elements, bucket count C, maximum roll count k_max
-require: N % C == 0
+require: N > 0, N % C == 0, 1 <= k_max <= C
 
-view values as C x (N // C)
-initialize buckets as zeros with shape C
-initialize dibs as zeros with shape C
-initialize dibs_diff as zeros with shape C x (N // C)
-initialize roll counter k = 0
+P = N // C
+work = column_major_fold(values, C, P)    # copy; input values is untouched
+work_valid = ones(C, P, dtype=bool)
+work_probe = broadcast(0..P-1, (C, P))
+dibs_diff = zeros(C, P, dtype=int64)
+buckets = zeros(C)
+dibs = zeros(C, dtype=int64)
+bucket_probes = zeros(C, dtype=int64)
+bucket_valid = zeros(C, dtype=bool)
 
-repeat while k < k_max:
-    for each bucket lane:
-        index = argmax(abs(values in lane))
-        candidate = values[lane, index]
-        candidate_dib = k + dibs_diff[lane, index]
+for k in 0 .. k_max - 1:
+    lane_i = (i - k) mod C                # for each bucket i in 0..C-1
+    valid_lane = work_valid[lane_i] & ~isnan(work[lane_i])
+    scores = where(valid_lane, abs(work[lane_i]), -1.0)
+    j_i = argmax(scores, dim=-1)
+    has_cand_i = scores[j_i] >= 0.0
+    cand_i = work[lane_i, j_i]
+    cand_dib_i = k + dibs_diff[lane_i, j_i]
+    cand_probe_i = work_probe[lane_i, j_i]
 
-        if abs(candidate) >= abs(current bucket value):
-            swap current bucket value and dib back into values in place
-            preserve its adjusted distance in dibs_diff
-            write candidate into target bucket
-            write candidate_dib into target dib
+    take_i = has_cand_i & (~bucket_valid[i] | (abs(cand_i) >= abs(buckets[i])))
+    where take_i:
+        work[lane_i, j_i] = where(bucket_valid[i], buckets[i], 0.0)
+        work_valid[lane_i, j_i] = bucket_valid[i]
+        dibs_diff[lane_i, j_i] = where(bucket_valid[i], dibs[i] - k, 0)
+        work_probe[lane_i, j_i] = where(bucket_valid[i], bucket_probes[i], j_i)
+        buckets[i] = cand_i
+        dibs[i] = cand_dib_i
+        bucket_probes[i] = cand_probe_i
+        bucket_valid[i] = True
 
-    roll probing state by one position
-    k = k + 1
-
-output: buckets, dibs, modified input values
+remaining = column_major_unfold(where(work_valid, work, 0.0))
+output: buckets, dibs, bucket_probes, remaining
 ```
 
 ## Implementation Notes
 
-- Amplitude comparison uses absolute value, but the original signed value is preserved in the bucket.
-- The input tensor is modified in place during swap-back.
-- There are no empty table entries. Zero is a valid table value.
-- The integer `dibs_diff` tensor is working state, not the final dib output.
-- The final `dibs` tensor records distances to initial buckets for values that land in the table.
-- `k_max` bounds the probing work and prevents unbounded rolling when values keep being displaced.
-- Batched execution should apply the same logic independently for each batch item.
-- A GPU implementation should avoid materializing expensive rolls when index arithmetic or rolling the smaller table state is enough.
+- Amplitude comparison uses `abs(value)` while preserving the signed value in `buckets` and `remaining`.
+- The PyTorch reference (`lpap_tokens_torch`) uses fixed-shape `torch.roll`, `torch.gather`, and `torch.where` with zero boolean-mask CPU-GPU syncs and full autograd support.
+- The Triton implementation (`lpap_tokens_triton` / `lpap_triton`) runs the same column-major algorithm on CUDA with dynamic loops, `int64` offsets, typed stores, `NaN`/`B == 0` guards, and raises `RuntimeError` if `requires_grad` is set. `triton` is imported lazily so CPU-only environments work without `triton`.
+- Global source indices are recovered deterministically from `(dibs, bucket_probes)` and `permutation`: `flat_perm_pos = bucket_probes * C + (bucket_index - dibs) % C`, then `source_index = permutation[flat_perm_pos]`.

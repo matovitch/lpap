@@ -15,31 +15,38 @@
 {\large\bfseries Linear Probing Amplitude Pooling}\\[0.35em]
 {\small
 $V \in \mathbb{R}^{C \times P}$,
+$U \in \{0,1\}^{C \times P}$,
 $\Delta \in \mathbb{Z}^{C \times P}$,
 $a \in \mathbb{R}^{C}$,
 $d \in \mathbb{Z}^{C}$,
+$v \in \{0,1\}^{C}$,
 $P = N/C$
 }
 
 \begin{algorithmic}[1]
-\Require $x \in \mathbb{R}^{N}$,\; $C$,\; $K$ \Comment{$N \bmod C = 0$}
+\Require $x \in \mathbb{R}^{N}$,\; $C$,\; $K$ \Comment{$N > 0,\; N \bmod C = 0,\; 1 \le K \le C$}
 \Ensure $a \in \mathbb{R}^{C}$,\; $d \in \mathbb{Z}^{C}$
-\State $V \gets \mathrm{reshape}(x,\, C \times P)$
-\State $\Delta \gets 0_{C \times P}$;\;
+\State $V[b, p] \gets x[p \cdot C + b]$ \Comment{column-major copy}
+\State $U \gets 1_{C \times P}$;\;
+       $\Delta \gets 0_{C \times P}$;\;
        $a \gets 0_{C}$;\;
-       $d \gets 0_{C}$
+       $d \gets 0_{C}$;\;
+       $v \gets 0_{C}$
 \For{$k = 0,\ldots,K-1$}
   \State $\ell_i \gets (i - k) \bmod C$
          \Comment{$\forall\, i \in \{0,\ldots,C-1\}$}
-  \State $j_i \gets \arg\max_{p}\, |V[\ell_i,\, p]|$
-  \State $c_i \gets V[\ell_i,\, j_i]$
-  \State $\hat{d}_i \gets \Delta[\ell_i,\, j_i] + k$
-  \State $m_i \gets \bigl(|c_i| \ge |a_i|\bigr)$
+  \State $s_{i,p} \gets \text{if } U[\ell_i,p] \land \mathrm{finite}(V[\ell_i,p]) \text{ then } |V[\ell_i,p]| \text{ else } -1$
+  \State $j_i \gets \arg\max_{p}\, s_{i,p}$
+  \State $c_i \gets V[\ell_i,\, j_i]$;\;
+         $\hat{d}_i \gets \Delta[\ell_i,\, j_i] + k$
+  \State $m_i \gets (s_{i,j_i} \ge 0) \land \bigl(\neg v_i \lor |c_i| \ge |a_i|\bigr)$
   \Where{$m$}
-    \State $V[\ell,\, j] \gets a$
-    \State $\Delta[\ell,\, j] \gets d - k$
-    \State $a \gets c$
-    \State $d \gets \hat{d}$
+    \State $V[\ell,\, j] \gets \text{if } v \text{ then } a \text{ else } 0$;\;
+           $U[\ell,\, j] \gets v$
+    \State $\Delta[\ell,\, j] \gets \text{if } v \text{ then } d - k \text{ else } 0$
+    \State $a \gets c$;\;
+           $d \gets \hat{d}$;\;
+           $v \gets 1$
   \EndWhere
 \EndFor
 \State \Return $a$,\; $d$
@@ -50,11 +57,12 @@ $P = N/C$
 \textbf{Notes.}
 \begin{enumerate}
   \itemsep0.25em
-  \item The reference implementation also returns $\mathrm{flatten}(V)$, the
-        residual work array after in-place swap-backs. It is scratch state,
-        not part of the pooled representation $(a,d)$; $\Delta$ likewise.
+  \item The reference implementation copies $x$ into $V$ (leaving $x$ unmodified)
+        and also returns the unfolded residual work array (zeroed where $U = 0$)
+        and per-bucket probe indices. Residual work, $U$, $v$, and $\Delta$ are
+        internal state, not part of the pooled representation $(a,d)$.
   \item In the full stack, a fixed seeded \emph{random permutation} is applied
-        to $x$ before this procedure and inverted afterward, so structured
+        to $x$ before column-major folding and inverted afterward, so structured
         locality in the input does not align with the folded bucket lanes.
 \end{enumerate}
 }
