@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import torch
+import torch.nn.functional as torch_functional
 from torch import nn
 
 
@@ -91,16 +92,17 @@ class RotarySelfAttention(nn.Module):
         query = apply_rope(query, cosines=cosines, sines=sines)
         key = apply_rope(key, cosines=cosines, sines=sines)
 
-        scores = query @ key.transpose(-2, -1) / (self.head_dim**0.5)
+        # Fused attention (flash / memory-efficient kernels): avoids materializing
+        # the (batch, heads, tokens, tokens) score tensor. Boolean masks use the
+        # same convention as before (True = may attend); every LPAP mask keeps
+        # the diagonal, so no row is fully masked.
         if attention_mask is not None:
             if attention_mask.device != tokens.device:
                 attention_mask = attention_mask.to(device=tokens.device)
-            scores = scores.masked_fill(
-                ~attention_mask[None, None, :, :],
-                torch.finfo(scores.dtype).min,
-            )
-        attention = torch.softmax(scores, dim=-1)
-        attended = attention @ value
+            attention_mask = attention_mask[None, None, :, :]
+        attended = torch_functional.scaled_dot_product_attention(
+            query, key, value, attn_mask=attention_mask
+        )
         attended = attended.transpose(1, 2).reshape(
             batch_count, token_count, self.hidden_dim
         )

@@ -312,6 +312,39 @@ class RetrainImagePipelineTest(unittest.TestCase):
             cfg.decoder_exact_finetune.log_name,
             "image_autoencoder_tri_exact_ft-v2.sqlite",
         )
+        self.assertEqual(cfg.performance.autocast_dtype, "bf16")
+        self.assertTrue(cfg.performance.energy_bank_on_device)
+
+    def test_performance_defaults_keep_fp32_behaviour(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cfg = load_retrain_pipeline_config(
+                _write_tiny_pipeline_workspace(Path(temp_dir))
+            )
+        self.assertEqual(cfg.performance.autocast_dtype, "none")
+        self.assertFalse(cfg.performance.allow_tf32)
+        self.assertFalse(cfg.performance.energy_bank_on_device)
+        self.assertFalse(cfg.performance.compile_flows)
+
+    def test_cpu_smoke_with_bf16_autocast_and_bank_on_device(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            pipeline_path = _write_tiny_pipeline_workspace(root)
+            with pipeline_path.open("a", encoding="utf-8") as handle:
+                handle.write(
+                    "\n[performance]\nautocast_dtype = \"bf16\"\n"
+                    "energy_bank_on_device = true\n"
+                )
+            cfg = load_retrain_pipeline_config(pipeline_path)
+            self.assertEqual(cfg.performance.autocast_dtype, "bf16")
+            results = run_image_retrain_pipeline(
+                project_root=root, config=cfg, device="cpu"
+            )
+            self.assertEqual(len(results), 6)
+            for item in results:
+                self.assertTrue(Path(item.checkpoint_path).is_file())
+                loss = item.last_metrics.get("loss")
+                self.assertIsNotNone(loss)
+                self.assertTrue(loss == loss, f"NaN loss in {item.name}")
 
     def test_end_to_end_cpu_smoke_runs_all_four_stages(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

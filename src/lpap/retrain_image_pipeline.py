@@ -88,6 +88,28 @@ class DecoderExactFinetuneConfig:
 
 
 @dataclass(frozen=True)
+class PipelinePerformanceConfig:
+    """GPU throughput knobs (defaults keep the original fp32 behaviour).
+
+    ``autocast_dtype``: ``"none"`` or ``"bf16"``; wraps every stage in CUDA
+    autocast. AE flows always integrate in fp32 regardless (see
+    ``ImageAutoencoderModel``). ``allow_tf32`` enables TF32 matmul/cuDNN.
+    ``energy_bank_on_device`` moves the teacher bank to the training device.
+    ``compile_flows`` wraps AE flow ``forward`` methods with ``torch.compile``
+    (state-dict keys are unchanged).
+    """
+
+    autocast_dtype: str = "none"
+    allow_tf32: bool = False
+    energy_bank_on_device: bool = False
+    compile_flows: bool = False
+
+    def validate(self) -> None:
+        if self.autocast_dtype not in ("none", "bf16"):
+            raise ValueError("performance.autocast_dtype must be 'none' or 'bf16'")
+
+
+@dataclass(frozen=True)
 class RetrainPipelineConfig:
     flow_checkpoint: str
     energy_bank: str
@@ -103,6 +125,7 @@ class RetrainPipelineConfig:
     run_autoencoder: bool = True
     run_decoder_exact_finetune: bool = True
     decoder_exact_finetune: DecoderExactFinetuneConfig = DecoderExactFinetuneConfig()
+    performance: PipelinePerformanceConfig = PipelinePerformanceConfig()
 
     def validate(self) -> None:
         if not self.teacher_configs:
@@ -116,6 +139,7 @@ class RetrainPipelineConfig:
         if not self.autoencoder_config.strip():
             raise ValueError("pipeline.autoencoder_config must be non-empty")
         self.decoder_exact_finetune.validate()
+        self.performance.validate()
 
     def enabled_stages(self) -> tuple[PipelineStage, ...]:
         flags: tuple[tuple[PipelineStage, bool], ...] = (
@@ -146,6 +170,7 @@ def load_retrain_pipeline_config(path: str | Path) -> RetrainPipelineConfig:
         raise ValueError(f"pipeline TOML missing [pipeline]: {config_path}")
     stages = data.get("stages") or {}
     exact_raw = data.get("decoder_exact_finetune") or {}
+    perf_raw = data.get("performance") or {}
     config = RetrainPipelineConfig(
         flow_checkpoint=str(pipeline["flow_checkpoint"]),
         energy_bank=str(pipeline["energy_bank"]),
@@ -186,6 +211,12 @@ def load_retrain_pipeline_config(path: str | Path) -> RetrainPipelineConfig:
                     "comment", "decoder-only exact LPAP fine-tune of tri-pair AE (v2)"
                 )
             ),
+        ),
+        performance=PipelinePerformanceConfig(
+            autocast_dtype=str(perf_raw.get("autocast_dtype", "none")),
+            allow_tf32=bool(perf_raw.get("allow_tf32", False)),
+            energy_bank_on_device=bool(perf_raw.get("energy_bank_on_device", False)),
+            compile_flows=bool(perf_raw.get("compile_flows", False)),
         ),
     )
     config.validate()
@@ -279,6 +310,36 @@ def _ensure_prerequisites(
             raise FileNotFoundError(f"missing image dataset: {dataset_path}")
 
 
+def _stage_autocast(perf: PipelinePerformanceConfig, device: Any) -> Any:
+    import contextlib
+
+    import torch
+
+    if perf.autocast_dtype != "bf16":
+        return contextlib.nullcontext()
+    if device is not None:
+        target = torch.device(device)
+    else:
+        target = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    return torch.autocast(device_type=target.type, dtype=torch.bfloat16)
+
+
+def _bank_to_device(session: Any, perf: PipelinePerformanceConfig) -> Any:
+    if not perf.energy_bank_on_device:
+        return session
+    return replace(session, energy_bank=session.energy_bank.to(session.device))
+
+
+def _maybe_compile_flows(session: Any, perf: PipelinePerformanceConfig) -> None:
+    if not perf.compile_flows:
+        return
+    import torch
+
+    for name in ("image_to_energy_flow", "energy_to_image_flow"):
+        flow = getattr(session.model, name)
+        flow.forward = torch.compile(flow.forward, dynamic=False)
+
+
 def _consume_training_iter(
     iterator: Any,
     *,
@@ -359,6 +420,12 @@ def run_image_retrain_pipeline(
         else bool(notify_on_finished)
     )
     overrides = step_overrides or {}
+    perf = config.performance
+    if perf.allow_tf32:
+        import torch
+
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
 
     results: list[RetrainStageResult] = []
     current_stage = "prerequisites"
@@ -382,24 +449,28 @@ def run_image_retrain_pipeline(
                             surrogate_cfg.run, steps=int(overrides["surrogates"])
                         ),
                     )
-                session = create_lpap_surrogate_training_session(
-                    project_root=root,
-                    config=surrogate_cfg,
-                    device=device,
+                session = _bank_to_device(
+                    create_lpap_surrogate_training_session(
+                        project_root=root,
+                        config=surrogate_cfg,
+                        device=device,
+                    ),
+                    perf,
                 )
                 session.training_run.config = replace(
                     session.training_run.config,
                     upload_artifacts_on_checkpoint=resolved_upload,
                     notify_on_finished=False,
                 )
-                results.append(
-                    _consume_training_iter(
-                        iter_lpap_surrogate_training(session),
-                        stage="surrogates",
-                        name=surrogate_cfg.run.run_id,
-                        checkpoint_path=session.checkpoint_path,
+                with _stage_autocast(perf, device):
+                    results.append(
+                        _consume_training_iter(
+                            iter_lpap_surrogate_training(session),
+                            stage="surrogates",
+                            name=surrogate_cfg.run.run_id,
+                            checkpoint_path=session.checkpoint_path,
+                        )
                     )
-                )
 
         if "decoders" in ordered_stages:
             current_stage = "decoders"
@@ -415,24 +486,28 @@ def run_image_retrain_pipeline(
                         decoder_cfg,
                         run=replace(decoder_cfg.run, steps=int(overrides["decoders"])),
                     )
-                session = create_lpap_decoder_training_session(
-                    project_root=root,
-                    config=decoder_cfg,
-                    device=device,
+                session = _bank_to_device(
+                    create_lpap_decoder_training_session(
+                        project_root=root,
+                        config=decoder_cfg,
+                        device=device,
+                    ),
+                    perf,
                 )
                 session.training_run.config = replace(
                     session.training_run.config,
                     upload_artifacts_on_checkpoint=resolved_upload,
                     notify_on_finished=False,
                 )
-                results.append(
-                    _consume_training_iter(
-                        iter_lpap_decoder_training(session),
-                        stage="decoders",
-                        name=decoder_cfg.run.run_id,
-                        checkpoint_path=session.checkpoint_path,
+                with _stage_autocast(perf, device):
+                    results.append(
+                        _consume_training_iter(
+                            iter_lpap_decoder_training(session),
+                            stage="decoders",
+                            name=decoder_cfg.run.run_id,
+                            checkpoint_path=session.checkpoint_path,
+                        )
                     )
-                )
 
         ae_base_cfg: ImageAutoencoderTrainingConfig | None = None
         if (
@@ -466,14 +541,16 @@ def run_image_retrain_pipeline(
                 config=ae_cfg,
                 device=device,
             )
-            results.append(
-                _consume_training_iter(
-                    iter_image_autoencoder_training(session),
-                    stage="autoencoder",
-                    name=ae_cfg.run.run_id,
-                    checkpoint_path=session.checkpoint_path,
+            _maybe_compile_flows(session, perf)
+            with _stage_autocast(perf, device):
+                results.append(
+                    _consume_training_iter(
+                        iter_image_autoencoder_training(session),
+                        stage="autoencoder",
+                        name=ae_cfg.run.run_id,
+                        checkpoint_path=session.checkpoint_path,
+                    )
                 )
-            )
 
         if "decoder_exact_finetune" in ordered_stages:
             current_stage = "decoder_exact_finetune"
@@ -495,14 +572,16 @@ def run_image_retrain_pipeline(
                 config=ft_ae_cfg,
                 device=device,
             )
-            results.append(
-                _consume_training_iter(
-                    iter_image_autoencoder_training(session),
-                    stage="decoder_exact_finetune",
-                    name=ft_ae_cfg.run.run_id,
-                    checkpoint_path=session.checkpoint_path,
+            _maybe_compile_flows(session, perf)
+            with _stage_autocast(perf, device):
+                results.append(
+                    _consume_training_iter(
+                        iter_image_autoencoder_training(session),
+                        stage="decoder_exact_finetune",
+                        name=ft_ae_cfg.run.run_id,
+                        checkpoint_path=session.checkpoint_path,
+                    )
                 )
-            )
     except Exception as exc:
         if resolved_notify:
             failure_lines = [

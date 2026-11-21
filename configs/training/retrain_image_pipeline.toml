@@ -24,7 +24,8 @@ run_autoencoder = true
 run_decoder_exact_finetune = true
 
 [decoder_exact_finetune]
-steps = 3000
+# Was 3000 @ bs32; AE batch is now 128 -> same sample count.
+steps = 750
 learning_rate = 1.0e-4
 use_triton = true
 image_l2_weight = 1.0
@@ -37,3 +38,11 @@ run_id = "image_autoencoder_tri_exact_ft-v2"
 checkpoint_name = "image_autoencoder_tri_exact_ft-v2.pt"
 log_name = "image_autoencoder_tri_exact_ft-v2.sqlite"
 comment = "decoder-only exact LPAP fine-tune of tri-pair AE (v2)"
+
+[performance]
+# GPU throughput knobs (see lpap.retrain_image_pipeline.PipelinePerformanceConfig).
+# bf16 autocast for all stages; AE flows always integrate in fp32.
+autocast_dtype = "bf16"
+allow_tf32 = true
+energy_bank_on_device = true
+compile_flows = true

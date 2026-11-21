@@ -432,6 +432,11 @@ class ImageAutoencoderMetrics:
     pair_metrics: dict[str, float] = field(default_factory=dict)
 
 
+def _fp32_region(reference: torch.Tensor) -> torch.autocast:
+    """Disable autocast for ``reference``'s device type (fp32 flow integration)."""
+    return torch.autocast(device_type=reference.device.type, enabled=False)
+
+
 class ImageAutoencoderModel(nn.Module):
     def __init__(
         self,
@@ -477,13 +482,16 @@ class ImageAutoencoderModel(nn.Module):
             == len(self.decoders)
         ):
             raise ValueError("pair runtime lengths must match ModuleList sizes")
-        encoded_energy = integrate_euler_midpoint_time(
-            self.image_to_energy_flow,
-            image,
-            image_to_energy_steps,
-            t0=IMAGE_TO_ENERGY_T0,
-            t1=IMAGE_TO_ENERGY_T1,
-        )
+        # Flows always integrate in fp32, even under a bf16 autocast used for the
+        # LPAP teachers: the signed-mass latents are precision-sensitive.
+        with _fp32_region(image):
+            encoded_energy = integrate_euler_midpoint_time(
+                self.image_to_energy_flow,
+                image.float(),
+                image_to_energy_steps,
+                t0=IMAGE_TO_ENERGY_T0,
+                t1=IMAGE_TO_ENERGY_T1,
+            )
         values = encoded_energy[:, 0]
         pair_outputs: list[ImageAutoencoderPairForward] = []
         for index, (surrogate, decoder) in enumerate(
@@ -519,13 +527,14 @@ class ImageAutoencoderModel(nn.Module):
             decoded_energy = reconstruct_lpap_decoder_values(
                 decoder_logits, decoder_batch
             ).unsqueeze(1)
-            reconstructed_image = integrate_euler_midpoint_time(
-                self.energy_to_image_flow,
-                decoded_energy,
-                energy_to_image_steps,
-                t0=ENERGY_TO_IMAGE_T0,
-                t1=ENERGY_TO_IMAGE_T1,
-            )
+            with _fp32_region(decoded_energy):
+                reconstructed_image = integrate_euler_midpoint_time(
+                    self.energy_to_image_flow,
+                    decoded_energy.float(),
+                    energy_to_image_steps,
+                    t0=ENERGY_TO_IMAGE_T0,
+                    t1=ENERGY_TO_IMAGE_T1,
+                )
             pair_outputs.append(
                 ImageAutoencoderPairForward(
                     decoded_energy=decoded_energy,
