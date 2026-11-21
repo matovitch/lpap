@@ -107,7 +107,15 @@ def _save_tiny_teacher_pair(
                 "value_count": value_count,
                 "bucket_count": bucket_count,
                 "probe_count": probe_count,
-                "surrogate": {},
+                "k_max": 2,
+                "frontend_mode": "surrogate",
+                "surrogate": {
+                    "value_count": value_count,
+                    "bucket_count": bucket_count,
+                    "probe_count": probe_count,
+                    "k_max": 2,
+                    "fold_order": LPAP_FOLD_ORDER,
+                },
                 "frontend_initial_temperature": 0.5,
                 "hidden_dim": 16,
                 "layer_count": 1,
@@ -738,6 +746,34 @@ class ImageAutoencoderTrainingTest(unittest.TestCase):
                 training_state=decoder_state,
             )
             with self.assertRaisesRegex(ValueError, "decoder checkpoint is missing"):
+                create_image_autoencoder_training_session(
+                    project_root=root,
+                    config=session.config,
+                    device="cpu",
+                )
+
+    def test_create_mismatched_pair_k_max_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            session = _build_tiny_autoencoder_session(root)
+            decoder_path = session.lpap_pairs[0].decoder_checkpoint_path
+            decoder_payload = load_training_checkpoint(
+                decoder_path, map_location="cpu"
+            )
+            decoder_state = dict(decoder_payload["training_state"])
+            decoder_model_config = dict(decoder_state["model_config"])
+            decoder_model_config["k_max"] = 4
+            decoder_state["model_config"] = decoder_model_config
+            save_training_checkpoint(
+                decoder_path,
+                model=session.model.decoders[0],
+                step=int(decoder_payload["step"]),
+                best_metric=decoder_payload.get("best_metric"),
+                best_model_state=decoder_payload.get("best_model_state"),
+                optimizer=None,
+                training_state=decoder_state,
+            )
+            with self.assertRaisesRegex(ValueError, "k_max"):
                 create_image_autoencoder_training_session(
                     project_root=root,
                     config=session.config,

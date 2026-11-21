@@ -940,6 +940,24 @@ def create_image_autoencoder_training_session(
     )
 
 
+def _pair_k_max(runtime: ImageAutoencoderLpapPairRuntime) -> int:
+    if (
+        "k_max" not in runtime.surrogate_model_config
+        or "k_max" not in runtime.decoder_model_config
+    ):
+        raise ValueError(
+            f"LPAP pair {runtime.name!r} is missing k_max in surrogate/decoder model_config"
+        )
+    surrogate_k_max = int(runtime.surrogate_model_config["k_max"])
+    decoder_k_max = int(runtime.decoder_model_config["k_max"])
+    if surrogate_k_max != decoder_k_max:
+        raise ValueError(
+            f"LPAP pair {runtime.name!r} k_max mismatch: "
+            f"surrogate={surrogate_k_max} decoder={decoder_k_max}"
+        )
+    return surrogate_k_max
+
+
 def _forward_loss(
     *,
     session: ImageAutoencoderTrainingSession,
@@ -953,10 +971,7 @@ def _forward_loss(
             int(runtime.decoder_model_config["bucket_count"])
             for runtime in session.lpap_pairs
         ),
-        k_maxs=tuple(
-            int(runtime.surrogate_model_config["k_max"])
-            for runtime in session.lpap_pairs
-        ),
+        k_maxs=tuple(_pair_k_max(runtime) for runtime in session.lpap_pairs),
         permutations=tuple(runtime.permutation for runtime in session.lpap_pairs),
         image_to_energy_steps=config.integration.image_to_energy_steps,
         energy_to_image_steps=config.integration.energy_to_image_steps,

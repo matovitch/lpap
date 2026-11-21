@@ -138,6 +138,7 @@ def _decoder_model_config_from_checkpoint(
         "value_count",
         "bucket_count",
         "probe_count",
+        "k_max",
         "frontend_initial_temperature",
         "hidden_dim",
         "layer_count",
@@ -205,24 +206,70 @@ def validate_lpap_pair_matches_sequence_length(
     surrogate_model_config: dict[str, int | str],
     decoder_model_config: dict[str, object],
 ) -> None:
+    mismatches: list[str] = []
+    for role, config in (
+        ("surrogate", surrogate_model_config),
+        ("decoder", decoder_model_config),
+    ):
+        for required_key in ("value_count", "bucket_count", "probe_count", "k_max"):
+            if required_key not in config:
+                mismatches.append(f"{role} model_config is missing {required_key}")
+    if mismatches:
+        raise ValueError(
+            "LPAP pair checkpoints have incompatible schema: " + "; ".join(mismatches)
+        )
+
     expected = {
         "value_count": sequence_length,
         "bucket_count": int(decoder_model_config["bucket_count"]),
         "probe_count": int(decoder_model_config["probe_count"]),
+        "k_max": int(decoder_model_config["k_max"]),
     }
-    mismatches = [
+    mismatches.extend(
         f"{name} surrogate={surrogate_model_config[name]} expected={value}"
         for name, value in expected.items()
         if int(surrogate_model_config[name]) != value
-    ]
+    )
     decoder_value_count = int(decoder_model_config["value_count"])
     if decoder_value_count != sequence_length:
         mismatches.append(
             f"value_count decoder={decoder_value_count} expected={sequence_length}"
         )
+
+    for role, config in (
+        ("surrogate", surrogate_model_config),
+        ("decoder", decoder_model_config),
+    ):
+        if "fold_order" in config and config["fold_order"] != LPAP_FOLD_ORDER:
+            mismatches.append(
+                f"fold_order {role}={config['fold_order']!r} expected={LPAP_FOLD_ORDER!r}"
+            )
+    if "frontend_mode" in decoder_model_config:
+        frontend_mode = decoder_model_config["frontend_mode"]
+        if frontend_mode not in ("surrogate", "exact"):
+            mismatches.append(f"decoder frontend_mode={frontend_mode!r} is unsupported")
+    if "surrogate" in decoder_model_config:
+        embedded = decoder_model_config["surrogate"]
+        if not isinstance(embedded, dict):
+            mismatches.append("decoder model_config.surrogate must be a dictionary")
+        else:
+            for key in ("value_count", "bucket_count", "probe_count", "k_max"):
+                if key in embedded and int(embedded[key]) != int(
+                    surrogate_model_config[key]
+                ):
+                    mismatches.append(
+                        f"decoder.surrogate.{key}={embedded[key]} "
+                        f"does not match surrogate.{key}={surrogate_model_config[key]}"
+                    )
+            if "fold_order" in embedded and embedded["fold_order"] != LPAP_FOLD_ORDER:
+                mismatches.append(
+                    f"decoder.surrogate.fold_order={embedded['fold_order']!r} "
+                    f"expected={LPAP_FOLD_ORDER!r}"
+                )
+
     if mismatches:
         raise ValueError(
-            "LPAP pair checkpoints do not match sequence length: "
+            "LPAP pair checkpoints do not match sequence length or frontend schema: "
             + "; ".join(mismatches)
         )
 
