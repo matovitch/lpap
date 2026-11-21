@@ -105,15 +105,18 @@ def render_loss_history_svg(
                 attempts.append((float(row["step"]), attempt_id))
         if attempt_id is not None:
             previous_attempt = attempt_id
+        if row.get("resume"):
+            attempts.append((float(row["step"]), "resume"))
 
     resume_lines = []
     for step, attempt_id in attempts:
         x, _y = project((step, min_loss))
+        label = "resume" if attempt_id == "resume" else f"attempt {attempt_id}"
         resume_lines.append(
             f'<line x1="{x:.2f}" y1="{top}" x2="{x:.2f}" '
             f'y2="{top + plot_height}" stroke="#777" stroke-dasharray="4 4" />'
             f'<text x="{x + 4:.2f}" y="{top + 12}" fill="#555" font-size="11">'
-            f"attempt {escape(str(attempt_id))}</text>"
+            f"{escape(label)}</text>"
         )
 
     validation_circles = "".join(
@@ -205,9 +208,7 @@ def render_loss_history_comparison_svg(
     for index, (label, rows) in enumerate(series):
         points = _metric_points(rows, metric_name)
         if points:
-            prepared.append(
-                (label, colors[index % len(colors)], points)
-            )
+            prepared.append((label, colors[index % len(colors)], points))
     if not prepared:
         return "<p>No comparable loss history has been logged yet.</p>"
 
@@ -320,8 +321,7 @@ def _rgb_png_data_uri(rgb: bytes, *, width: int, height: int) -> str:
     if len(rgb) != width * height * 3:
         raise ValueError("rgb buffer length must equal width*height*3")
     rows = b"".join(
-        b"\x00" + rgb[row * width * 3 : (row + 1) * width * 3]
-        for row in range(height)
+        b"\x00" + rgb[row * width * 3 : (row + 1) * width * 3] for row in range(height)
     )
     png = (
         b"\x89PNG\r\n\x1a\n"

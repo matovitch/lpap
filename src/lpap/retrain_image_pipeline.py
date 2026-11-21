@@ -32,12 +32,13 @@ from lpap.image_autoencoder_training import (
     iter_image_autoencoder_training,
 )
 from lpap.notify import send_pushover
+from lpap.run_branch import RunParent, materialize_branch, resolve_parent_checkpoint
 from lpap.surrogate_training import (
     create_lpap_surrogate_training_session,
     iter_lpap_surrogate_training,
 )
 from lpap.teacher_checkpoints import resolve_checkpoint_path
-from lpap.teacher_config import project_teacher_config
+from lpap.teacher_config import load_teacher_pair_toml, project_teacher_config
 from lpap.training_notebook import training_config_from_file
 
 PipelineStage = Literal[
@@ -82,7 +83,9 @@ class DecoderExactFinetuneConfig:
                 "decoder_exact_finetune requires a positive image_l2 or energy_l1 weight"
             )
         if self.validation_every <= 0 or self.validation_num_batches <= 0:
-            raise ValueError("decoder_exact_finetune validation counts must be positive")
+            raise ValueError(
+                "decoder_exact_finetune validation counts must be positive"
+            )
         if self.display_every <= 0 or self.log_every <= 0:
             raise ValueError("decoder_exact_finetune cadence values must be positive")
 
@@ -186,9 +189,7 @@ def load_retrain_pipeline_config(path: str | Path) -> RetrainPipelineConfig:
         run_surrogates=bool(stages.get("run_surrogates", True)),
         run_decoders=bool(stages.get("run_decoders", True)),
         run_autoencoder=bool(stages.get("run_autoencoder", True)),
-        run_decoder_exact_finetune=bool(
-            stages.get("run_decoder_exact_finetune", True)
-        ),
+        run_decoder_exact_finetune=bool(stages.get("run_decoder_exact_finetune", True)),
         decoder_exact_finetune=DecoderExactFinetuneConfig(
             steps=int(exact_raw.get("steps", 3000)),
             learning_rate=float(exact_raw.get("learning_rate", 1.0e-4)),
@@ -355,6 +356,112 @@ def _maybe_compile_flows(session: Any, perf: PipelinePerformanceConfig) -> None:
         flow.forward = torch.compile(flow.forward, dynamic=False)
 
 
+def step_overrides_from_total(
+    total_steps: int | None,
+    stages: Sequence[PipelineStage] | None = None,
+) -> dict[PipelineStage, int] | None:
+    """Map one runtime step budget onto ``stages``.
+
+    ``None`` (an empty notebook input) keeps each stage's config budget.
+    """
+    if total_steps is None:
+        return None
+    value = int(total_steps)
+    if value <= 0:
+        raise ValueError("total steps must be positive")
+    selected = tuple(ALL_PIPELINE_STAGES if stages is None else stages)
+    for stage in selected:
+        if stage not in ALL_PIPELINE_STAGES:
+            raise ValueError(f"unknown pipeline stage: {stage!r}")
+    return {stage: value for stage in selected}
+
+
+def _run_outputs(
+    root: Path,
+    config: RetrainPipelineConfig,
+    stages: Sequence[PipelineStage],
+) -> list[tuple[PipelineStage, str, str, str]]:
+    """``(stage, checkpoint_name, log_name, run_id)`` for each trained checkpoint."""
+    outputs: list[tuple[PipelineStage, str, str, str]] = []
+    if "surrogates" in stages or "decoders" in stages:
+        for teacher_relpath in config.teacher_configs:
+            pair = load_teacher_pair_toml(_resolve_path(root, teacher_relpath))
+            if "surrogates" in stages:
+                outputs.append(
+                    (
+                        "surrogates",
+                        pair.surrogate_checkpoint_name,
+                        pair.surrogate_log_name,
+                        pair.surrogate_run_id,
+                    )
+                )
+            if "decoders" in stages:
+                outputs.append(
+                    (
+                        "decoders",
+                        pair.decoder_checkpoint_name,
+                        pair.decoder_log_name,
+                        pair.decoder_run_id,
+                    )
+                )
+    if "autoencoder" in stages or "decoder_exact_finetune" in stages:
+        ae_path = _resolve_path(root, config.autoencoder_config)
+        loaded_ae = training_config_from_file(ae_path, "image_autoencoder")
+        if not isinstance(loaded_ae, ImageAutoencoderTrainingConfig):
+            raise TypeError(
+                "autoencoder_config did not load ImageAutoencoderTrainingConfig"
+            )
+        if "autoencoder" in stages:
+            outputs.append(
+                (
+                    "autoencoder",
+                    loaded_ae.run.checkpoint_name,
+                    loaded_ae.run.log_name,
+                    loaded_ae.run.run_id,
+                )
+            )
+        if "decoder_exact_finetune" in stages:
+            exact = config.decoder_exact_finetune
+            outputs.append(
+                (
+                    "decoder_exact_finetune",
+                    exact.checkpoint_name,
+                    exact.log_name,
+                    exact.run_id,
+                )
+            )
+    return outputs
+
+
+def _apply_parent(
+    root: Path,
+    parent: RunParent,
+    output: tuple[PipelineStage, str, str, str],
+) -> str:
+    """Copy the parent onto one output checkpoint. Returns that checkpoint name."""
+    stage, checkpoint_name, log_name, child_run_id = output
+    parent_path = resolve_parent_checkpoint(root, parent.checkpoint)
+    dest = root / "checkpoints" / checkpoint_name
+    if parent_path.resolve() == dest.resolve():
+        raise ValueError(
+            "parent checkpoint and this run's checkpoint are the same file; "
+            "give the branch its own checkpoint name"
+        )
+    materialize_branch(
+        project_root=root,
+        parent=parent,
+        dest_checkpoint=dest,
+        dest_log=root / "training_logs" / log_name,
+        child_run_id=child_run_id,
+    )
+    print(
+        f"[{stage}] branched run {child_run_id} from parent {parent.run_id} "
+        f"checkpoint {parent_path.name}",
+        flush=True,
+    )
+    return checkpoint_name
+
+
 def _consume_training_iter(
     iterator: Any,
     *,
@@ -405,13 +512,17 @@ def run_image_retrain_pipeline(
     upload_artifacts_on_checkpoint: bool | None = None,
     notify_on_finished: bool | None = None,
     step_overrides: dict[PipelineStage, int] | None = None,
+    parent: RunParent | None = None,
 ) -> list[RetrainStageResult]:
-    """Execute selected stages of the image-only retraining pipeline in order."""
+    """Execute selected stages of the image-only retraining pipeline in order.
+
+    ``step_overrides`` replaces stage step budgets for this call. ``parent``
+    branches one stage from a parent run id and checkpoint; it is not a TOML
+    field, and the parent files are not modified.
+    """
     config.validate()
     root = Path(project_root)
-    selected_stages = (
-        tuple(stages) if stages is not None else config.enabled_stages()
-    )
+    selected_stages = tuple(stages) if stages is not None else config.enabled_stages()
     for stage in selected_stages:
         if stage not in ALL_PIPELINE_STAGES:
             raise ValueError(f"unknown pipeline stage: {stage!r}")
@@ -421,9 +532,7 @@ def run_image_retrain_pipeline(
     if not ordered_stages:
         return []
 
-    resolved_resume = (
-        config.resume_from_checkpoint if resume is None else bool(resume)
-    )
+    resolved_resume = config.resume_from_checkpoint if resume is None else bool(resume)
     resolved_upload = (
         config.upload_artifacts_on_checkpoint
         if upload_artifacts_on_checkpoint is None
@@ -434,7 +543,21 @@ def run_image_retrain_pipeline(
         if notify_on_finished is None
         else bool(notify_on_finished)
     )
-    overrides = step_overrides or {}
+    overrides = dict(step_overrides or {})
+    for stage_name, step_count in overrides.items():
+        if stage_name not in ALL_PIPELINE_STAGES:
+            raise ValueError(f"unknown pipeline stage: {stage_name!r}")
+        if int(step_count) <= 0:
+            raise ValueError(f"step override for {stage_name} must be positive")
+    branched_checkpoint: str | None = None
+    if parent is not None:
+        outputs = _run_outputs(root, config, ordered_stages)
+        if len(outputs) != 1:
+            raise ValueError(
+                "parent branches one checkpoint; select a single stage that "
+                "writes one checkpoint"
+            )
+        branched_checkpoint = _apply_parent(root, parent, outputs[0])
     perf = config.performance
     # Fail loudly before loading artifacts or starting stages if bf16 is unsupported.
     _stage_autocast(perf, device)
@@ -463,6 +586,12 @@ def run_image_retrain_pipeline(
                         run=replace(
                             surrogate_cfg.run, steps=int(overrides["surrogates"])
                         ),
+                    )
+                branched = branched_checkpoint == surrogate_cfg.run.checkpoint_name
+                if branched and not surrogate_cfg.run.resume_from_checkpoint:
+                    surrogate_cfg = replace(
+                        surrogate_cfg,
+                        run=replace(surrogate_cfg.run, resume_from_checkpoint=True),
                     )
                 session = _bank_to_device(
                     create_lpap_surrogate_training_session(
@@ -500,6 +629,12 @@ def run_image_retrain_pipeline(
                     decoder_cfg = replace(
                         decoder_cfg,
                         run=replace(decoder_cfg.run, steps=int(overrides["decoders"])),
+                    )
+                branched = branched_checkpoint == decoder_cfg.run.checkpoint_name
+                if branched and not decoder_cfg.run.resume_from_checkpoint:
+                    decoder_cfg = replace(
+                        decoder_cfg,
+                        run=replace(decoder_cfg.run, resume_from_checkpoint=True),
                     )
                 session = _bank_to_device(
                     create_lpap_decoder_training_session(
@@ -540,13 +675,17 @@ def run_image_retrain_pipeline(
         if "autoencoder" in ordered_stages:
             current_stage = "autoencoder"
             assert ae_base_cfg is not None
+            ae_steps = int(overrides.get("autoencoder", ae_base_cfg.run.steps))
+            ae_resume = resolved_resume or (
+                branched_checkpoint == ae_base_cfg.run.checkpoint_name
+            )
             ae_cfg = replace(
                 ae_base_cfg,
                 run=replace(
                     ae_base_cfg.run,
                     run_training=True,
-                    resume_from_checkpoint=resolved_resume,
-                    steps=int(overrides.get("autoencoder", ae_base_cfg.run.steps)),
+                    resume_from_checkpoint=ae_resume,
+                    steps=ae_steps,
                     upload_artifacts_on_checkpoint=resolved_upload,
                     notify_on_finished=False,
                 ),
@@ -575,10 +714,22 @@ def run_image_retrain_pipeline(
                 exact_cfg = replace(
                     exact_cfg, steps=int(overrides["decoder_exact_finetune"])
                 )
+            # The autoencoder stage in this call just wrote new weights. The
+            # fine-tune must train those weights, not an older fine-tune file.
+            ae_ran = "autoencoder" in ordered_stages
+            ft_resume = resolved_resume and not ae_ran
+            if ae_ran and resolved_resume:
+                print(
+                    "[decoder_exact_finetune] autoencoder stage ran in this call; "
+                    "starting exact fine-tune fresh",
+                    flush=True,
+                )
+            if not ae_ran and branched_checkpoint == exact_cfg.checkpoint_name:
+                ft_resume = True
             ft_ae_cfg = build_exact_finetune_autoencoder_config(
                 ae_base_cfg,
                 exact_cfg,
-                resume_from_checkpoint=resolved_resume,
+                resume_from_checkpoint=ft_resume,
                 upload_artifacts_on_checkpoint=resolved_upload,
                 notify_on_finished=False,
             )
@@ -679,9 +830,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
     config_path = (
-        args.config
-        if args.config.is_absolute()
-        else args.project_root / args.config
+        args.config if args.config.is_absolute() else args.project_root / args.config
     )
     config = load_retrain_pipeline_config(config_path)
     stages = _parse_stages(args.stages)
@@ -733,9 +882,11 @@ __all__ = [
     "RetrainPipelineConfig",
     "RetrainStageResult",
     "build_exact_finetune_autoencoder_config",
+    "RunParent",
     "load_retrain_pipeline_config",
     "main",
     "run_image_retrain_pipeline",
+    "step_overrides_from_total",
 ]
 
 

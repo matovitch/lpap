@@ -26,6 +26,7 @@ from lpap.surrogate import (
     evaluate_lpap_surrogate_batch,
     train_lpap_surrogate_step,
 )
+from lpap.run_resume import training_data_seed
 from lpap.training import (
     TrainingResumeInfo,
     TrainingRun,
@@ -402,7 +403,7 @@ def create_lpap_surrogate_training_session(
             value_count=config.value_count,
         ).to(device=target_device)
     generator = torch.Generator(device=target_device).manual_seed(
-        config.run.seed + resume_info.start_step
+        training_data_seed(config.run.seed, resume_info.start_step)
     )
     validation_generator = torch.Generator(device=target_device).manual_seed(
         config.validation.seed + resume_info.start_step

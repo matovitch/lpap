@@ -60,6 +60,7 @@ from lpap.teacher_checkpoints import (
     resolve_checkpoint_path,
     validate_lpap_pair_matches_sequence_length,
 )
+from lpap.run_resume import seed_dataloader, training_data_seed
 from lpap.training import (
     TrainingResumeInfo,
     TrainingRun,
@@ -448,7 +449,9 @@ class ImageAutoencoderModel(nn.Module):
     ) -> None:
         super().__init__()
         if len(surrogates) == 0 or len(surrogates) != len(decoders):
-            raise ValueError("surrogates and decoders must be non-empty and same length")
+            raise ValueError(
+                "surrogates and decoders must be non-empty and same length"
+            )
         self.image_to_energy_flow = image_to_energy_flow
         self.surrogates = nn.ModuleList(surrogates)
         self.decoders = nn.ModuleList(decoders)
@@ -741,11 +744,13 @@ def create_image_autoencoder_training_session(
             pair_config.decoder_checkpoint_name,
             ensure=config.source.require_checkpoints,
         )
-        surrogate, surrogate_model_config, surrogate_permutation = load_surrogate_source(
-            path=surrogate_checkpoint_path,
-            load_best=config.source.load_best,
-            require_checkpoint=config.source.require_checkpoints,
-            device=target_device,
+        surrogate, surrogate_model_config, surrogate_permutation = (
+            load_surrogate_source(
+                path=surrogate_checkpoint_path,
+                load_best=config.source.load_best,
+                require_checkpoint=config.source.require_checkpoints,
+                device=target_device,
+            )
         )
         decoder, decoder_model_config, decoder_permutation = load_decoder_source(
             path=decoder_checkpoint_path,
@@ -915,8 +920,13 @@ def create_image_autoencoder_training_session(
                 device=target_device,
             )
         )
+        seed_dataloader(
+            image_loader,
+            seed=config.run.seed,
+            start_step=resume_info.start_step,
+        )
     generator = torch.Generator(device=target_device).manual_seed(
-        config.run.seed + resume_info.start_step
+        training_data_seed(config.run.seed, resume_info.start_step)
     )
     validation_generator = torch.Generator(device=target_device).manual_seed(
         config.validation.seed + resume_info.start_step
@@ -1123,9 +1133,7 @@ def average_image_autoencoder_metrics(
     if not metrics_list:
         raise ValueError("metrics_list must be non-empty")
     count = float(len(metrics_list))
-    pair_keys = {
-        key for metrics in metrics_list for key in metrics.pair_metrics
-    }
+    pair_keys = {key for metrics in metrics_list for key in metrics.pair_metrics}
     return ImageAutoencoderMetrics(
         loss=sum(metrics.loss for metrics in metrics_list) / count,
         image_reconstruction_l2=sum(
@@ -1144,9 +1152,7 @@ def average_image_autoencoder_metrics(
             metrics.surrogate_weighted_accuracy for metrics in metrics_list
         )
         / count,
-        signed_mass_balance=sum(
-            metrics.signed_mass_balance for metrics in metrics_list
-        )
+        signed_mass_balance=sum(metrics.signed_mass_balance for metrics in metrics_list)
         / count,
         signed_mass_imbalance=sum(
             metrics.signed_mass_imbalance for metrics in metrics_list
@@ -1154,9 +1160,7 @@ def average_image_autoencoder_metrics(
         / count,
         signed_mass_gap=sum(metrics.signed_mass_gap for metrics in metrics_list)
         / count,
-        signed_mass_floor=sum(
-            metrics.signed_mass_floor for metrics in metrics_list
-        )
+        signed_mass_floor=sum(metrics.signed_mass_floor for metrics in metrics_list)
         / count,
         encoded_positive_mass=sum(
             metrics.encoded_positive_mass for metrics in metrics_list
@@ -1166,13 +1170,9 @@ def average_image_autoencoder_metrics(
             metrics.encoded_negative_mass for metrics in metrics_list
         )
         / count,
-        encoded_energy_rms=sum(
-            metrics.encoded_energy_rms for metrics in metrics_list
-        )
+        encoded_energy_rms=sum(metrics.encoded_energy_rms for metrics in metrics_list)
         / count,
-        decoded_energy_rms=sum(
-            metrics.decoded_energy_rms for metrics in metrics_list
-        )
+        decoded_energy_rms=sum(metrics.decoded_energy_rms for metrics in metrics_list)
         / count,
         reconstructed_image_rms=sum(
             metrics.reconstructed_image_rms for metrics in metrics_list
@@ -1196,9 +1196,7 @@ def evaluate_image_autoencoder_validation(
     if num_batches <= 0:
         raise ValueError("num_batches must be positive")
     batch_metrics = [
-        evaluate_image_autoencoder_batch(
-            session=session, images=next(images_iter)
-        )
+        evaluate_image_autoencoder_batch(session=session, images=next(images_iter))
         for _ in range(num_batches)
     ]
     return average_image_autoencoder_metrics(batch_metrics)
@@ -1298,9 +1296,7 @@ def collect_image_autoencoder_gallery(
     images = next(images_iter)[:sample_count]
     side = session.config.image.side
     with torch.no_grad():
-        image = prepare_image_sequence(
-            images, side=side, device=session.device
-        )
+        image = prepare_image_sequence(images, side=side, device=session.device)
         _loss, _metrics, output = _forward_loss(session=session, image=image)
         # Flows operate in Hilbert order; unflatten image *and* energy for spatial
         # gallery panels (row-major PNG). Leaving energy in Hilbert order makes

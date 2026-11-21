@@ -16,7 +16,12 @@ from lpap.checkpoints import (
     metric_improved,
     save_training_checkpoint,
 )
-from lpap.notify import NotifyError, notify_on_finished_enabled, notify_training_finished
+from lpap.notify import (
+    NotifyError,
+    notify_on_finished_enabled,
+    notify_training_finished,
+)
+from lpap.run_resume import note_resume, prepare_resume_log
 from lpap.training_log import log_step_metrics, mark_run_status, upsert_run
 from lpap.training_log import finish_run_attempt, start_run_attempt
 from lpap.training_log import (
@@ -24,6 +29,8 @@ from lpap.training_log import (
     make_run_instance_id,
     prune_run_history,
 )
+
+_LINEAGE_KEYS = ("parent_run_id", "parent_checkpoint")
 
 
 @dataclass(frozen=True)
@@ -91,9 +98,16 @@ class TrainingRun:
         self.display_name = config.run_id
         self.best_metric: float | None = None
         self.best_model_state: dict[str, torch.Tensor] | None = None
+        self.lineage: dict[str, str] = {}
         self.start_step = 1
         self.last_step = 0
         self.attempt_id: int | None = None
+
+    def _take_lineage(self, metadata: dict[str, Any]) -> None:
+        for key in _LINEAGE_KEYS:
+            value = metadata.get(key)
+            if isinstance(value, str) and value:
+                self.lineage[key] = value
 
     def resume_or_initialize(self) -> TrainingResumeInfo:
         resumed = False
@@ -110,8 +124,13 @@ class TrainingRun:
                         self.config.checkpoint_path
                     ),
                 )
-            except (FileNotFoundError, ValueError, OSError):
+            except FileNotFoundError, ValueError, OSError:
                 pass
+        prepare_resume_log(
+            checkpoint_path=self.config.checkpoint_path,
+            log_path=self.config.log_path,
+            resume=self.config.resume,
+        )
         if self.config.resume and self.config.checkpoint_path.exists():
             payload = load_training_checkpoint(
                 self.config.checkpoint_path, map_location="cpu"
@@ -122,7 +141,10 @@ class TrainingRun:
                 checkpoint_model_config is not None
                 and checkpoint_model_config != self.model_config
             ):
-                message = "checkpoint model config differs; starting fresh"
+                raise ValueError(
+                    "checkpoint model config differs from the requested run; "
+                    f"refusing to resume {self.config.checkpoint_path}"
+                )
             else:
                 self.model.load_state_dict(payload["model_state"])
                 if (
@@ -142,6 +164,7 @@ class TrainingRun:
                             "display_name", self.run_id.split(":", 1)[-1]
                         )
                     )
+                    self._take_lineage(checkpoint_metadata)
                 resumed = True
                 message = f"resumed from step `{checkpoint_step}`"
         if not resumed:
@@ -152,6 +175,7 @@ class TrainingRun:
 
         run_metadata = {
             **self.metadata,
+            **self.lineage,
             "base_run_id": self.base_run_id,
             "display_name": self.display_name,
             "comment": self.config.comment,
@@ -180,6 +204,12 @@ class TrainingRun:
             base_run_id=self.base_run_id,
             keep_last=self.config.keep_last_runs,
         )
+        if resumed and checkpoint_step is not None:
+            note_resume(
+                log_path=self.config.log_path,
+                run_id=self.run_id,
+                step=checkpoint_step,
+            )
         return TrainingResumeInfo(
             run_id=self.run_id,
             base_run_id=self.base_run_id,
@@ -240,6 +270,7 @@ class TrainingRun:
                         "display_name": self.display_name,
                         "comment": self.config.comment,
                         "pinned": self.config.pinned,
+                        **self.lineage,
                     },
                     **({} if training_state is None else dict(training_state)),
                 },

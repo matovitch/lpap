@@ -18,6 +18,7 @@ from lpap.flow import (
     integrate_euler_midpoint_time,
 )
 from lpap.hilbert import hilbert_flatten_images, hilbert_unflatten_images
+from lpap.run_resume import seed_dataloader, training_data_seed
 from lpap.training import TrainingRun, TrainingRunConfig, TrainingResumeInfo
 
 
@@ -579,8 +580,10 @@ def create_flow_session_core(
         },
     )
     resume_info = training_run.resume_or_initialize()
+    if resume_info.resumed:
+        seed_dataloader(image_loader, seed=seed, start_step=resume_info.start_step)
     generator = torch.Generator(device=target_device).manual_seed(
-        seed + resume_info.start_step
+        training_data_seed(seed, resume_info.start_step)
     )
     validation_generator = torch.Generator(device=target_device).manual_seed(
         validation.seed + resume_info.start_step

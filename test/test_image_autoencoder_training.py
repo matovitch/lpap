@@ -63,7 +63,7 @@ def _save_tiny_teacher_pair(
         value_count=value_count,
         seed=permutation_seed,
         device=torch.device("cpu"),
-)
+    )
     save_training_checkpoint(
         checkpoint_dir / surrogate_name,
         model=surrogate,
@@ -74,7 +74,9 @@ def _save_tiny_teacher_pair(
                     batch_size=2,
                     bucket_count=bucket_count,
                     probe_count=probe_count,
-                    energy_bank=EnergyBankConfig(path="data/encoded_energies_ae_best.pt"),
+                    energy_bank=EnergyBankConfig(
+                        path="data/encoded_energies_ae_best.pt"
+                    ),
                 ).as_dict()
             },
             "model_config": {
@@ -133,6 +135,7 @@ def _build_tiny_autoencoder_session(
     *,
     lpap_pairs: tuple[ImageAutoencoderLpapPairConfig, ...] | None = None,
     validation: FlowValidationConfig | None = None,
+    shuffle: bool = False,
 ) -> ImageAutoencoderTrainingSession:
     checkpoint_dir = root / "checkpoints"
     data_dir = root / "data"
@@ -193,7 +196,7 @@ def _build_tiny_autoencoder_session(
             batch_size=2,
             side=4,
             normalize=True,
-            shuffle=False,
+            shuffle=shuffle,
         ),
         source=ImageAutoencoderSourceConfig(
             lpap_pairs=pairs,
@@ -360,10 +363,7 @@ class ImageAutoencoderTrainingTest(unittest.TestCase):
             self.assertAlmostEqual(
                 metrics["decoded_energy_rms"],
                 0.5
-                * (
-                    metrics["decoded_energy_rms/c4"]
-                    + metrics["decoded_energy_rms/c8"]
-                ),
+                * (metrics["decoded_energy_rms/c4"] + metrics["decoded_energy_rms/c8"]),
                 places=5,
             )
             self.assertAlmostEqual(
@@ -398,7 +398,9 @@ class ImageAutoencoderTrainingTest(unittest.TestCase):
                         if parameter.requires_grad
                     ]
                     self.assertTrue(
-                        any(grad is not None and torch.any(grad != 0) for grad in grads),
+                        any(
+                            grad is not None and torch.any(grad != 0) for grad in grads
+                        ),
                         f"{name} received no non-zero gradient",
                     )
 
@@ -608,14 +610,12 @@ class ImageAutoencoderTrainingTest(unittest.TestCase):
             session = _build_tiny_autoencoder_session(root)
             trained_perm = session.lpap_pairs[0].permutation.detach().cpu().clone()
             decoder_path = session.lpap_pairs[0].decoder_checkpoint_path
-            decoder_payload = load_training_checkpoint(
-                decoder_path, map_location="cpu"
-            )
+            decoder_payload = load_training_checkpoint(decoder_path, map_location="cpu")
             other_perm = make_permutation_indices(
                 value_count=session.config.value_count,
                 seed=999,
                 device=torch.device("cpu"),
-)
+            )
             self.assertFalse(torch.equal(other_perm, trained_perm))
             decoder_state = dict(decoder_payload["training_state"])
             decoder_state["permutation"] = other_perm
@@ -656,7 +656,7 @@ class ImageAutoencoderTrainingTest(unittest.TestCase):
                 value_count=session.config.value_count,
                 seed=999,
                 device=torch.device("cpu"),
-)
+            )
             for path, module in (
                 (
                     session.lpap_pairs[0].surrogate_checkpoint_path,
@@ -718,9 +718,7 @@ class ImageAutoencoderTrainingTest(unittest.TestCase):
                 session.checkpoint_path, map_location="cpu"
             )
             training_state = dict(payload["training_state"])
-            training_state["lpap_pairs"] = [
-                {"name": session.lpap_pairs[0].name}
-            ]
+            training_state["lpap_pairs"] = [{"name": session.lpap_pairs[0].name}]
             save_training_checkpoint(
                 session.checkpoint_path,
                 model=session.model,
@@ -758,9 +756,7 @@ class ImageAutoencoderTrainingTest(unittest.TestCase):
             root = Path(temp_dir)
             session = _build_tiny_autoencoder_session(root)
             decoder_path = session.lpap_pairs[0].decoder_checkpoint_path
-            decoder_payload = load_training_checkpoint(
-                decoder_path, map_location="cpu"
-            )
+            decoder_payload = load_training_checkpoint(decoder_path, map_location="cpu")
             decoder_state = dict(decoder_payload["training_state"])
             del decoder_state["permutation"]
             save_training_checkpoint(
@@ -784,9 +780,7 @@ class ImageAutoencoderTrainingTest(unittest.TestCase):
             root = Path(temp_dir)
             session = _build_tiny_autoencoder_session(root)
             decoder_path = session.lpap_pairs[0].decoder_checkpoint_path
-            decoder_payload = load_training_checkpoint(
-                decoder_path, map_location="cpu"
-            )
+            decoder_payload = load_training_checkpoint(decoder_path, map_location="cpu")
             decoder_state = dict(decoder_payload["training_state"])
             decoder_model_config = dict(decoder_state["model_config"])
             decoder_model_config["k_max"] = 4
@@ -806,6 +800,40 @@ class ImageAutoencoderTrainingTest(unittest.TestCase):
                     config=session.config,
                     device="cpu",
                 )
+
+    def test_resume_reseeds_training_image_loader(self) -> None:
+        from dataclasses import replace
+
+        from torch.utils.data import RandomSampler
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            session = _build_tiny_autoencoder_session(root, shuffle=True)
+            fresh_order = list(iter(session.image_loader.sampler))
+            list(iter_image_autoencoder_training(session))
+            resume_config = replace(
+                session.config,
+                run=replace(
+                    session.config.run,
+                    steps=3,
+                    resume_from_checkpoint=True,
+                ),
+            )
+            resumed = create_image_autoencoder_training_session(
+                project_root=root, config=resume_config, device="cpu"
+            )
+            self.assertTrue(resumed.resume_info.resumed)
+            expected_seed = session.config.run.seed + resumed.resume_info.start_step
+            expected = list(
+                iter(
+                    RandomSampler(
+                        resumed.image_loader.dataset,
+                        generator=torch.Generator().manual_seed(expected_seed),
+                    )
+                )
+            )
+            self.assertEqual(list(iter(resumed.image_loader.sampler)), expected)
+            self.assertNotEqual(fresh_order, expected)
 
 
 if __name__ == "__main__":

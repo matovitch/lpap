@@ -44,6 +44,7 @@ def ae_status():
             _ckpt_lines.append(f"- `{_label}`: **missing**")
             continue
         import torch as _torch
+
         _payload = _torch.load(_path, map_location="cpu", weights_only=False)
         _ckpt_lines.append(
             f"- `{_label}`: step={_payload.get('step')} best={_payload.get('best_metric')}"
@@ -71,7 +72,7 @@ def ae_status():
                 break
         if _best is not None:
             _max_step, _run_id, _cfg_json, _status = _best
-            _loss_cfg = (_json.loads(_cfg_json).get("loss") or {})
+            _loss_cfg = _json.loads(_cfg_json).get("loss") or {}
             _w_img = float(_loss_cfg.get("image_l2_weight", 1.0))
             _w_e = float(_loss_cfg.get("energy_l1_weight", 0.5))
             _w_ce = float(_loss_cfg.get("surrogate_teacher_weight", 0.05))
@@ -101,6 +102,7 @@ def ae_status():
             )
             if _common:
                 _steps = np.array(_common)
+
                 def _at(_d: dict[int, float]) -> np.ndarray:
                     return np.array([_d[_s] for _s in _common], dtype=float)
 
@@ -130,7 +132,9 @@ def ae_status():
                     f"sm={np.mean([_shares['signed-mass'][i] for i in _idx_late]):.3f}"
                 )
                 if _s_mp and _s_rms:
-                    _m_late = [s for s in _late if s in _s_mp and s in _s_mn and s in _s_rms]
+                    _m_late = [
+                        s for s in _late if s in _s_mp and s in _s_mn and s in _s_rms
+                    ]
                     if _m_late:
                         _summary += (
                             f"\nm±/rms late: m+={np.mean([_s_mp[s] for s in _m_late]):.4f} "
@@ -295,9 +299,7 @@ def ae_gallery():
             f"### AE gallery · waiting for `{_ckpt_name}` (re-run after first ckpt)"
         )
     else:
-        _session = _create_ae_session(
-            project_root=_root, config=_ae_cfg, device="cpu"
-        )
+        _session = _create_ae_session(project_root=_root, config=_ae_cfg, device="cpu")
         _payload = _load_ckpt(_ckpt, map_location=_session.device)
         _state = _payload.get("best_model_state") or _payload["model_state"]
         _session.model.load_state_dict(_state)
@@ -361,7 +363,9 @@ def ae_energy_latent():
     from lpap.training_notebook import (
         training_config_from_project_file as _ae_cfg_from_project,
     )
-    from lpap.training_plots import render_signed_triplet_gallery_html as _render_triplet
+    from lpap.training_plots import (
+        render_signed_triplet_gallery_html as _render_triplet,
+    )
 
     _root = _Path("/marimo")
     _ckpt_name = "image_autoencoder_tri_lnorm-v2.pt"
@@ -415,12 +419,16 @@ def ae_energy_latent():
             _values = _out.encoded_energy[:, 0]  # Hilbert-ordered
 
         def _spatial(flat: _torch.Tensor) -> _torch.Tensor:
-            return _unflat(flat.detach().cpu().unsqueeze(0).unsqueeze(0), side=_side)[0, 0]
+            return _unflat(flat.detach().cpu().unsqueeze(0).unsqueeze(0), side=_side)[
+                0, 0
+            ]
 
         def _stats(pred: _torch.Tensor, target: _torch.Tensor) -> str:
             err = pred - target
             corr = float(
-                _torch.corrcoef(_torch.stack([target.reshape(-1), pred.reshape(-1)]))[0, 1]
+                _torch.corrcoef(_torch.stack([target.reshape(-1), pred.reshape(-1)]))[
+                    0, 1
+                ]
             )
             return (
                 f"L1={float(err.abs().mean()):.4f} "
@@ -431,8 +439,8 @@ def ae_energy_latent():
         # Prefer higher-C first (matches AE gallery ordering).
         _pair_order = sorted(
             range(len(_session.lpap_pairs)),
-            key=lambda i: -int(
-                _session.lpap_pairs[i].surrogate_model_config["bucket_count"]
+            key=lambda i: (
+                -int(_session.lpap_pairs[i].surrogate_model_config["bucket_count"])
             ),
         )
 
@@ -456,9 +464,7 @@ def ae_energy_latent():
         for _si in _indices:
             _v = _values[_si : _si + 1]
             _src = _spatial(_v[0])
-            _hdr = f"#### sample {_si + 1}" + (
-                " · **focus**" if _si == _focus else ""
-            )
+            _hdr = f"#### sample {_si + 1}" + (" · **focus**" if _si == _focus else "")
             _blocks.append(_mo.md(_hdr))
             for _pi in _pair_order:
                 _rt = _session.lpap_pairs[_pi]
@@ -467,9 +473,7 @@ def ae_energy_latent():
                 _k = int(_rt.surrogate_model_config["k_max"])
                 _surr = _session.model.surrogates[_pi]
                 _dec = _session.model.decoders[_pi]
-                _tok = _prep_surr(
-                    _v, bucket_count=_C, permutation=_rt.permutation
-                )
+                _tok = _prep_surr(_v, bucket_count=_C, permutation=_rt.permutation)
                 _slog = _surr(_tok)
                 _db = _prep_dec(
                     values=_v,
@@ -529,6 +533,64 @@ def ae_energy_latent():
 
         ae_energy_latent = _mo.vstack(_blocks)
     ae_energy_latent
+    return
+
+
+@app.cell
+def train():
+    # cell: train
+    import marimo as mo
+
+    total_steps = mo.ui.number(step=1, label="total steps")
+    train_button = mo.ui.run_button(label="train")
+    train_controls = mo.vstack(
+        [
+            mo.md(
+                "Total steps overrides every selected stage for this call. "
+                "Empty keeps the config budget. Resume continues from the "
+                "restored step."
+            ),
+            total_steps,
+            train_button,
+        ]
+    )
+    train_controls
+    return total_steps, train_button
+
+
+@app.cell
+def train_run(total_steps, train_button):
+    # cell: train_run
+    import marimo as mo
+    from pathlib import Path
+
+    from lpap.retrain_image_pipeline import (
+        load_retrain_pipeline_config,
+        run_image_retrain_pipeline,
+        step_overrides_from_total,
+    )
+
+    _root = Path("/marimo") if Path("/marimo").is_dir() else Path(".")
+    _message = "Empty total steps keeps the config budget."
+    if train_button.value:
+        _config_path = _root / "configs" / "training" / "retrain_image_pipeline.toml"
+        _config = load_retrain_pipeline_config(_config_path)
+        _total = None if total_steps.value is None else int(total_steps.value)
+        _results = run_image_retrain_pipeline(
+            project_root=_root,
+            config=_config,
+            resume=True,
+            step_overrides=step_overrides_from_total(_total, _config.enabled_stages()),
+        )
+        _message = (
+            "\n".join(
+                f"{item.stage}/{item.name}: steps={item.steps_completed}"
+                for item in _results
+            )
+            or "no stages executed"
+        )
+    train_status = mo.md(_message)
+    train_status
     return
 
 

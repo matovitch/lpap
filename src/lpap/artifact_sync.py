@@ -11,8 +11,8 @@ live object):
 - ``checkpoints/<stem>.slot0.pt`` / ``.slot1.pt``
 - ``checkpoints/<stem>.current.json`` pointer (required for ensure/resume)
 
-Local code still uses ``checkpoints/<stem>.pt``. SQLite logs remain a single
-best-effort key under ``training_logs/``.
+Local code still uses ``checkpoints/<stem>.pt``. SQLite logs use the same
+dual-slot pointer layout under ``training_logs/<stem>.current.json``.
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ import json
 import os
 import warnings
 from collections.abc import Iterable, Sequence
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -97,6 +98,25 @@ def checkpoint_slot_remote_path(stem: str, slot: int) -> str:
 
 def checkpoint_pointer_remote_path(stem: str) -> str:
     return f"checkpoints/{stem}.current.json"
+
+
+def log_stem(name: str | Path) -> str:
+    """Return stem for ``foo.sqlite`` → ``foo`` (basename only)."""
+    filename = Path(name).name
+    suffix = ".sqlite"
+    if filename.endswith(suffix):
+        return filename[: -len(suffix)]
+    return filename
+
+
+def log_slot_remote_path(stem: str, slot: int) -> str:
+    if slot not in (0, 1):
+        raise ValueError(f"slot must be 0 or 1, got {slot}")
+    return f"training_logs/{stem}.slot{slot}.sqlite"
+
+
+def log_pointer_remote_path(stem: str) -> str:
+    return f"training_logs/{stem}.current.json"
 
 
 def is_canonical_checkpoint_remote(remote_path: str) -> bool:
@@ -177,9 +197,7 @@ def read_checkpoint_pointer(
     resolved = apply_hf_token(token=token)
     remote = checkpoint_pointer_remote_path(stem)
     uri = bucket_uri(resolved_bucket, remote)
-    if not _bucket_object_exists(
-        resolved_bucket, remote, token=resolved
-    ):
+    if not _bucket_object_exists(resolved_bucket, remote, token=resolved):
         raise FileNotFoundError(
             f"checkpoint pointer not found: {uri} "
             f"(expected dual-slot layout for stem={stem!r})"
@@ -195,6 +213,48 @@ def read_checkpoint_pointer(
         payload = json.loads(local.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise ValueError(f"checkpoint pointer must be a JSON object: {uri}")
+    return payload
+
+
+def read_log_pointer(
+    stem: str,
+    *,
+    bucket: str | None = None,
+    token: str | None = None,
+    project_root: str | Path | None = None,
+) -> dict[str, Any]:
+    """Load ``training_logs/<stem>.current.json`` from HF.
+
+    Raises ``FileNotFoundError`` if the pointer is missing.
+    """
+    import tempfile
+
+    from huggingface_hub import download_bucket_files
+
+    resolved_bucket = _resolve_bucket(
+        bucket=bucket,
+        project_root=project_root,
+        what="training log pointer",
+    )
+    resolved = apply_hf_token(token=token)
+    remote = log_pointer_remote_path(stem)
+    uri = bucket_uri(resolved_bucket, remote)
+    if not _bucket_object_exists(resolved_bucket, remote, token=resolved):
+        raise FileNotFoundError(
+            f"training log pointer not found: {uri} "
+            f"(expected dual-slot layout for stem={stem!r})"
+        )
+    with tempfile.TemporaryDirectory() as temp_dir:
+        local = Path(temp_dir) / "current.json"
+        download_bucket_files(
+            resolved_bucket,
+            [(remote, local)],
+            raise_on_missing_files=True,
+            token=resolved if resolved else True,
+        )
+        payload = json.loads(local.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"training log pointer must be a JSON object: {uri}")
     return payload
 
 
@@ -256,9 +316,7 @@ def download_files(
         dest = Path(local)
         dest.parent.mkdir(parents=True, exist_ok=True)
         uri = bucket_uri(resolved_bucket, remote)
-        if not _bucket_object_exists(
-            resolved_bucket, remote, token=resolved
-        ):
+        if not _bucket_object_exists(resolved_bucket, remote, token=resolved):
             raise FileNotFoundError(uri)
         tmp = dest.with_suffix(dest.suffix + ".partial")
         try:
@@ -275,6 +333,15 @@ def download_files(
     return written
 
 
+def _checkpoint_sqlite_wal(path: Path) -> None:
+    """Fold a SQLite WAL into the main file so an upload contains every row."""
+    import sqlite3
+
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        connection.commit()
+
+
 def _checkpoint_step_from_file(path: Path) -> int | None:
     try:
         import torch
@@ -286,7 +353,7 @@ def _checkpoint_step_from_file(path: Path) -> int | None:
         return None
     try:
         return int(payload["step"])
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 
@@ -301,9 +368,7 @@ def _bucket_file_size(
     from huggingface_hub import get_bucket_paths_info
 
     infos = list(
-        get_bucket_paths_info(
-            bucket, [remote_path.lstrip("/")], token=token or True
-        )
+        get_bucket_paths_info(bucket, [remote_path.lstrip("/")], token=token or True)
     )
     if not infos:
         raise FileNotFoundError(
@@ -326,14 +391,10 @@ def _bucket_file_xet_hash(
     from huggingface_hub import get_bucket_paths_info
 
     infos = list(
-        get_bucket_paths_info(
-            bucket, [remote_path.lstrip("/")], token=token or True
-        )
+        get_bucket_paths_info(bucket, [remote_path.lstrip("/")], token=token or True)
     )
     if not infos:
-        raise FileNotFoundError(
-            f"bucket object not found: {bucket}/{remote_path}"
-        )
+        raise FileNotFoundError(f"bucket object not found: {bucket}/{remote_path}")
     xet_hash = getattr(infos[0], "xet_hash", None)
     if not xet_hash:
         raise RuntimeError(f"bucket object missing xet_hash: {bucket}/{remote_path}")
@@ -369,9 +430,7 @@ def upload_checkpoint_to_bucket(
 
     active: int | None = None
     pointer_remote = checkpoint_pointer_remote_path(stem)
-    if _bucket_object_exists(
-        resolved_bucket, pointer_remote, token=write_token
-    ):
+    if _bucket_object_exists(resolved_bucket, pointer_remote, token=write_token):
         pointer = read_checkpoint_pointer(
             stem,
             bucket=resolved_bucket,
@@ -391,9 +450,7 @@ def upload_checkpoint_to_bucket(
     size = path.stat().st_size
     step = _checkpoint_step_from_file(path)
 
-    api.batch_bucket_files(
-        resolved_bucket, add=[(str(path), slot_remote)]
-    )
+    api.batch_bucket_files(resolved_bucket, add=[(str(path), slot_remote)])
     remote_size = _bucket_file_size(
         api, resolved_bucket, slot_remote, token=write_token
     )
@@ -548,8 +605,9 @@ def default_artifact_pairs(
 ) -> tuple[list[tuple[Path, str]], list[tuple[str, Path]]]:
     """Build upload/download pairs under ``checkpoints/`` and ``training_logs/``.
 
-    Checkpoint remotes listed here are canonical names; dual-slot resolution
-    happens in ``download_training_artifacts`` / ``upload_training_artifacts``.
+    Checkpoint and log remotes listed here are canonical names. Dual-slot
+    resolution happens in ``download_training_artifacts`` /
+    ``upload_training_artifacts``.
     """
     root = Path(project_root)
     upload: list[tuple[Path, str]] = []
@@ -565,6 +623,153 @@ def default_artifact_pairs(
         upload.append((local, remote))
         download.append((remote, local))
     return upload, download
+
+
+def upload_training_log_to_bucket(
+    local_path: str | Path,
+    *,
+    bucket: str | None = None,
+    token: str | None = None,
+    project_root: str | Path | None = None,
+    canonical_name: str | None = None,
+) -> list[str]:
+    """Upload a SQLite log via dual-slot layout and flip ``current.json``.
+
+    The inactive slot is written first. The previous slot stays until the
+    pointer moves, so a resume upload publishes the appended log instead of
+    replacing the only remote copy in place.
+    """
+    from huggingface_hub import HfApi
+
+    path = Path(local_path)
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    _checkpoint_sqlite_wal(path)
+    stem = log_stem(canonical_name or path.name)
+    resolved_bucket = _resolve_bucket(
+        bucket=bucket,
+        project_root=project_root,
+        what="training log upload",
+    )
+    write_token = _require_write_token(token=token)
+    api = HfApi()
+
+    active: int | None = None
+    pointer_remote = log_pointer_remote_path(stem)
+    if _bucket_object_exists(resolved_bucket, pointer_remote, token=write_token):
+        pointer = read_log_pointer(
+            stem,
+            bucket=resolved_bucket,
+            token=token,
+            project_root=project_root,
+        )
+        active = int(pointer["slot"])
+        if active not in (0, 1):
+            raise ValueError(
+                f"invalid pointer slot {active} in "
+                f"{bucket_uri(resolved_bucket, pointer_remote)}"
+            )
+
+    inactive = 0 if active is None else 1 - active
+    slot_remote = log_slot_remote_path(stem, inactive)
+    digest = sha256_file(path)
+    size = path.stat().st_size
+    api.batch_bucket_files(resolved_bucket, add=[(str(path), slot_remote)])
+    remote_size = _bucket_file_size(
+        api, resolved_bucket, slot_remote, token=write_token
+    )
+    if remote_size != size:
+        raise RuntimeError(
+            f"training log slot size mismatch after upload: "
+            f"local={size} remote={remote_size} key={slot_remote}"
+        )
+    pointer_payload = {
+        "slot": inactive,
+        "sha256": digest,
+        "size": size,
+        "name": f"{stem}.sqlite",
+    }
+    api.batch_bucket_files(
+        resolved_bucket,
+        add=[
+            (
+                json.dumps(pointer_payload, sort_keys=True).encode("utf-8"),
+                pointer_remote,
+            )
+        ],
+    )
+    uploaded = [slot_remote, pointer_remote]
+    if active is not None:
+        old_slot = log_slot_remote_path(stem, active)
+        try:
+            api.batch_bucket_files(resolved_bucket, delete=[old_slot])
+        except Exception as exc:
+            warnings.warn(
+                f"failed to delete previous training log slot {old_slot}: {exc}",
+                stacklevel=2,
+            )
+    return uploaded
+
+
+def download_training_log_from_bucket(
+    local_path: str | Path,
+    *,
+    canonical_name: str | None = None,
+    bucket: str | None = None,
+    token: str | None = None,
+    project_root: str | Path | None = None,
+) -> Path:
+    """Download the pointed dual-slot SQLite log into ``local_path``."""
+    dest = Path(local_path)
+    stem = log_stem(canonical_name or dest.name)
+    pointer = read_log_pointer(
+        stem,
+        bucket=bucket,
+        token=token,
+        project_root=project_root,
+    )
+    try:
+        slot = int(pointer["slot"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(
+            f"training log pointer for stem={stem!r} missing valid 'slot'"
+        ) from exc
+    if slot not in (0, 1):
+        raise ValueError(f"training log pointer slot must be 0 or 1, got {slot}")
+    remote = log_slot_remote_path(stem, slot)
+    download_files(
+        [(remote, dest)],
+        bucket=bucket,
+        token=token,
+        project_root=project_root,
+    )
+    return dest
+
+
+def ensure_training_log(
+    project_root: str | Path,
+    name: str | Path,
+    *,
+    force_download: bool = False,
+    token: str | None = None,
+) -> Path:
+    """Ensure ``training_logs/<name>`` exists locally (lazy HF pull if needed)."""
+    root = Path(project_root)
+    path = Path(name)
+    if path.is_absolute():
+        local = path
+        canonical = path.name
+    else:
+        canonical = path.name
+        local = root / "training_logs" / canonical
+    if local.is_file() and not force_download:
+        return local
+    return download_training_log_from_bucket(
+        local,
+        canonical_name=canonical,
+        token=token,
+        project_root=root,
+    )
 
 
 def upload_checkpoint_artifacts(
@@ -608,8 +813,8 @@ def upload_checkpoint_artifacts(
         assert log_file is not None
         try:
             uploaded.extend(
-                upload_files(
-                    [(log_file, f"training_logs/{log_file.name}")],
+                upload_training_log_to_bucket(
+                    log_file,
                     bucket=bucket,
                     token=token,
                     project_root=root,
@@ -649,22 +854,24 @@ def upload_training_artifacts(
                 canonical_name=name,
             )
         )
-    log_pairs: list[tuple[Path, str]] = []
     for name in log_names:
         local = root / "training_logs" / name
-        if local.is_file():
-            found = True
-            log_pairs.append((local, f"training_logs/{name}"))
-    if log_pairs:
+        if not local.is_file():
+            continue
+        found = True
         try:
             uploaded.extend(
-                upload_files(
-                    log_pairs, bucket=bucket, token=token, project_root=root
+                upload_training_log_to_bucket(
+                    local,
+                    bucket=bucket,
+                    token=token,
+                    project_root=root,
+                    canonical_name=name,
                 )
             )
         except Exception as exc:
             warnings.warn(
-                f"sqlite artifact upload failed: {exc}",
+                f"sqlite artifact upload failed for {name}: {exc}",
                 stacklevel=2,
             )
     if not found:
@@ -686,21 +893,10 @@ def download_training_artifacts(
     root = Path(project_root)
     written: list[Path] = []
     for name in checkpoint_names:
-        written.append(
-            ensure_checkpoint(
-                root, name, force_download=True, token=token
-            )
-        )
-    log_pairs: list[tuple[str, Path]] = []
+        written.append(ensure_checkpoint(root, name, force_download=True, token=token))
     for name in log_names:
-        log_pairs.append(
-            (f"training_logs/{name}", root / "training_logs" / name)
-        )
-    if log_pairs:
-        written.extend(
-            download_files(
-                log_pairs, bucket=bucket, token=token, project_root=root
-            )
+        written.append(
+            ensure_training_log(root, name, force_download=True, token=token)
         )
     return written
 
@@ -781,9 +977,7 @@ def migrate_bare_checkpoints_to_dual_slot(
         bare_exists = _bucket_object_exists(
             resolved_bucket, bare_remote, token=write_token
         )
-        if _bucket_object_exists(
-            resolved_bucket, pointer_remote, token=write_token
-        ):
+        if _bucket_object_exists(resolved_bucket, pointer_remote, token=write_token):
             result["status"] = "already_migrated"
             if delete_bare and bare_exists:
                 api.batch_bucket_files(resolved_bucket, delete=[bare_remote])
@@ -832,9 +1026,7 @@ def migrate_bare_checkpoints_to_dual_slot(
                 resolved_bucket,
                 add=[
                     (
-                        json.dumps(pointer_payload, sort_keys=True).encode(
-                            "utf-8"
-                        ),
+                        json.dumps(pointer_payload, sort_keys=True).encode("utf-8"),
                         pointer_remote,
                     )
                 ],

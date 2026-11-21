@@ -61,9 +61,7 @@ class ArtifactSyncTest(unittest.TestCase):
             "checkpoints/image_energy_flow.current.json",
         )
         self.assertTrue(is_canonical_checkpoint_remote("checkpoints/foo.pt"))
-        self.assertFalse(
-            is_canonical_checkpoint_remote("checkpoints/foo.slot0.pt")
-        )
+        self.assertFalse(is_canonical_checkpoint_remote("checkpoints/foo.slot0.pt"))
         self.assertFalse(is_canonical_checkpoint_remote("data/bank.pt"))
 
     def test_sha256_file(self) -> None:
@@ -197,9 +195,7 @@ class ArtifactSyncTest(unittest.TestCase):
                 )
             self.assertEqual(paths, [dest])
             self.assertEqual(dest.read_bytes(), b"data")
-            exists_mock.assert_called_once_with(
-                bucket, "checkpoints/a.pt", token=None
-            )
+            exists_mock.assert_called_once_with(bucket, "checkpoints/a.pt", token=None)
             download_mock.assert_called_once()
 
     def test_upload_and_download_training_artifacts_wrappers(self) -> None:
@@ -221,8 +217,11 @@ class ArtifactSyncTest(unittest.TestCase):
                     ],
                 ) as ckpt_mock,
                 patch(
-                    "lpap.artifact_sync.upload_files",
-                    return_value=["training_logs/surrogate.sqlite"],
+                    "lpap.artifact_sync.upload_training_log_to_bucket",
+                    return_value=[
+                        "training_logs/surrogate.slot0.sqlite",
+                        "training_logs/surrogate.current.json",
+                    ],
                 ) as upload_mock,
             ):
                 remotes = upload_training_artifacts(root)
@@ -231,7 +230,8 @@ class ArtifactSyncTest(unittest.TestCase):
                 [
                     "checkpoints/surrogate_synthetic.slot0.pt",
                     "checkpoints/surrogate_synthetic.current.json",
-                    "training_logs/surrogate.sqlite",
+                    "training_logs/surrogate.slot0.sqlite",
+                    "training_logs/surrogate.current.json",
                 ],
             )
             ckpt_mock.assert_called_once()
@@ -242,8 +242,8 @@ class ArtifactSyncTest(unittest.TestCase):
                 return_value=ckpt,
             ) as ensure_mock:
                 with patch(
-                    "lpap.artifact_sync.download_files",
-                    return_value=[log],
+                    "lpap.artifact_sync.ensure_training_log",
+                    return_value=log,
                 ) as download_mock:
                     paths = download_training_artifacts(root)
             self.assertEqual(paths, [ckpt, log])
@@ -373,7 +373,7 @@ class ArtifactSyncTest(unittest.TestCase):
                     ],
                 ),
                 patch(
-                    "lpap.artifact_sync.upload_files",
+                    "lpap.artifact_sync.upload_training_log_to_bucket",
                     side_effect=RuntimeError("sqlite boom"),
                 ),
             ):
@@ -414,9 +414,7 @@ class ArtifactSyncTest(unittest.TestCase):
             with patch(
                 "lpap.artifact_sync.download_files", side_effect=_fake_download
             ) as download_mock:
-                path = ensure_project_artifact(
-                    "data/bank.pt", project_root=root
-                )
+                path = ensure_project_artifact("data/bank.pt", project_root=root)
             self.assertEqual(path, local.resolve())
             self.assertEqual(path.read_bytes(), b"remote")
             remotes = [remote for remote, _ in download_mock.call_args.args[0]]
@@ -456,9 +454,7 @@ class ArtifactSyncTest(unittest.TestCase):
             self.assertEqual(path.name, "image_energy_flow.pt")
             self.assertTrue(path.is_file())
             remotes = [remote for remote, _ in download_mock.call_args.args[0]]
-            self.assertEqual(
-                remotes, ["checkpoints/image_energy_flow.slot1.pt"]
-            )
+            self.assertEqual(remotes, ["checkpoints/image_energy_flow.slot1.pt"])
 
     def test_migrate_bare_checkpoints_skips_when_pointer_exists(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -466,9 +462,11 @@ class ArtifactSyncTest(unittest.TestCase):
             mock_api = MagicMock()
 
             def _exists(bucket: str, remote: str, *, token=None) -> bool:
-                return remote.endswith(".current.json") or remote.endswith(
-                    "/model.pt"
-                ) or remote == "checkpoints/model.pt"
+                return (
+                    remote.endswith(".current.json")
+                    or remote.endswith("/model.pt")
+                    or remote == "checkpoints/model.pt"
+                )
 
             with (
                 patch.dict(os.environ, {"HF_TOKEN": "tok"}, clear=False),

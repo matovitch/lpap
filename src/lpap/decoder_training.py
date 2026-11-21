@@ -40,6 +40,7 @@ from lpap.surrogate_training import (
     load_teacher_energy_bank,
     sample_teacher_energy_batch,
 )
+from lpap.run_resume import training_data_seed
 from lpap.training import (
     TrainingResumeInfo,
     TrainingRun,
@@ -271,9 +272,7 @@ def lpap_decoder_training_config_from_dict(
             load_best=bool(teacher_data["load_best"]),
             require_checkpoint=bool(teacher_data["require_checkpoint"]),
             frontend_mode=teacher_data.get("frontend_mode", "surrogate"),
-            exact_k_max=(
-                None if exact_k_max_raw is None else int(exact_k_max_raw)
-            ),
+            exact_k_max=(None if exact_k_max_raw is None else int(exact_k_max_raw)),
             init_decoder_checkpoint_name=str(
                 teacher_data.get("init_decoder_checkpoint_name", "")
             ),
@@ -440,8 +439,7 @@ def _permutation_from_surrogate_payload(
     if raw_perm is None:
         if require:
             raise ValueError(
-                "surrogate checkpoint is missing training_state.permutation: "
-                f"{path}"
+                f"surrogate checkpoint is missing training_state.permutation: {path}"
             )
         return None
     return as_long_permutation(torch.as_tensor(raw_perm), value_count=value_count)
@@ -454,9 +452,7 @@ def _create_surrogate_teacher(
     require_checkpoint: bool,
     config: LPAPDecoderTrainingConfig,
     device: torch.device,
-) -> tuple[
-    LPAPSurrogateTransformer, bool, dict[str, int | str], torch.Tensor | None
-]:
+) -> tuple[LPAPSurrogateTransformer, bool, dict[str, int | str], torch.Tensor | None]:
     model_config, payload = _surrogate_model_config_from_checkpoint(
         path=path, require_checkpoint=require_checkpoint
     )
@@ -558,9 +554,7 @@ def create_lpap_decoder_training_session(
             ensure=True,
         )
         if not init_path.exists():
-            raise FileNotFoundError(
-                f"init decoder checkpoint not found: {init_path}"
-            )
+            raise FileNotFoundError(f"init decoder checkpoint not found: {init_path}")
         init_payload = load_training_checkpoint(init_path, map_location=target_device)
         init_training_state = init_payload.get("training_state")
         if not isinstance(init_training_state, dict):
@@ -666,7 +660,7 @@ def create_lpap_decoder_training_session(
         else:
             permutation = decoder_permutation.to(device=target_device)
     generator = torch.Generator(device=target_device).manual_seed(
-        config.run.seed + resume_info.start_step
+        training_data_seed(config.run.seed, resume_info.start_step)
     )
     validation_generator = torch.Generator(device=target_device).manual_seed(
         config.validation.seed + resume_info.start_step

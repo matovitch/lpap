@@ -131,9 +131,19 @@ def initialize_training_log(path: str | Path) -> None:
             )
             """
         )
-
-
-
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS run_events (
+                event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                step INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                lpap_commit TEXT NOT NULL,
+                FOREIGN KEY (run_id) REFERENCES runs(run_id)
+            )
+            """
+        )
 
 
 def make_run_display_name() -> str:
@@ -185,6 +195,9 @@ def prune_run_history(
         )
         connection.execute(
             f"DELETE FROM run_attempts WHERE run_id IN ({placeholders})", stale_run_ids
+        )
+        connection.execute(
+            f"DELETE FROM run_events WHERE run_id IN ({placeholders})", stale_run_ids
         )
         connection.execute(
             f"DELETE FROM runs WHERE run_id IN ({placeholders})", stale_run_ids
@@ -415,6 +428,48 @@ def log_step_metrics(
         )
 
 
+def record_resume_event(
+    path: str | Path,
+    *,
+    run_id: str,
+    step: int,
+    commit: str,
+) -> None:
+    """Append one ``resume`` event (step, timestamp, lpap commit)."""
+    initialize_training_log(path)
+    with closing(_connect(path)) as connection, connection:
+        connection.execute(
+            """
+            INSERT INTO run_events (run_id, kind, step, lpap_commit)
+            VALUES (?, 'resume', ?, ?)
+            """,
+            (run_id, int(step), commit),
+        )
+
+
+def list_run_events(path: str | Path, *, run_id: str) -> list[dict[str, Any]]:
+    initialize_training_log(path)
+    with closing(_connect(path)) as connection:
+        rows = connection.execute(
+            """
+            SELECT kind, step, created_at, lpap_commit
+            FROM run_events
+            WHERE run_id = ?
+            ORDER BY event_id ASC
+            """,
+            (run_id,),
+        ).fetchall()
+    return [
+        {
+            "kind": str(kind),
+            "step": int(step),
+            "created_at": str(created_at),
+            "commit": str(commit),
+        }
+        for kind, step, created_at, commit in rows
+    ]
+
+
 def mark_run_status(path: str | Path, *, run_id: str, status: str) -> None:
     initialize_training_log(path)
     with closing(_connect(path)) as connection, connection:
@@ -537,6 +592,14 @@ def load_metric_history(
         row["best"] = row["best"] or bool(improved)
         if row.get("attempt_id") is None and attempt_id is not None:
             row["attempt_id"] = attempt_id
+    resume_steps = {
+        int(event["step"])
+        for event in list_run_events(path, run_id=run_id)
+        if event["kind"] == "resume"
+    }
+    for step, row in by_step.items():
+        if step in resume_steps:
+            row["resume"] = True
     return [by_step[step] for step in sorted(by_step)]
 
 

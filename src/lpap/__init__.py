@@ -240,8 +240,10 @@ _LAZY_MODULE_EXPORTS: dict[str, tuple[str, ...]] = {
         "RetrainPipelineConfig",
         "RetrainStageResult",
         "build_exact_finetune_autoencoder_config",
+        "RunParent",
         "load_retrain_pipeline_config",
         "run_image_retrain_pipeline",
+        "step_overrides_from_total",
     ),
     "surrogate_training": (
         "LPAPSurrogateDataConfig",

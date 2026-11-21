@@ -65,9 +65,11 @@ PYTHONPATH=src python -m lpap.retrain_image_pipeline \
 Useful flags:
 
 - `--stages`: comma-separated subset of `surrogates,decoders,autoencoder,decoder_exact_finetune`.
-- `--resume`: resume checkpoints instead of starting from scratch.
+- `--resume`: resume from the stage checkpoints. A missing local SQLite log is fetched from `training_logs/<stem>.current.json` and appended; the run records one `resume` event. A checkpoint whose `model_config` does not match the live run raises. The training loader is seeded with `seed + start_step`.
 - `--no-upload` / `--no-notify`: disable HF checkpoint upload or Pushover notification (for local runs).
-- `--surrogate-steps`, `--decoder-steps`, `--ae-steps`, `--exact-ft-steps`: override step counts per stage without editing TOML.
+- `--surrogate-steps`, `--decoder-steps`, `--ae-steps`, `--exact-ft-steps`: override step counts per stage without editing TOML. The same override is `run_image_retrain_pipeline(step_overrides=...)`. Raising the budget on resume continues from the restored step. The lab train cell exposes one **total steps** input (empty keeps the config).
+
+`parent` (run id + checkpoint) is a runtime argument of `run_image_retrain_pipeline`, not a TOML field. It copies the parent checkpoint and log onto one new run and leaves the parent files unchanged. The call must train a single checkpoint, and that file must differ from the parent. When the autoencoder stage runs in the same call, exact fine-tune starts fresh.
 
 ### Molab Detached GPU Worker
 

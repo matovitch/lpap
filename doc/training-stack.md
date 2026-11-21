@@ -61,6 +61,10 @@ Checkpoint payloads include:
 
 SQLite logs include run configuration, metadata, attempts, scalar KPIs, and checkpoint paths. SQLite is informational and ergonomic; checkpoints are authoritative for model-dependent configuration (including the concrete LPAP `permutation` tensor — regenerate from `permutation_seed` only for fresh runs via CPU `randperm(N)`; that seed is always drawn on CPU for device stability). Decoder and AE loads that require a surrogate checkpoint also require the saved `training_state.permutation` tensor.
 
+Resume keeps one curve. When `resume` is set and the checkpoint is present but `training_logs/<stem>.sqlite` is missing, training fetches that log through `training_logs/<stem>.current.json` (same dual-slot pointer as checkpoints). A checkpoint with no local log and no pointer raises. The run appends to the fetched log and writes one `resume` event (step, timestamp, installed lpap commit). A requested resume whose checkpoint `model_config` differs from the live run raises. On resume the training data loader uses `seed + start_step`. The step budget is a runtime override (`step_overrides` / the lab "total steps" input); raising it continues from the restored step.
+
+An optional runtime `parent` (run id + checkpoint) copies that checkpoint and log onto a new run id and records the parent. The parent files stay unchanged. `parent` is not a TOML field. It applies to a call that trains one checkpoint, and that checkpoint path must differ from the parent's.
+
 Pair loads (`validate_lpap_pair_matches_sequence_length`) require both
 `model_config`s to include `value_count`, `bucket_count`, `probe_count`, and
 `k_max`. Those four must agree, `value_count` must equal the energy length,
@@ -190,7 +194,11 @@ Each pair also logs `decoded_energy_rms/<name>` and
 `python -m lpap.retrain_image_pipeline` reads
 `configs/training/retrain_image_pipeline.toml`. Stages are surrogates,
 decoders, the image autoencoder, and a decoder-only exact-LPAP fine-tune
-(`[decoder_exact_finetune]`, 750 steps at the AE batch).
+(`[decoder_exact_finetune]`, 750 steps at the AE batch). Step counts in that
+file are the default budget. `run_image_retrain_pipeline(step_overrides=...)`
+and the lab train cell's **total steps** input replace them for one call;
+an empty input keeps the config. When the autoencoder stage runs in the same
+call, exact fine-tune starts fresh and does not load its previous checkpoint.
 
 `[performance]` (`PipelinePerformanceConfig`):
 

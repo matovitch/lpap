@@ -281,8 +281,13 @@ Local code and configs still use `checkpoints/<stem>.pt`. `ensure_checkpoint` /
 resume **require** the pointer (missing pointer raises; no bare-`.pt` fallback).
 Downloads use `download_bucket_files` / `get_bucket_paths_info` —
 `HfFileSystem.exists`/`open` can stay stale for freshly written dual-slot keys.
-SQLite under `training_logs/` remains a single best-effort key after the
-checkpoint promote.
+SQLite logs use the same layout: `training_logs/<stem>.slot0.sqlite` /
+`.slot1.sqlite` and `training_logs/<stem>.current.json`. Resume fetches a
+missing log through that pointer and appends; the upload writes the inactive
+slot, then moves the pointer, so the first upload after a resume publishes the
+combined history. A checkpoint with no log raises. The lab train cell's
+**total steps** number overrides the config budget (empty keeps the config)
+and a resume continues from the restored step.
 
 One-time migration of legacy bare HF objects:
 

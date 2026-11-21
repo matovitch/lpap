@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import io
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -12,6 +14,7 @@ from lpap.flow import DilatedConvFlow1d
 from lpap.permutation import LPAP_FOLD_ORDER
 from lpap.retrain_image_pipeline import (
     ALL_PIPELINE_STAGES,
+    RunParent,
     load_retrain_pipeline_config,
     run_image_retrain_pipeline,
 )
@@ -521,6 +524,75 @@ class RetrainImagePipelineTest(unittest.TestCase):
                             notify_on_finished=True,
                             step_overrides={"surrogates": 1},
                         )
+
+
+    def test_exact_finetune_starts_fresh_when_autoencoder_ran(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            pipeline_path = _write_tiny_pipeline_workspace(root)
+            config = load_retrain_pipeline_config(pipeline_path)
+            seen: list[bool] = []
+
+            class _Session:
+                def __init__(self, path: Path) -> None:
+                    self.checkpoint_path = path
+
+            def fake_create(*, project_root, config, device=None):
+                seen.append(bool(config.run.resume_from_checkpoint))
+                return _Session(
+                    Path(project_root) / "checkpoints" / config.run.checkpoint_name
+                )
+
+            buffer = io.StringIO()
+            with (
+                mock.patch(
+                    "lpap.retrain_image_pipeline.create_image_autoencoder_training_session",
+                    side_effect=fake_create,
+                ),
+                mock.patch(
+                    "lpap.retrain_image_pipeline.iter_image_autoencoder_training",
+                    return_value=iter(()),
+                ),
+                redirect_stdout(buffer),
+            ):
+                run_image_retrain_pipeline(
+                    project_root=root,
+                    config=config,
+                    stages=("autoencoder", "decoder_exact_finetune"),
+                    device="cpu",
+                    resume=True,
+                    notify_on_finished=False,
+                    upload_artifacts_on_checkpoint=False,
+                )
+                self.assertEqual(seen, [True, False])
+                self.assertIn("starting exact fine-tune fresh", buffer.getvalue())
+                seen.clear()
+                run_image_retrain_pipeline(
+                    project_root=root,
+                    config=config,
+                    stages=("decoder_exact_finetune",),
+                    device="cpu",
+                    resume=True,
+                    notify_on_finished=False,
+                    upload_artifacts_on_checkpoint=False,
+                )
+            self.assertEqual(seen, [True])
+
+    def test_parent_requires_one_checkpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            pipeline_path = _write_tiny_pipeline_workspace(root)
+            config = load_retrain_pipeline_config(pipeline_path)
+            with self.assertRaisesRegex(ValueError, "one checkpoint"):
+                run_image_retrain_pipeline(
+                    project_root=root,
+                    config=config,
+                    stages=("surrogates",),
+                    device="cpu",
+                    notify_on_finished=False,
+                    upload_artifacts_on_checkpoint=False,
+                    parent=RunParent("parent-run", "surrogate_c4_k2.pt"),
+                )
 
 
 if __name__ == "__main__":

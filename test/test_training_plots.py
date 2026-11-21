@@ -36,6 +36,15 @@ class TrainingPlotsTest(unittest.TestCase):
         self.assertIn("source ce regularizer", svg)
         self.assertIn("stroke-dasharray", svg)
 
+    def test_marks_resume_step(self) -> None:
+        svg = render_loss_history_svg(
+            [
+                {"step": 2, "loss": 1.0, "resume": True},
+                {"step": 3, "loss": 0.5},
+            ]
+        )
+        self.assertIn("resume", svg)
+
     def test_renders_loss_history_comparison(self) -> None:
         from lpap.training_plots import render_loss_history_comparison_svg
 
@@ -95,7 +104,7 @@ class TrainingPlotsTest(unittest.TestCase):
         self.assertIn("round-trip energy → image", html)
         self.assertIn("prior energy → image", html)
         self.assertIn("data:image/png;base64,", html)
-        self.assertIn('image-rendering: pixelated', html)
+        self.assertIn("image-rendering: pixelated", html)
 
     def test_renders_image_autoencoder_gallery(self) -> None:
         from lpap.image_autoencoder_training import ImageAutoencoderGalleryPairItem
@@ -173,7 +182,9 @@ class TrainingPlotsTest(unittest.TestCase):
         self.assertLess(html.index("Δ image c256_k24"), html.index("Δ image c128_k16"))
         self.assertLess(html.index("source energy"), html.index("c512_k32 energy"))
         self.assertLess(html.index("c512_k32 energy"), html.index("c256_k24 energy"))
-        self.assertLess(html.index("Δ energy c512_k32"), html.index("Δ energy c128_k16"))
+        self.assertLess(
+            html.index("Δ energy c512_k32"), html.index("Δ energy c128_k16")
+        )
 
     def test_display_gamma_lifts_small_values_and_rejects_nonpositive(self) -> None:
         from lpap.training_plots import _apply_display_gamma
