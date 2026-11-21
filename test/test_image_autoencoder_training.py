@@ -36,7 +36,7 @@ from lpap.flow_training import (
     FlowOptimizerConfig,
     FlowValidationConfig,
 )
-from lpap.permutation import make_permutation_indices
+from lpap.permutation import LPAP_FOLD_ORDER, make_permutation_indices
 from lpap.surrogate import LPAPSurrogateTransformer
 from lpap.surrogate_training import LPAPSurrogateDataConfig
 
@@ -85,7 +85,9 @@ def _save_tiny_teacher_pair(
                 "hidden_dim": 16,
                 "layer_count": 1,
                 "head_count": 4,
+                "fold_order": LPAP_FOLD_ORDER,
             },
+            "fold_order": LPAP_FOLD_ORDER,
             "permutation": permutation,
         },
     )
@@ -110,7 +112,9 @@ def _save_tiny_teacher_pair(
                 "hidden_dim": 16,
                 "layer_count": 1,
                 "head_count": 4,
+                "fold_order": LPAP_FOLD_ORDER,
             },
+            "fold_order": LPAP_FOLD_ORDER,
             "permutation": permutation,
         },
     )
@@ -226,24 +230,19 @@ def _build_tiny_autoencoder_session(
 
 
 class ImageAutoencoderTrainingTest(unittest.TestCase):
-    def test_source_dict_normalizes_to_one_pair(self) -> None:
-        source = image_autoencoder_source_config_from_dict(
-            {
-                "surrogate_checkpoint_name": "surrogate_synthetic.pt",
-                "decoder_checkpoint_name": "decoder_synthetic.pt",
-                "flow_checkpoint_name": "image_energy_flow.pt",
-                "load_best": True,
-                "require_checkpoints": True,
-                "train_image_to_energy_flow": True,
-                "train_surrogate": True,
-                "train_decoder": True,
-                "train_energy_to_image_flow": True,
-            }
-        )
-        self.assertEqual(len(source.lpap_pairs), 1)
-        self.assertEqual(
-            source.surrogate_checkpoint_name, "surrogate_synthetic.pt"
-        )
+    def test_source_dict_requires_lpap_pairs(self) -> None:
+        with self.assertRaisesRegex(ValueError, "lpap_pairs"):
+            image_autoencoder_source_config_from_dict(
+                {
+                    "flow_checkpoint_name": "image_energy_flow.pt",
+                    "load_best": True,
+                    "require_checkpoints": True,
+                    "train_image_to_energy_flow": True,
+                    "train_surrogate": True,
+                    "train_decoder": True,
+                    "train_energy_to_image_flow": True,
+                }
+            )
 
     def test_lpap_pairs_source_dict_roundtrip(self) -> None:
         source = image_autoencoder_source_config_from_dict(
@@ -399,7 +398,7 @@ class ImageAutoencoderTrainingTest(unittest.TestCase):
                     f"{name} received only zero gradients",
                 )
 
-    def test_from_dict_accepts_flat_source(self) -> None:
+    def test_from_dict_accepts_lpap_pairs_source(self) -> None:
         config = image_autoencoder_training_config_from_dict(
             {
                 "image": {
@@ -411,8 +410,13 @@ class ImageAutoencoderTrainingTest(unittest.TestCase):
                     "num_workers": 0,
                 },
                 "source": {
-                    "surrogate_checkpoint_name": "surrogate.pt",
-                    "decoder_checkpoint_name": "decoder.pt",
+                    "lpap_pairs": [
+                        {
+                            "name": "c4",
+                            "surrogate_checkpoint_name": "surrogate.pt",
+                            "decoder_checkpoint_name": "decoder.pt",
+                        }
+                    ],
                     "flow_checkpoint_name": "image_energy_flow.pt",
                     "load_best": True,
                     "require_checkpoints": True,

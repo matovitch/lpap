@@ -7,6 +7,7 @@ from typing import Any
 
 import torch
 
+from lpap.checkpoints import load_training_checkpoint
 from lpap.energy_bank import (
     EnergyBankConfig,
     cycle_energy_bank_batches,
@@ -14,7 +15,11 @@ from lpap.energy_bank import (
     ensure_energy_bank,
     sample_energy_bank_values,
 )
-from lpap.permutation import make_permutation_indices
+from lpap.permutation import (
+    LPAP_FOLD_ORDER,
+    as_long_permutation,
+    make_permutation_indices,
+)
 from lpap.surrogate import (
     LPAPSurrogateMetrics,
     LPAPSurrogateTransformer,
@@ -210,6 +215,8 @@ class LPAPSurrogateTrainingConfig:
     def validate(self) -> None:
         self.data.validate()
         self.model.validate()
+        if self.model.k_max > self.data.bucket_count:
+            raise ValueError("k_max must be at most bucket_count")
         self.optimizer.validate()
         self.validation.validate()
         self.run.validate()
@@ -223,7 +230,7 @@ class LPAPSurrogateTrainingConfig:
             "run": self.run.as_dict(),
         }
 
-    def model_config(self) -> dict[str, int]:
+    def model_config(self) -> dict[str, int | str]:
         return {
             "value_count": self.value_count,
             "bucket_count": self.data.bucket_count,
@@ -232,6 +239,7 @@ class LPAPSurrogateTrainingConfig:
             "hidden_dim": self.model.hidden_dim,
             "layer_count": self.model.layer_count,
             "head_count": self.model.head_count,
+            "fold_order": LPAP_FOLD_ORDER,
         }
 
 
@@ -372,6 +380,27 @@ def create_lpap_surrogate_training_session(
         },
     )
     resume_info = training_run.resume_or_initialize()
+    if resume_info.resumed:
+        payload = load_training_checkpoint(checkpoint_path, map_location="cpu")
+        training_state = payload.get("training_state")
+        if not isinstance(training_state, dict):
+            raise ValueError("surrogate checkpoint training_state must be a dictionary")
+        fold_order = training_state.get("fold_order") or (
+            training_state.get("model_config") or {}
+        ).get("fold_order")
+        if fold_order != LPAP_FOLD_ORDER:
+            raise ValueError(
+                f"surrogate checkpoint fold_order={fold_order!r} does not match {LPAP_FOLD_ORDER!r}"
+            )
+        raw_permutation = training_state.get("permutation")
+        if raw_permutation is None:
+            raise ValueError(
+                f"surrogate checkpoint is missing training_state.permutation: {checkpoint_path}"
+            )
+        permutation = as_long_permutation(
+            torch.as_tensor(raw_permutation),
+            value_count=config.value_count,
+        ).to(device=target_device)
     generator = torch.Generator(device=target_device).manual_seed(
         config.run.seed + resume_info.start_step
     )
@@ -483,6 +512,7 @@ def iter_lpap_surrogate_training(
             training_state={
                 "seed": config.run.seed,
                 "validation_seed": config.validation.seed,
+                "fold_order": LPAP_FOLD_ORDER,
                 "permutation": session.permutation.detach().cpu(),
             },
         )

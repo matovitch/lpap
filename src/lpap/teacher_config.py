@@ -75,6 +75,8 @@ class TeacherPairConfig:
             raise ValueError("pair bucket_count/probe_count must be positive")
         if self.k_max <= 0:
             raise ValueError("pair.k_max must be positive")
+        if self.k_max > self.bucket_count:
+            raise ValueError("pair.k_max must be at most pair.bucket_count")
         if self.batch_size <= 0:
             raise ValueError("data.batch_size must be positive")
         self.energy_bank.validate()

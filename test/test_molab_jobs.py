@@ -11,11 +11,16 @@ from molab.jobs import (
     AE_BIDIR_FLOW_SCRIPT,
     FLOW_BG_STEM,
     FLOW_SCRIPT,
+    RETRAIN_PIPELINE_BG_STEM,
+    RETRAIN_PIPELINE_DONE_MARKER,
+    RETRAIN_PIPELINE_SCRIPT,
     ae_bidirectional_flow_worker_source,
     image_energy_flow_worker_source,
     launch_ae_bidirectional_flow_bg,
     launch_image_energy_flow_bg,
+    launch_retrain_image_pipeline_bg,
     lpap_teacher_worker_source,
+    retrain_image_pipeline_worker_source,
 )
 
 
@@ -27,17 +32,12 @@ class MolabJobsTest(unittest.TestCase):
             comment="unit-bidir",
         )
         self.assertIn("TARGET = 20000", source)
-        self.assertIn('flow_checkpoint_name="image_energy_flow.pt"', source)
-        self.assertIn("surrogate_c128_k16.pt", source)
-        self.assertIn("decoder_c256_k24.pt", source)
-        self.assertIn("surrogate_c512_k32.pt", source)
-        self.assertIn("decoder_c512_k32.pt", source)
-        self.assertIn('name="c128_k16"', source)
-        self.assertIn('name="c256_k24"', source)
-        self.assertIn('name="c512_k32"', source)
+        self.assertIn("configs/training/image_autoencoder.toml", source)
+        self.assertIn("training_config_from_file", source)
         self.assertIn("comment='unit-bidir'", source)
         self.assertIn("AE_TRI_BIDIR_FLOW_DONE", source)
         self.assertIn("image_autoencoder_tri_lnorm", source)
+        self.assertNotIn("default_image_autoencoder_training_config", source)
         compile(source, "<ae_bidir_worker>", "exec")
 
     def test_ae_worker_source_resume(self) -> None:
@@ -85,6 +85,18 @@ class MolabJobsTest(unittest.TestCase):
         self.assertIn("TARGET = 20000", source)
         self.assertIn("resume_from_checkpoint=True", source)
         compile(source, "<flow_resume>", "exec")
+
+    def test_retrain_image_pipeline_worker_source(self) -> None:
+        source = retrain_image_pipeline_worker_source(
+            project_root="/marimo",
+            stages=("surrogates", "decoders"),
+            resume_from_checkpoint=False,
+        )
+        self.assertIn("lpap.retrain_image_pipeline", source)
+        self.assertIn("surrogates,decoders", source)
+        self.assertIn("configs/training/retrain_image_pipeline.toml", source)
+        self.assertEqual(RETRAIN_PIPELINE_DONE_MARKER, "RETRAIN_IMAGE_PIPELINE_DONE")
+        compile(source, "<retrain_pipeline_worker>", "exec")
 
     def test_launch_ae_writes_script_and_spawns(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -153,6 +165,47 @@ class MolabJobsTest(unittest.TestCase):
             self.assertTrue(script.is_file())
             self.assertEqual(result["pid"], 7)
             self.assertEqual(result["bg_stem"], FLOW_BG_STEM)
+
+    def test_launch_retrain_pipeline_writes_script(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            cfg_dir = root / "configs" / "training"
+            cfg_dir.mkdir(parents=True, exist_ok=True)
+            (cfg_dir / "retrain_image_pipeline.toml").write_text(
+                "[pipeline]\n", encoding="utf-8"
+            )
+            with (
+                patch.dict(
+                    os.environ,
+                    {
+                        "HF_TOKEN": "tok",
+                        "PUSHOVER_TOKEN": "app",
+                        "PUSHOVER_USER": "user",
+                    },
+                    clear=False,
+                ),
+                patch(
+                    "molab.jobs.spawn_detached_python",
+                    return_value={
+                        "pid": 42,
+                        "script_path": str(
+                            root / "training_logs" / RETRAIN_PIPELINE_SCRIPT
+                        ),
+                        "cwd": str(root),
+                        "pid_path": str(
+                            root / "training_logs" / f"{RETRAIN_PIPELINE_BG_STEM}.pid"
+                        ),
+                        "log_path": str(
+                            root / "training_logs" / f"{RETRAIN_PIPELINE_BG_STEM}.log"
+                        ),
+                    },
+                ),
+            ):
+                result = launch_retrain_image_pipeline_bg(root)
+            script = root / "training_logs" / RETRAIN_PIPELINE_SCRIPT
+            self.assertTrue(script.is_file())
+            self.assertEqual(result["pid"], 42)
+            self.assertEqual(result["bg_stem"], RETRAIN_PIPELINE_BG_STEM)
 
 
 if __name__ == "__main__":

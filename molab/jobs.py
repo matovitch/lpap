@@ -10,7 +10,7 @@ import json
 import os
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from molab.bg_worker import (
     BackgroundWorkerError,
@@ -19,12 +19,16 @@ from molab.bg_worker import (
 )
 
 # Tri-pair AE from one bidirectional image↔energy flow
-# (c128_k16 + c256_k24 + c512_k32). Fresh stem for lognormal-flow teachers.
+# (c128_k16 + c256_k24 + c512_k32).
 AE_BIDIR_FLOW_RUN_ID = "image_autoencoder_tri_lnorm"
 AE_BIDIR_FLOW_CHECKPOINT = "image_autoencoder_tri_lnorm.pt"
 AE_BIDIR_FLOW_LOG = "image_autoencoder_tri_lnorm.sqlite"
 AE_BIDIR_FLOW_BG_STEM = "image_autoencoder_tri_lnorm_bg"
 AE_BIDIR_FLOW_SCRIPT = "train_image_autoencoder_tri_lnorm_bg.py"
+
+RETRAIN_PIPELINE_BG_STEM = "retrain_image_pipeline_bg"
+RETRAIN_PIPELINE_SCRIPT = "run_retrain_image_pipeline_bg.py"
+RETRAIN_PIPELINE_DONE_MARKER = "RETRAIN_IMAGE_PIPELINE_DONE"
 
 FLOW_RUN_ID = "image_energy_flow"
 FLOW_CHECKPOINT = "image_energy_flow.pt"
@@ -185,14 +189,14 @@ def ae_bidirectional_flow_worker_source(
     notify_on_finished: bool = True,
     comment: str | None = None,
     resume_from_checkpoint: bool = False,
+    config_relpath: str = "configs/training/image_autoencoder.toml",
 ) -> str:
-    """Return Python source for multi-pair AE from one bidirectional flow ckpt."""
+    """Return Python source for multi-pair AE from ``configs/training/image_autoencoder.toml``."""
     if target_steps <= 0:
         raise ValueError("target_steps must be positive")
     root = Path(project_root)
     resolved_comment = comment or (
-        "tri-pair AE c128_k16+c256_k24+c512_k32 from image_energy_flow; "
-        f"bg to {target_steps}"
+        f"tri-pair AE from {config_relpath}; bg to {target_steps}"
     )
     upload = "True" if upload_artifacts_on_checkpoint else "False"
     notify = "True" if notify_on_finished else "False"
@@ -202,68 +206,33 @@ def ae_bidirectional_flow_worker_source(
 from dataclasses import replace
 from pathlib import Path
 
-from lpap.image_autoencoder_training import (
-    ImageAutoencoderRunConfig,
-    ImageAutoencoderSourceConfig,
-    ImageAutoencoderLpapPairConfig,
-)
 from lpap.training_notebook import (
     create_training_session,
-    default_image_autoencoder_training_config,
     iter_training,
+    training_config_from_file,
 )
 
 project_root = Path({str(root)!r})
 TARGET = {int(target_steps)}
-base = default_image_autoencoder_training_config()
+config_path = project_root / {config_relpath!r}
+if not config_path.is_file():
+    raise FileNotFoundError(
+        f"AE training TOML missing: {{config_path}} "
+        "(sync configs/training via molab-sync or the launch script)"
+    )
+base = training_config_from_file(config_path, "image_autoencoder")
 config = replace(
     base,
-    source=ImageAutoencoderSourceConfig(
-        lpap_pairs=(
-            ImageAutoencoderLpapPairConfig(
-                surrogate_checkpoint_name="surrogate_c128_k16.pt",
-                decoder_checkpoint_name="decoder_c128_k16.pt",
-                name="c128_k16",
-            ),
-            ImageAutoencoderLpapPairConfig(
-                surrogate_checkpoint_name="surrogate_c256_k24.pt",
-                decoder_checkpoint_name="decoder_c256_k24.pt",
-                name="c256_k24",
-            ),
-            ImageAutoencoderLpapPairConfig(
-                surrogate_checkpoint_name="surrogate_c512_k32.pt",
-                decoder_checkpoint_name="decoder_c512_k32.pt",
-                name="c512_k32",
-            ),
-        ),
-        flow_checkpoint_name="image_energy_flow.pt",
-        load_best=True,
-        require_checkpoints=True,
-        train_image_to_energy_flow=True,
-        train_surrogate=True,
-        train_decoder=True,
-        train_energy_to_image_flow=True,
-    ),
-    # Match configs/training/image_autoencoder.toml
-    loss=replace(
-        base.loss,
-        signed_mass_floor_tau=0.1,
-        signed_mass_balance_weight=1.0e-2,
-        energy_l1_weight=0.05,
-    ),
-    validation=replace(
-        base.validation, every=250, batch_size=32, num_batches=8
-    ),
-    run=ImageAutoencoderRunConfig(
+    run=replace(
+        base.run,
         run_training=True,
         resume_from_checkpoint={resume},
         steps=TARGET,
-        seed=base.run.seed,
         display_every=25,
         log_every=5,
-        run_id="{AE_BIDIR_FLOW_RUN_ID}",
-        checkpoint_name="{AE_BIDIR_FLOW_CHECKPOINT}",
-        log_name="{AE_BIDIR_FLOW_LOG}",
+        run_id={AE_BIDIR_FLOW_RUN_ID!r},
+        checkpoint_name={AE_BIDIR_FLOW_CHECKPOINT!r},
+        log_name={AE_BIDIR_FLOW_LOG!r},
         comment={resolved_comment!r},
         pinned=True,
         upload_artifacts_on_checkpoint={upload},
@@ -275,15 +244,16 @@ session = create_training_session(
     "image_autoencoder", project_root=project_root, config=config
 )
 print(
-    f"device={{session.device}} start={{session.resume_info.start_step}} "
+    f"device={{session.device}} config={{config_path}} start={{session.resume_info.start_step}} "
     f"target={{config.run.steps}} upload={{config.run.upload_artifacts_on_checkpoint}} "
     f"notify={{config.run.notify_on_finished}} resume={{config.run.resume_from_checkpoint}}",
     flush=True,
 )
 print(session.resume_info.message, flush=True)
 print(f"best_so_far={{session.training_run.best_metric}}", flush=True)
+pair_names = ",".join(runtime.name for runtime in session.lpap_pairs)
 print(
-    "flow=image_energy_flow.pt pairs=c128_k16,c256_k24,c512_k32",
+    f"flow={{config.source.flow_checkpoint_name}} pairs={{pair_names}}",
     flush=True,
 )
 for result in iter_training("image_autoencoder", session):
@@ -308,6 +278,76 @@ for result in iter_training("image_autoencoder", session):
         )
 print("AE_TRI_BIDIR_FLOW_DONE", flush=True)
 '''
+
+
+def retrain_image_pipeline_worker_source(
+    *,
+    project_root: str | Path = "/marimo",
+    config_relpath: str = "configs/training/retrain_image_pipeline.toml",
+    stages: Sequence[str] | None = None,
+    resume_from_checkpoint: bool = False,
+    upload_artifacts_on_checkpoint: bool = True,
+    notify_on_finished: bool = True,
+) -> str:
+    """Return Python source for a detached full image retraining pipeline worker."""
+    root = Path(project_root)
+    argv = [
+        "--project-root",
+        str(root),
+        "--config",
+        config_relpath,
+    ]
+    if stages:
+        argv.extend(["--stages", ",".join(stages)])
+    if resume_from_checkpoint:
+        argv.append("--resume")
+    if not upload_artifacts_on_checkpoint:
+        argv.append("--no-upload")
+    if not notify_on_finished:
+        argv.append("--no-notify")
+    return f'''from __future__ import annotations
+
+from lpap.retrain_image_pipeline import main
+
+raise SystemExit(main({argv!r}))
+'''
+
+
+def launch_retrain_image_pipeline_bg(
+    project_root: str | Path = "/marimo",
+    *,
+    config_relpath: str = "configs/training/retrain_image_pipeline.toml",
+    stages: Sequence[str] | None = None,
+    resume_from_checkpoint: bool = False,
+    upload_artifacts_on_checkpoint: bool = True,
+    notify_on_finished: bool = True,
+    require_secrets: bool = True,
+) -> dict[str, Any]:
+    """Write + spawn the full image-only LPAP retraining pipeline worker."""
+    root = Path(project_root)
+    config_path = root / config_relpath
+    if not config_path.is_file():
+        raise BackgroundWorkerError(f"missing pipeline config: {config_path}")
+    return _spawn_job(
+        project_root=root,
+        script_name=RETRAIN_PIPELINE_SCRIPT,
+        bg_stem=RETRAIN_PIPELINE_BG_STEM,
+        source=retrain_image_pipeline_worker_source(
+            project_root=root,
+            config_relpath=config_relpath,
+            stages=stages,
+            resume_from_checkpoint=resume_from_checkpoint,
+            upload_artifacts_on_checkpoint=upload_artifacts_on_checkpoint,
+            notify_on_finished=notify_on_finished,
+        ),
+        target_steps=0,
+        run_id="retrain_image_pipeline",
+        checkpoint_name=AE_BIDIR_FLOW_CHECKPOINT,
+        log_name=f"{RETRAIN_PIPELINE_BG_STEM}.log",
+        upload_artifacts_on_checkpoint=upload_artifacts_on_checkpoint,
+        notify_on_finished=notify_on_finished,
+        require_secrets=require_secrets,
+    )
 
 
 
@@ -566,6 +606,27 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     teacher.add_argument("--resume", action="store_true")
     add_common(teacher)
+
+    pipeline = sub.add_parser(
+        "launch-retrain-image-pipeline",
+        help="spawn full image-only LPAP retraining pipeline from TOML",
+    )
+    pipeline.add_argument("--project-root", type=Path, default=Path("/marimo"))
+    pipeline.add_argument(
+        "--config",
+        default="configs/training/retrain_image_pipeline.toml",
+        help="repo-relative pipeline TOML",
+    )
+    pipeline.add_argument(
+        "--stages",
+        default=None,
+        help="optional comma-separated stage subset",
+    )
+    pipeline.add_argument("--resume", action="store_true")
+    pipeline.add_argument("--no-upload", action="store_true")
+    pipeline.add_argument("--no-notify", action="store_true")
+    pipeline.add_argument("--allow-missing-secrets", action="store_true")
+    pipeline.add_argument("--json", action="store_true")
     return parser.parse_args(argv)
 
 
@@ -603,6 +664,21 @@ def main(argv: Sequence[str] | None = None) -> int:
                 comment=args.comment,
                 require_secrets=not args.allow_missing_secrets,
                 resume_from_checkpoint=bool(args.resume),
+            )
+        elif args.command == "launch-retrain-image-pipeline":
+            parsed_stages = (
+                [item.strip() for item in args.stages.split(",") if item.strip()]
+                if args.stages
+                else None
+            )
+            result = launch_retrain_image_pipeline_bg(
+                args.project_root,
+                config_relpath=args.config,
+                stages=parsed_stages,
+                resume_from_checkpoint=bool(args.resume),
+                upload_artifacts_on_checkpoint=not args.no_upload,
+                notify_on_finished=not args.no_notify,
+                require_secrets=not args.allow_missing_secrets,
             )
         else:
             raise ValueError(f"unknown command: {args.command}")

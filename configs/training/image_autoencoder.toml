@@ -7,8 +7,6 @@ shuffle = true
 num_workers = 0
 
 [source]
-surrogate_checkpoint_name = "surrogate_c128_k4.pt"
-decoder_checkpoint_name = "decoder_c128_k4.pt"
 flow_checkpoint_name = "image_energy_flow.pt"
 load_best = true
 require_checkpoints = true
@@ -16,6 +14,24 @@ train_image_to_energy_flow = true
 train_surrogate = true
 train_decoder = true
 train_energy_to_image_flow = true
+lpap_frontend_mode = "surrogate"
+init_checkpoint_name = ""
+use_triton = false
+
+[[source.lpap_pairs]]
+name = "c128_k16"
+surrogate_checkpoint_name = "surrogate_c128_k16.pt"
+decoder_checkpoint_name = "decoder_c128_k16.pt"
+
+[[source.lpap_pairs]]
+name = "c256_k24"
+surrogate_checkpoint_name = "surrogate_c256_k24.pt"
+decoder_checkpoint_name = "decoder_c256_k24.pt"
+
+[[source.lpap_pairs]]
+name = "c512_k32"
+surrogate_checkpoint_name = "surrogate_c512_k32.pt"
+decoder_checkpoint_name = "decoder_c512_k32.pt"
 
 [image_to_energy_flow]
 sequence_length = 1024
@@ -54,8 +70,9 @@ max_grad_norm = 1.0
 
 [validation]
 enabled = true
-every = 50
+every = 250
 batch_size = 32
+num_batches = 8
 seed = 60123
 validate_at_end = true
 euler_steps = [16]
@@ -63,12 +80,12 @@ euler_steps = [16]
 [run]
 run_training = true
 resume_from_checkpoint = true
-steps = 20000
+steps = 70000
 seed = 2987
-display_every = 5
-log_every = 1
-run_id = "image_autoencoder"
-checkpoint_name = "image_autoencoder.pt"
-log_name = "image_autoencoder.sqlite"
-comment = "16-step e2e AE; bidirectional flow clone at init"
-pinned = false
+display_every = 25
+log_every = 5
+run_id = "image_autoencoder_tri_lnorm"
+checkpoint_name = "image_autoencoder_tri_lnorm.pt"
+log_name = "image_autoencoder_tri_lnorm.sqlite"
+comment = "tri-pair AE c128_k16+c256_k24+c512_k32; bidirectional flow clone at init"
+pinned = true

@@ -3,15 +3,17 @@ from __future__ import annotations
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import torch
 from torch import nn
 from torch.nn import functional as torch_functional
 from torch.utils.data import DataLoader
 
+from lpap.checkpoints import load_training_checkpoint
 from lpap.decoder import (
     LPAPDecoderTransformer,
+    prepare_exact_lpap_decoder_batch,
     prepare_lpap_decoder_batch,
     reconstruct_lpap_decoder_values,
 )
@@ -40,6 +42,7 @@ from lpap.image_energy_flow_training import (
     IMAGE_TO_ENERGY_T0,
     IMAGE_TO_ENERGY_T1,
 )
+from lpap.permutation import LPAP_FOLD_ORDER
 from lpap.surrogate import (
     LPAPSurrogateTargets,
     LPAPSurrogateTransformer,
@@ -105,10 +108,17 @@ class ImageAutoencoderSourceConfig:
     train_surrogate: bool = True
     train_decoder: bool = True
     train_energy_to_image_flow: bool = True
+    lpap_frontend_mode: Literal["surrogate", "exact"] = "surrogate"
+    init_checkpoint_name: str = ""
+    use_triton: bool = False
 
     def validate(self) -> None:
         if not self.lpap_pairs:
             raise ValueError("source.lpap_pairs must be non-empty")
+        if self.lpap_frontend_mode not in ("surrogate", "exact"):
+            raise ValueError(
+                f"unsupported source.lpap_frontend_mode: {self.lpap_frontend_mode!r}"
+            )
 
     @property
     def surrogate_checkpoint_name(self) -> str:
@@ -121,8 +131,6 @@ class ImageAutoencoderSourceConfig:
     def as_dict(self) -> dict[str, object]:
         return {
             "lpap_pairs": [pair.as_dict() for pair in self.lpap_pairs],
-            "surrogate_checkpoint_name": self.surrogate_checkpoint_name,
-            "decoder_checkpoint_name": self.decoder_checkpoint_name,
             "flow_checkpoint_name": self.flow_checkpoint_name,
             "load_best": self.load_best,
             "require_checkpoints": self.require_checkpoints,
@@ -130,6 +138,9 @@ class ImageAutoencoderSourceConfig:
             "train_surrogate": self.train_surrogate,
             "train_decoder": self.train_decoder,
             "train_energy_to_image_flow": self.train_energy_to_image_flow,
+            "lpap_frontend_mode": self.lpap_frontend_mode,
+            "init_checkpoint_name": self.init_checkpoint_name,
+            "use_triton": self.use_triton,
         }
 
 
@@ -137,29 +148,15 @@ def lpap_pairs_from_source_dict(
     source_data: dict[str, Any],
 ) -> tuple[ImageAutoencoderLpapPairConfig, ...]:
     raw_pairs = source_data.get("lpap_pairs")
-    if raw_pairs is not None:
-        if not isinstance(raw_pairs, list) or not raw_pairs:
-            raise ValueError("source.lpap_pairs must be a non-empty list")
-        return tuple(
-            ImageAutoencoderLpapPairConfig(
-                surrogate_checkpoint_name=str(pair["surrogate_checkpoint_name"]),
-                decoder_checkpoint_name=str(pair["decoder_checkpoint_name"]),
-                name=str(pair.get("name", "")),
-            )
-            for pair in raw_pairs
+    if not isinstance(raw_pairs, list) or not raw_pairs:
+        raise ValueError("source.lpap_pairs must be a non-empty list")
+    return tuple(
+        ImageAutoencoderLpapPairConfig(
+            surrogate_checkpoint_name=str(pair["surrogate_checkpoint_name"]),
+            decoder_checkpoint_name=str(pair["decoder_checkpoint_name"]),
+            name=str(pair.get("name", "")),
         )
-    if (
-        "surrogate_checkpoint_name" in source_data
-        and "decoder_checkpoint_name" in source_data
-    ):
-        return (
-            ImageAutoencoderLpapPairConfig(
-                surrogate_checkpoint_name=str(source_data["surrogate_checkpoint_name"]),
-                decoder_checkpoint_name=str(source_data["decoder_checkpoint_name"]),
-            ),
-        )
-    raise ValueError(
-        "source must define lpap_pairs or surrogate/decoder_checkpoint_name"
+        for pair in raw_pairs
     )
 
 
@@ -175,6 +172,9 @@ def image_autoencoder_source_config_from_dict(
         train_surrogate=bool(source_data["train_surrogate"]),
         train_decoder=bool(source_data["train_decoder"]),
         train_energy_to_image_flow=bool(source_data["train_energy_to_image_flow"]),
+        lpap_frontend_mode=source_data.get("lpap_frontend_mode", "surrogate"),
+        init_checkpoint_name=str(source_data.get("init_checkpoint_name", "")),
+        use_triton=bool(source_data.get("use_triton", False)),
     )
     config.validate()
     return config
@@ -349,7 +349,7 @@ class ImageAutoencoderTrainingConfig:
     def model_config(
         self,
         *,
-        pair_surrogate_configs: tuple[dict[str, int], ...],
+        pair_surrogate_configs: tuple[dict[str, int | str], ...],
         pair_decoder_configs: tuple[dict[str, object], ...],
         pair_names: tuple[str, ...],
     ) -> dict[str, object]:
@@ -365,6 +365,7 @@ class ImageAutoencoderTrainingConfig:
             image=self.image,
             flow=self.image_to_energy_flow,
             extra={
+                "fold_order": LPAP_FOLD_ORDER,
                 "source": self.source.as_dict(),
                 "image_to_energy_flow": self.image_to_energy_flow.as_dict(),
                 "energy_to_image_flow": self.energy_to_image_flow.as_dict(),
@@ -379,7 +380,7 @@ class ImageAutoencoderTrainingConfig:
 class ImageAutoencoderPairForward:
     decoded_energy: torch.Tensor
     reconstructed_image: torch.Tensor
-    surrogate_logits: torch.Tensor
+    surrogate_logits: torch.Tensor | None
     decoder_logits: torch.Tensor
     surrogate_targets: LPAPSurrogateTargets
 
@@ -465,6 +466,8 @@ class ImageAutoencoderModel(nn.Module):
         permutations: tuple[torch.Tensor, ...],
         image_to_energy_steps: int,
         energy_to_image_steps: int,
+        exact_lpap: bool = False,
+        use_triton: bool = False,
     ) -> ImageAutoencoderForward:
         if not (
             len(bucket_counts)
@@ -489,18 +492,29 @@ class ImageAutoencoderModel(nn.Module):
             bucket_count = bucket_counts[index]
             k_max = k_maxs[index]
             permutation = permutations[index]
-            surrogate_tokens = prepare_lpap_surrogate_batch(
-                values, bucket_count=bucket_count, permutation=permutation
-            )
-            surrogate_logits = surrogate(surrogate_tokens)
-            decoder_batch = prepare_lpap_decoder_batch(
-                values=values,
-                surrogate_logits=surrogate_logits,
-                bucket_count=bucket_count,
-                k_max=k_max,
-                temperature=decoder.frontend_temperature(),
-                permutation=permutation,
-            )
+            if exact_lpap:
+                surrogate_logits = None
+                decoder_batch = prepare_exact_lpap_decoder_batch(
+                    values=values.detach(),
+                    bucket_count=bucket_count,
+                    k_max=k_max,
+                    permutation=permutation,
+                    use_triton=use_triton,
+                )
+            else:
+                surrogate_tokens = prepare_lpap_surrogate_batch(
+                    values, bucket_count=bucket_count, permutation=permutation
+                )
+                surrogate_logits = surrogate(surrogate_tokens)
+                decoder_batch = prepare_lpap_decoder_batch(
+                    values=values,
+                    surrogate_logits=surrogate_logits,
+                    bucket_count=bucket_count,
+                    k_max=k_max,
+                    temperature=decoder.frontend_temperature(),
+                    permutation=permutation,
+                    surrogate_tokens=surrogate_tokens,
+                )
             decoder_logits = decoder(decoder_batch.tokens)
             decoded_energy = reconstruct_lpap_decoder_values(
                 decoder_logits, decoder_batch
@@ -534,7 +548,7 @@ class ImageAutoencoderLpapPairRuntime:
     surrogate_checkpoint_path: Path
     decoder_checkpoint_path: Path
     permutation: torch.Tensor
-    surrogate_model_config: dict[str, int]
+    surrogate_model_config: dict[str, int | str]
     decoder_model_config: dict[str, object]
 
 
@@ -569,7 +583,7 @@ class ImageAutoencoderTrainingSession:
         return self.lpap_pairs[0].permutation
 
     @property
-    def surrogate_model_config(self) -> dict[str, int]:
+    def surrogate_model_config(self) -> dict[str, int | str]:
         return self.lpap_pairs[0].surrogate_model_config
 
     @property
@@ -802,6 +816,31 @@ def create_image_autoencoder_training_session(
         decoders=decoders,
         energy_to_image_flow=energy_to_image_flow,
     ).to(target_device)
+    if config.source.init_checkpoint_name:
+        init_path = resolve_checkpoint_path(
+            root,
+            config.source.init_checkpoint_name,
+            ensure=True,
+        )
+        if not init_path.exists():
+            raise FileNotFoundError(f"init AE checkpoint not found: {init_path}")
+        init_payload = load_training_checkpoint(init_path, map_location=target_device)
+        state_key = "best_model_state" if config.source.load_best else "model_state"
+        model.load_state_dict(init_payload[state_key])
+        init_training_state = init_payload.get("training_state", {})
+        if not isinstance(init_training_state, dict):
+            raise ValueError("init AE checkpoint training_state must be a dictionary")
+        pair_runtimes = list(
+            apply_ae_lpap_pair_permutations(
+                pair_runtimes,
+                parse_ae_lpap_pair_permutations(
+                    init_training_state,
+                    pair_count=len(pair_runtimes),
+                    value_count=config.value_count,
+                ),
+                device=target_device,
+            )
+        )
     _set_trainable(model.image_to_energy_flow, config.source.train_image_to_energy_flow)
     for surrogate_module in model.surrogates:
         _set_trainable(surrogate_module, config.source.train_surrogate)
@@ -852,8 +891,6 @@ def create_image_autoencoder_training_session(
     )
     resume_info = training_run.resume_or_initialize()
     if resume_info.resumed:
-        from lpap.checkpoints import load_training_checkpoint
-
         payload = load_training_checkpoint(checkpoint_path, map_location="cpu")
         training_state = payload.get("training_state", {})
         if not isinstance(training_state, dict):
@@ -900,6 +937,7 @@ def _forward_loss(
     image: torch.Tensor,
 ) -> tuple[torch.Tensor, ImageAutoencoderMetrics, ImageAutoencoderForward]:
     config = session.config
+    exact_lpap = config.source.lpap_frontend_mode == "exact"
     output = session.model.forward_chain(
         image=image,
         bucket_counts=tuple(
@@ -913,6 +951,8 @@ def _forward_loss(
         permutations=tuple(runtime.permutation for runtime in session.lpap_pairs),
         image_to_energy_steps=config.integration.image_to_energy_steps,
         energy_to_image_steps=config.integration.energy_to_image_steps,
+        exact_lpap=exact_lpap,
+        use_triton=config.source.use_triton,
     )
     energy_target = (
         output.encoded_energy.detach()
@@ -925,9 +965,14 @@ def _forward_loss(
     pair_metric_values: dict[str, float] = {}
     weighted_accuracies: list[float] = []
     for runtime, pair_output in zip(session.lpap_pairs, output.pairs, strict=True):
-        pair_ce, pair_surrogate_metrics = lpap_surrogate_loss(
-            pair_output.surrogate_logits, pair_output.surrogate_targets
-        )
+        if pair_output.surrogate_logits is None:
+            pair_ce = torch.zeros((), device=image.device, dtype=image.dtype)
+            pair_weighted_accuracy = 1.0
+        else:
+            pair_ce, pair_surrogate_metrics = lpap_surrogate_loss(
+                pair_output.surrogate_logits, pair_output.surrogate_targets
+            )
+            pair_weighted_accuracy = pair_surrogate_metrics.weighted_accuracy
         pair_image_l2 = torch_functional.mse_loss(
             pair_output.reconstructed_image, image
         )
@@ -937,7 +982,7 @@ def _forward_loss(
         image_l2_terms.append(pair_image_l2)
         energy_l1_terms.append(pair_energy_l1)
         surrogate_ce_terms.append(pair_ce)
-        weighted_accuracies.append(pair_surrogate_metrics.weighted_accuracy)
+        weighted_accuracies.append(pair_weighted_accuracy)
         prefix = runtime.name
         pair_metric_values[f"image_reconstruction_l2/{prefix}"] = float(
             pair_image_l2.detach().cpu()
@@ -948,9 +993,7 @@ def _forward_loss(
         pair_metric_values[f"surrogate_teacher_ce/{prefix}"] = float(
             pair_ce.detach().cpu()
         )
-        pair_metric_values[f"weighted_accuracy/{prefix}"] = (
-            pair_surrogate_metrics.weighted_accuracy
-        )
+        pair_metric_values[f"weighted_accuracy/{prefix}"] = pair_weighted_accuracy
 
     image_l2 = torch.stack(image_l2_terms).mean()
     energy_l1 = torch.stack(energy_l1_terms).mean()
@@ -1187,6 +1230,7 @@ def iter_image_autoencoder_training(
             training_state={
                 "seed": config.run.seed,
                 "validation_seed": config.validation.seed,
+                "fold_order": LPAP_FOLD_ORDER,
                 "image_dataset_path": str(session.image_dataset_path),
                 "flow_checkpoint_path": str(session.flow_checkpoint_path),
                 "lpap_pairs": [

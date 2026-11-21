@@ -15,10 +15,10 @@ from lpap.decoder_training import (
     create_lpap_decoder_training_session,
 )
 from lpap.energy_bank import EnergyBankConfig
-from lpap.permutation import make_permutation_indices
+from lpap.permutation import LPAP_FOLD_ORDER, make_permutation_indices
 from lpap.surrogate import LPAPSurrogateTransformer
 from lpap.surrogate_training import LPAPSurrogateDataConfig
-from lpap.teacher_config import project_teacher_config
+from lpap.teacher_config import TeacherPairConfig, project_teacher_config
 from support import training_fixture
 
 
@@ -32,6 +32,20 @@ class TeacherConfigProjectionTest(unittest.TestCase):
         self.assertEqual(surrogate.run.permutation_seed, 123)
         self.assertEqual(decoder.run.permutation_seed, 123)
         self.assertTrue(decoder.teacher.require_checkpoint)
+
+    def test_rejects_k_max_gt_bucket_count(self) -> None:
+        pair = TeacherPairConfig(
+            name="bad",
+            bucket_count=4,
+            probe_count=4,
+            k_max=5,
+            permutation_seed=1,
+            energy_bank=EnergyBankConfig(path="data/bank.pt"),
+            batch_size=2,
+            raw={},
+        )
+        with self.assertRaisesRegex(ValueError, "at most"):
+            pair.validate()
 
 
 class DecoderRequiresSurrogatePermutationTest(unittest.TestCase):
@@ -62,8 +76,9 @@ class DecoderRequiresSurrogatePermutationTest(unittest.TestCase):
                         "hidden_dim": 16,
                         "layer_count": 1,
                         "head_count": 4,
-                        "permutation_seed": 123,
+                        "fold_order": LPAP_FOLD_ORDER,
                     },
+                    "fold_order": LPAP_FOLD_ORDER,
                 },
             )
             config = LPAPDecoderTrainingConfig(
@@ -97,8 +112,8 @@ class DecoderRequiresSurrogatePermutationTest(unittest.TestCase):
             bank.parent.mkdir(parents=True)
             torch.save({"energies": torch.randn(8, 16)}, bank)
             permutation = make_permutation_indices(
-                value_count=16, seed=999, device=torch.device("cpu"),
-)
+                value_count=16, seed=999, device=torch.device("cpu")
+            )
             surrogate = LPAPSurrogateTransformer(
                 value_count=16,
                 probe_count=4,
@@ -120,8 +135,9 @@ class DecoderRequiresSurrogatePermutationTest(unittest.TestCase):
                         "hidden_dim": 16,
                         "layer_count": 1,
                         "head_count": 4,
-                        "permutation_seed": 999,
+                        "fold_order": LPAP_FOLD_ORDER,
                     },
+                    "fold_order": LPAP_FOLD_ORDER,
                     "permutation": permutation,
                 },
             )

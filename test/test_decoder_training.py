@@ -6,18 +6,19 @@ from pathlib import Path
 
 import torch
 
-from lpap.checkpoints import save_training_checkpoint
+from lpap.checkpoints import load_training_checkpoint, save_training_checkpoint
 from lpap.decoder_training import (
     LPAPDecoderModelConfig,
     LPAPDecoderRegularizationConfig,
     LPAPDecoderRunConfig,
-    LPAPDecoderTrainingConfig,
     LPAPDecoderTeacherConfig,
+    LPAPDecoderTrainingConfig,
+    collect_lpap_decoder_gallery,
     create_lpap_decoder_training_session,
     iter_lpap_decoder_training,
 )
 from lpap.energy_bank import EnergyBankConfig
-from lpap.permutation import make_permutation_indices
+from lpap.permutation import LPAP_FOLD_ORDER, make_permutation_indices
 from lpap.surrogate import LPAPSurrogateTransformer
 from lpap.surrogate_training import (
     LPAPSurrogateDataConfig,
@@ -32,7 +33,7 @@ def _write_tiny_energy_bank(root: Path, *, rows: int = 32, dim: int = 16) -> Non
 
 
 class LPAPDecoderTrainingTest(unittest.TestCase):
-    def test_session_trains_and_logs_small_run(self) -> None:
+    def test_session_trains_logs_and_renders_gallery(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             _write_tiny_energy_bank(root, dim=16)
@@ -45,8 +46,8 @@ class LPAPDecoderTrainingTest(unittest.TestCase):
                 head_count=4,
             )
             permutation = make_permutation_indices(
-                value_count=16, seed=123, device=torch.device("cpu"),
-)
+                value_count=16, seed=123, device=torch.device("cpu")
+            )
             save_training_checkpoint(
                 root / "checkpoints" / "surrogate_synthetic.pt",
                 model=surrogate,
@@ -70,8 +71,9 @@ class LPAPDecoderTrainingTest(unittest.TestCase):
                         "hidden_dim": 16,
                         "layer_count": 1,
                         "head_count": 4,
-                        "permutation_seed": 123,
+                        "fold_order": LPAP_FOLD_ORDER,
                     },
+                    "fold_order": LPAP_FOLD_ORDER,
                     "permutation": permutation,
                 },
             )
@@ -106,14 +108,50 @@ class LPAPDecoderTrainingTest(unittest.TestCase):
             )
 
             results = list(iter_lpap_decoder_training(session))
+            gallery = collect_lpap_decoder_gallery(session, sample_count=2)
 
             self.assertEqual(len(results), 2)
+            self.assertEqual(len(gallery), 2)
+            self.assertEqual(gallery[0].surrogate_hard.shape, (4, 4))
             self.assertTrue(session.checkpoint_path.exists())
             self.assertTrue(session.log_path.exists())
             self.assertEqual(session.energy_bank.shape[-1], 16)
             self.assertIn("loss", results[-1].metrics)
             self.assertIn("validation_loss", results[-1].metrics)
             self.assertTrue(any(result.improved for result in results))
+
+            payload = load_training_checkpoint(session.checkpoint_path)
+            self.assertEqual(payload["training_state"]["fold_order"], LPAP_FOLD_ORDER)
+
+            # Fine-tune the trained decoder on exact LPAP without any surrogate.
+            exact_config = LPAPDecoderTrainingConfig(
+                data=config.data,
+                decoder=config.decoder,
+                validation=config.validation,
+                teacher=LPAPDecoderTeacherConfig(
+                    frontend_mode="exact",
+                    exact_k_max=2,
+                    init_decoder_checkpoint_name="decoder_synthetic.pt",
+                    require_checkpoint=False,
+                ),
+                regularization=LPAPDecoderRegularizationConfig(source_ce_weight=0.0),
+                run=LPAPDecoderRunConfig(
+                    steps=2,
+                    resume_from_checkpoint=False,
+                    display_every=1,
+                    run_id="tiny-decoder-exact",
+                    checkpoint_name="decoder_exact.pt",
+                    log_name="decoder_exact.sqlite",
+                ),
+            )
+            exact_session = create_lpap_decoder_training_session(
+                project_root=root, config=exact_config, device="cpu"
+            )
+            self.assertIsNone(exact_session.surrogate)
+            torch.testing.assert_close(exact_session.permutation.cpu(), permutation)
+            exact_results = list(iter_lpap_decoder_training(exact_session))
+            self.assertEqual(len(exact_results), 2)
+            self.assertEqual(exact_results[-1].metrics["mean_entropy"], 0.0)
 
 
 if __name__ == "__main__":

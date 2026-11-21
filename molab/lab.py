@@ -249,69 +249,30 @@ def ae_gallery():
     from lpap.artifact_sync import ensure_checkpoint as _ensure_checkpoint
     from lpap.checkpoints import load_training_checkpoint as _load_ckpt
     from lpap.image_autoencoder_training import (
-        ImageAutoencoderLpapPairConfig as _Pair,
-        ImageAutoencoderRunConfig as _Run,
-        ImageAutoencoderSourceConfig as _Source,
         collect_image_autoencoder_gallery as _collect_gallery,
         create_image_autoencoder_training_session as _create_ae_session,
     )
-    from lpap.training_notebook import default_image_autoencoder_training_config as _default_ae
+    from lpap.training_notebook import (
+        training_config_from_project_file as _ae_cfg_from_project,
+    )
     from lpap.training_plots import render_image_autoencoder_gallery_html as _render_ae
 
     _root = _Path("/marimo")
     _ckpt_name = "image_autoencoder_tri_lnorm.pt"
     _gamma = 1.0
-    _ensure_checkpoint(_root, "image_energy_flow.pt")
-    for _name in (
-        "surrogate_c128_k16.pt",
-        "decoder_c128_k16.pt",
-        "surrogate_c256_k24.pt",
-        "decoder_c256_k24.pt",
-        "surrogate_c512_k32.pt",
-        "decoder_c512_k32.pt",
-    ):
-        _ensure_checkpoint(_root, _name)
+    _base = _ae_cfg_from_project(_root, "image_autoencoder")
+    _ensure_checkpoint(_root, _base.source.flow_checkpoint_name)
+    for _pair in _base.source.lpap_pairs:
+        _ensure_checkpoint(_root, _pair.surrogate_checkpoint_name)
+        _ensure_checkpoint(_root, _pair.decoder_checkpoint_name)
 
-    _base = _default_ae()
     _ae_cfg = _replace(
         _base,
-        source=_Source(
-            lpap_pairs=(
-                _Pair(
-                    surrogate_checkpoint_name="surrogate_c128_k16.pt",
-                    decoder_checkpoint_name="decoder_c128_k16.pt",
-                    name="c128_k16",
-                ),
-                _Pair(
-                    surrogate_checkpoint_name="surrogate_c256_k24.pt",
-                    decoder_checkpoint_name="decoder_c256_k24.pt",
-                    name="c256_k24",
-                ),
-                _Pair(
-                    surrogate_checkpoint_name="surrogate_c512_k32.pt",
-                    decoder_checkpoint_name="decoder_c512_k32.pt",
-                    name="c512_k32",
-                ),
-            ),
-            flow_checkpoint_name="image_energy_flow.pt",
-            load_best=True,
-            require_checkpoints=True,
-            train_image_to_energy_flow=True,
-            train_surrogate=True,
-            train_decoder=True,
-            train_energy_to_image_flow=True,
-        ),
-        loss=_replace(_base.loss, signed_mass_floor_tau=0.1, signed_mass_balance_weight=1.0e-2, energy_l1_weight=0.05),
-        run=_Run(
+        run=_replace(
+            _base.run,
             run_training=False,
             resume_from_checkpoint=False,
-            steps=70_000,
-            seed=_base.run.seed,
-            display_every=25,
-            log_every=5,
-            run_id="image_autoencoder_tri_lnorm",
             checkpoint_name=_ckpt_name,
-            log_name="image_autoencoder_tri_lnorm.sqlite",
             comment="gallery",
             pinned=False,
         ),
@@ -389,14 +350,16 @@ def ae_energy_latent():
     )
     from lpap.hilbert import hilbert_unflatten_images as _unflat
     from lpap.image_autoencoder_training import (
-        ImageAutoencoderLpapPairConfig as _Pair,
-        ImageAutoencoderRunConfig as _Run,
-        ImageAutoencoderSourceConfig as _Source,
         create_image_autoencoder_training_session as _create_ae_session,
         _forward_loss as _fwd,
     )
-    from lpap.surrogate import prepare_lpap_surrogate_batch as _prep_surr
-    from lpap.training_notebook import default_image_autoencoder_training_config as _default_ae
+    from lpap.surrogate import (
+        local_classes_to_source_indices as _local_to_src,
+        prepare_lpap_surrogate_batch as _prep_surr,
+    )
+    from lpap.training_notebook import (
+        training_config_from_project_file as _ae_cfg_from_project,
+    )
     from lpap.training_plots import render_signed_triplet_gallery_html as _render_triplet
 
     _root = _Path("/marimo")
@@ -405,62 +368,19 @@ def ae_energy_latent():
     _sample_count = 6
     _focus = 0  # 0-based; sample 1 in the UI
 
-    _ensure_checkpoint(_root, "image_energy_flow.pt")
-    for _name in (
-        "surrogate_c128_k16.pt",
-        "decoder_c128_k16.pt",
-        "surrogate_c256_k24.pt",
-        "decoder_c256_k24.pt",
-        "surrogate_c512_k32.pt",
-        "decoder_c512_k32.pt",
-    ):
-        _ensure_checkpoint(_root, _name)
+    _base = _ae_cfg_from_project(_root, "image_autoencoder")
+    _ensure_checkpoint(_root, _base.source.flow_checkpoint_name)
+    for _pair in _base.source.lpap_pairs:
+        _ensure_checkpoint(_root, _pair.surrogate_checkpoint_name)
+        _ensure_checkpoint(_root, _pair.decoder_checkpoint_name)
 
-    _base = _default_ae()
     _ae_cfg = _replace(
         _base,
-        source=_Source(
-            lpap_pairs=(
-                _Pair(
-                    surrogate_checkpoint_name="surrogate_c128_k16.pt",
-                    decoder_checkpoint_name="decoder_c128_k16.pt",
-                    name="c128_k16",
-                ),
-                _Pair(
-                    surrogate_checkpoint_name="surrogate_c256_k24.pt",
-                    decoder_checkpoint_name="decoder_c256_k24.pt",
-                    name="c256_k24",
-                ),
-                _Pair(
-                    surrogate_checkpoint_name="surrogate_c512_k32.pt",
-                    decoder_checkpoint_name="decoder_c512_k32.pt",
-                    name="c512_k32",
-                ),
-            ),
-            flow_checkpoint_name="image_energy_flow.pt",
-            load_best=True,
-            require_checkpoints=True,
-            train_image_to_energy_flow=True,
-            train_surrogate=True,
-            train_decoder=True,
-            train_energy_to_image_flow=True,
-        ),
-        loss=_replace(
-            _base.loss,
-            signed_mass_floor_tau=0.1,
-            signed_mass_balance_weight=1.0e-2,
-            energy_l1_weight=0.05,
-        ),
-        run=_Run(
+        run=_replace(
+            _base.run,
             run_training=False,
             resume_from_checkpoint=False,
-            steps=70_000,
-            seed=_base.run.seed,
-            display_every=25,
-            log_every=5,
-            run_id="image_autoencoder_tri_lnorm",
             checkpoint_name=_ckpt_name,
-            log_name="image_autoencoder_tri_lnorm.sqlite",
             comment="energy latent gallery",
             pinned=False,
         ),
@@ -542,6 +462,7 @@ def ae_energy_latent():
             for _pi in _pair_order:
                 _rt = _session.lpap_pairs[_pi]
                 _C = int(_rt.surrogate_model_config["bucket_count"])
+                _P = int(_rt.surrogate_model_config["probe_count"])
                 _k = int(_rt.surrogate_model_config["k_max"])
                 _surr = _session.model.surrogates[_pi]
                 _dec = _session.model.decoders[_pi]
@@ -556,16 +477,27 @@ def ae_energy_latent():
                     k_max=_k,
                     temperature=_dec.frontend_temperature(),
                     permutation=_rt.permutation,
+                    surrogate_tokens=_tok,
                 )
                 _dlog = _dec(_db.tokens)
                 _oracle = _oracle_lpap(_db)[0]
+                _pred_src = _local_to_src(
+                    _slog.argmax(dim=-1),
+                    bucket_count=_C,
+                    probe_count=_P,
+                    permutation=_rt.permutation,
+                )[0]
                 _hard = _torch.zeros_like(_v[0]).scatter_add(
                     0,
-                    _slog.argmax(dim=-1)[0],
+                    _pred_src,
                     _db.surrogate_targets.buckets[0].to(dtype=_v.dtype),
                 )
                 _soft = _decoder_soft(_dlog, _db)[0]
-                _surr_acc = float((_slog.argmax(-1) == _db.targets).float().mean())
+                _surr_acc = float(
+                    (_slog.argmax(-1) == _db.surrogate_targets.local_classes)
+                    .float()
+                    .mean()
+                )
                 _dec_acc = float((_dlog.argmax(-1) == _db.targets).float().mean())
                 _Item = type(
                     "LatentItem",

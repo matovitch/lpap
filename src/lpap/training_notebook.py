@@ -253,9 +253,19 @@ def default_image_autoencoder_training_config() -> ImageAutoencoderTrainingConfi
         source=ImageAutoencoderSourceConfig(
             lpap_pairs=(
                 ImageAutoencoderLpapPairConfig(
-                    surrogate_checkpoint_name="surrogate_c128_k4.pt",
-                    decoder_checkpoint_name="decoder_c128_k4.pt",
-                    name="c128",
+                    surrogate_checkpoint_name="surrogate_c128_k16.pt",
+                    decoder_checkpoint_name="decoder_c128_k16.pt",
+                    name="c128_k16",
+                ),
+                ImageAutoencoderLpapPairConfig(
+                    surrogate_checkpoint_name="surrogate_c256_k24.pt",
+                    decoder_checkpoint_name="decoder_c256_k24.pt",
+                    name="c256_k24",
+                ),
+                ImageAutoencoderLpapPairConfig(
+                    surrogate_checkpoint_name="surrogate_c512_k32.pt",
+                    decoder_checkpoint_name="decoder_c512_k32.pt",
+                    name="c512_k32",
                 ),
             ),
             flow_checkpoint_name="image_energy_flow.pt",
@@ -374,14 +384,27 @@ def training_config_to_toml(config: TrainingConfig) -> str:
 
     def write_table(name: str, table: dict[str, object]) -> None:
         lines.append(f"[{name}]")
-        nested = []
+        nested_tables: list[tuple[str, dict[str, object]]] = []
+        array_tables: list[tuple[str, list[dict[str, object]]]] = []
         for key, value in table.items():
             if isinstance(value, dict):
-                nested.append((key, value))
+                nested_tables.append((key, value))
+            elif (
+                isinstance(value, list)
+                and value
+                and all(isinstance(item, dict) for item in value)
+            ):
+                array_tables.append((key, value))
             else:
                 lines.append(f"{key} = {_toml_value(value)}")
         lines.append("")
-        for nested_key, nested_value in nested:
+        for array_key, entries in array_tables:
+            for entry in entries:
+                lines.append(f"[[{name}.{array_key}]]")
+                for entry_key, entry_value in entry.items():
+                    lines.append(f"{entry_key} = {_toml_value(entry_value)}")
+                lines.append("")
+        for nested_key, nested_value in nested_tables:
             write_table(f"{name}.{nested_key}", nested_value)
 
     for key, value in data.items():

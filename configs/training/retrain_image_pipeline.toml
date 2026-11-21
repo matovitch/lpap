@@ -1,0 +1,39 @@
+# Image-only LPAP retraining pipeline (from scratch, keeping flow + energy bank).
+# Entry: python -m lpap.retrain_image_pipeline --project-root . --config configs/training/retrain_image_pipeline.toml
+# Molab bg: python -m molab.jobs launch-retrain-image-pipeline --project-root /marimo
+
+[pipeline]
+flow_checkpoint = "image_energy_flow.pt"
+energy_bank = "data/encoded_energies_bank_flow_best_4step.pt"
+image_dataset = "data/images_32x32_gray.pt"
+teacher_configs = [
+  "configs/training/teacher_c128_k16.toml",
+  "configs/training/teacher_c256_k24.toml",
+  "configs/training/teacher_c512_k32.toml",
+]
+autoencoder_config = "configs/training/image_autoencoder.toml"
+resume_from_checkpoint = false
+ensure_artifacts = true
+upload_artifacts_on_checkpoint = true
+notify_on_finished = true
+
+[stages]
+run_surrogates = true
+run_decoders = true
+run_autoencoder = true
+run_decoder_exact_finetune = true
+
+[decoder_exact_finetune]
+steps = 3000
+learning_rate = 1.0e-4
+use_triton = true
+image_l2_weight = 1.0
+energy_l1_weight = 0.05
+validation_every = 100
+validation_num_batches = 8
+display_every = 25
+log_every = 5
+run_id = "image_autoencoder_tri_exact_ft"
+checkpoint_name = "image_autoencoder_tri_exact_ft.pt"
+log_name = "image_autoencoder_tri_exact_ft.sqlite"
+comment = "decoder-only exact LPAP fine-tune of tri-pair AE"

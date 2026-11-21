@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import torch
 
@@ -12,16 +12,26 @@ from lpap.decoder import (
     LPAPDecoderMetrics,
     LPAPDecoderTransformer,
     evaluate_lpap_decoder_batch,
+    evaluate_lpap_decoder_exact_batch,
+    prepare_exact_lpap_decoder_batch,
     prepare_lpap_decoder_batch,
     reconstruct_lpap_bucket_values,
     reconstruct_lpap_decoder_values,
+    train_lpap_decoder_exact_step,
     train_lpap_decoder_step,
 )
 from lpap.energy_bank import cycle_energy_bank_batches, energy_bank_config_from_dict
 from lpap.hilbert import hilbert_unflatten_images
-from lpap.surrogate import prepare_lpap_surrogate_batch
-from lpap.permutation import make_permutation_indices
-from lpap.surrogate import LPAPSurrogateTransformer
+from lpap.permutation import (
+    LPAP_FOLD_ORDER,
+    as_long_permutation,
+    make_permutation_indices,
+)
+from lpap.surrogate import (
+    LPAPSurrogateTransformer,
+    local_classes_to_source_indices,
+    prepare_lpap_surrogate_batch,
+)
 from lpap.surrogate_training import (
     LPAPSurrogateDataConfig,
     LPAPSurrogateModelConfig,
@@ -37,6 +47,8 @@ from lpap.training import (
     TrainingStepResult,
 )
 from lpap.training_log import load_run_record
+
+DecoderFrontendMode = Literal["surrogate", "exact"]
 
 
 @dataclass(frozen=True)
@@ -72,13 +84,29 @@ class LPAPDecoderTeacherConfig:
     checkpoint_name: str = "surrogate_synthetic.pt"
     load_best: bool = True
     require_checkpoint: bool = False
+    frontend_mode: DecoderFrontendMode = "surrogate"
+    exact_k_max: int | None = None
+    init_decoder_checkpoint_name: str = ""
+    use_triton: bool = False
 
-    def as_dict(self) -> dict[str, str | bool]:
-        return {
+    def validate(self) -> None:
+        if self.frontend_mode not in ("surrogate", "exact"):
+            raise ValueError(f"unsupported frontend_mode: {self.frontend_mode!r}")
+        if self.exact_k_max is not None and self.exact_k_max <= 0:
+            raise ValueError("exact_k_max must be positive")
+
+    def as_dict(self) -> dict[str, str | bool | int]:
+        payload: dict[str, str | bool | int] = {
             "checkpoint_name": self.checkpoint_name,
             "load_best": self.load_best,
             "require_checkpoint": self.require_checkpoint,
+            "frontend_mode": self.frontend_mode,
+            "init_decoder_checkpoint_name": self.init_decoder_checkpoint_name,
+            "use_triton": self.use_triton,
         }
+        if self.exact_k_max is not None:
+            payload["exact_k_max"] = self.exact_k_max
+        return payload
 
 
 @dataclass(frozen=True)
@@ -166,6 +194,12 @@ class LPAPDecoderTrainingConfig:
         self.decoder.validate()
         self.optimizer.validate()
         self.validation.validate()
+        self.teacher.validate()
+        if (
+            self.teacher.exact_k_max is not None
+            and self.teacher.exact_k_max > self.data.bucket_count
+        ):
+            raise ValueError("exact_k_max must be at most bucket_count")
         self.regularization.validate()
         self.run.validate()
 
@@ -180,11 +214,16 @@ class LPAPDecoderTrainingConfig:
             "run": self.run.as_dict(),
         }
 
-    def model_config(self, *, surrogate_model_config: dict[str, int]) -> dict[str, Any]:
+    def model_config(
+        self, *, surrogate_model_config: dict[str, int | str]
+    ) -> dict[str, Any]:
         return {
             "value_count": self.value_count,
             "bucket_count": self.data.bucket_count,
             "probe_count": self.data.probe_count,
+            "k_max": int(surrogate_model_config["k_max"]),
+            "fold_order": LPAP_FOLD_ORDER,
+            "frontend_mode": self.teacher.frontend_mode,
             "surrogate": dict(surrogate_model_config),
             "frontend_initial_temperature": self.decoder.frontend_initial_temperature,
             "hidden_dim": self.decoder.hidden_dim,
@@ -200,6 +239,8 @@ def lpap_decoder_training_config_from_dict(
     run_data = dict(data["run"])
     if resume_from_checkpoint is not None:
         run_data["resume_from_checkpoint"] = resume_from_checkpoint
+    teacher_data = data["teacher"]
+    exact_k_max_raw = teacher_data.get("exact_k_max")
     return LPAPDecoderTrainingConfig(
         data=LPAPSurrogateDataConfig(
             batch_size=int(data["data"]["batch_size"]),
@@ -226,9 +267,17 @@ def lpap_decoder_training_config_from_dict(
             validate_at_end=bool(data["validation"]["validate_at_end"]),
         ),
         teacher=LPAPDecoderTeacherConfig(
-            checkpoint_name=str(data["teacher"]["checkpoint_name"]),
-            load_best=bool(data["teacher"]["load_best"]),
-            require_checkpoint=bool(data["teacher"]["require_checkpoint"]),
+            checkpoint_name=str(teacher_data["checkpoint_name"]),
+            load_best=bool(teacher_data["load_best"]),
+            require_checkpoint=bool(teacher_data["require_checkpoint"]),
+            frontend_mode=teacher_data.get("frontend_mode", "surrogate"),
+            exact_k_max=(
+                None if exact_k_max_raw is None else int(exact_k_max_raw)
+            ),
+            init_decoder_checkpoint_name=str(
+                teacher_data.get("init_decoder_checkpoint_name", "")
+            ),
+            use_triton=bool(teacher_data.get("use_triton", False)),
         ),
         regularization=LPAPDecoderRegularizationConfig(
             source_ce_weight=float(data["regularization"]["source_ce_weight"]),
@@ -274,11 +323,11 @@ class LPAPDecoderTrainingSession:
     log_path: Path
     surrogate_checkpoint_path: Path
     surrogate_checkpoint_loaded: bool
-    surrogate_model_config: dict[str, int]
+    surrogate_model_config: dict[str, int | str]
     energy_bank: torch.Tensor
     surrogate_k_max: int
     permutation: torch.Tensor
-    surrogate: LPAPSurrogateTransformer
+    surrogate: LPAPSurrogateTransformer | None
     decoder: LPAPDecoderTransformer
     optimizer: torch.optim.Optimizer
     training_run: TrainingRun
@@ -297,16 +346,22 @@ class LPAPDecoderGalleryItem:
 
 def _fallback_surrogate_model_config(
     config: LPAPDecoderTrainingConfig,
-) -> dict[str, int]:
+) -> dict[str, int | str]:
     surrogate = LPAPSurrogateModelConfig()
+    k_max = (
+        config.teacher.exact_k_max
+        if config.teacher.exact_k_max is not None
+        else min(surrogate.k_max, config.data.bucket_count)
+    )
     return {
         "value_count": config.value_count,
         "bucket_count": config.data.bucket_count,
         "probe_count": config.data.probe_count,
-        "k_max": surrogate.k_max,
+        "k_max": k_max,
         "hidden_dim": surrogate.hidden_dim,
         "layer_count": surrogate.layer_count,
         "head_count": surrogate.head_count,
+        "fold_order": LPAP_FOLD_ORDER,
     }
 
 
@@ -314,7 +369,7 @@ def _surrogate_model_config_from_checkpoint(
     *,
     path: Path,
     require_checkpoint: bool,
-) -> tuple[dict[str, int] | None, dict[str, object] | None]:
+) -> tuple[dict[str, int | str] | None, dict[str, object] | None]:
     if not path.exists():
         if require_checkpoint:
             raise FileNotFoundError(f"surrogate checkpoint not found: {path}")
@@ -338,16 +393,21 @@ def _surrogate_model_config_from_checkpoint(
         raise ValueError(
             "surrogate checkpoint model_config is missing: " + ", ".join(missing)
         )
-    return {name: int(model_config[name]) for name in required}, payload
+    fold_order = model_config.get("fold_order") or training_state.get("fold_order")
+    if fold_order != LPAP_FOLD_ORDER:
+        raise ValueError(
+            f"surrogate checkpoint fold_order={fold_order!r} does not match {LPAP_FOLD_ORDER!r}"
+        )
+    parsed: dict[str, int | str] = {name: int(model_config[name]) for name in required}
+    parsed["fold_order"] = LPAP_FOLD_ORDER
+    return parsed, payload
 
 
 def _validate_teacher_matches_decoder(
     *,
-    teacher_model_config: dict[str, int],
+    teacher_model_config: dict[str, int | str],
     config: LPAPDecoderTrainingConfig,
 ) -> None:
-    # Layout only — permutation comes from the surrogate checkpoint tensor,
-    # not from comparing decoder TOML permutation_seed to the checkpoint seed.
     expected = {
         "value_count": config.value_count,
         "bucket_count": config.data.bucket_count,
@@ -356,7 +416,7 @@ def _validate_teacher_matches_decoder(
     mismatches = [
         f"{name} checkpoint={teacher_model_config[name]} decoder={value}"
         for name, value in expected.items()
-        if teacher_model_config[name] != value
+        if int(teacher_model_config[name]) != value
     ]
     if mismatches:
         raise ValueError(
@@ -368,6 +428,7 @@ def _validate_teacher_matches_decoder(
 def _permutation_from_surrogate_payload(
     payload: dict[str, object] | None,
     *,
+    value_count: int,
     require: bool,
     path: Path,
 ) -> torch.Tensor | None:
@@ -383,7 +444,7 @@ def _permutation_from_surrogate_payload(
                 f"{path}"
             )
         return None
-    return torch.as_tensor(raw_perm).long()
+    return as_long_permutation(torch.as_tensor(raw_perm), value_count=value_count)
 
 
 def _create_surrogate_teacher(
@@ -394,7 +455,7 @@ def _create_surrogate_teacher(
     config: LPAPDecoderTrainingConfig,
     device: torch.device,
 ) -> tuple[
-    LPAPSurrogateTransformer, bool, dict[str, int], torch.Tensor | None
+    LPAPSurrogateTransformer, bool, dict[str, int | str], torch.Tensor | None
 ]:
     model_config, payload = _surrogate_model_config_from_checkpoint(
         path=path, require_checkpoint=require_checkpoint
@@ -408,15 +469,18 @@ def _create_surrogate_teacher(
         )
 
     surrogate = LPAPSurrogateTransformer(
-        value_count=model_config["value_count"],
-        probe_count=model_config["probe_count"],
-        k_max=model_config["k_max"],
-        hidden_dim=model_config["hidden_dim"],
-        layer_count=model_config["layer_count"],
-        head_count=model_config["head_count"],
+        value_count=int(model_config["value_count"]),
+        probe_count=int(model_config["probe_count"]),
+        k_max=int(model_config["k_max"]),
+        hidden_dim=int(model_config["hidden_dim"]),
+        layer_count=int(model_config["layer_count"]),
+        head_count=int(model_config["head_count"]),
     ).to(device)
     saved_permutation = _permutation_from_surrogate_payload(
-        payload, require=require_checkpoint, path=path
+        payload,
+        value_count=config.value_count,
+        require=require_checkpoint,
+        path=path,
     )
     if payload is not None:
         state_key = "best_model_state" if load_best else "model_state"
@@ -440,28 +504,95 @@ def create_lpap_decoder_training_session(
     root = Path(project_root)
     checkpoint_path = root / "checkpoints" / config.run.checkpoint_name
     log_path = root / "training_logs" / config.run.log_name
-    from lpap.teacher_checkpoints import resolve_checkpoint_path
+    from lpap.teacher_checkpoints import (
+        permutation_from_training_state,
+        require_matching_pair_permutation,
+        resolve_checkpoint_path,
+    )
 
+    energy_bank = load_teacher_energy_bank(root, config.data)
     surrogate_checkpoint_path = resolve_checkpoint_path(
         root,
         config.teacher.checkpoint_name,
-        ensure=config.teacher.require_checkpoint,
+        ensure=(
+            config.teacher.frontend_mode == "surrogate"
+            and config.teacher.require_checkpoint
+        ),
     )
-    energy_bank = load_teacher_energy_bank(root, config.data)
-    (
-        surrogate,
-        surrogate_loaded,
-        surrogate_model_config,
-        teacher_permutation,
-    ) = _create_surrogate_teacher(
-        path=surrogate_checkpoint_path,
-        load_best=config.teacher.load_best,
-        require_checkpoint=config.teacher.require_checkpoint,
-        config=config,
-        device=target_device,
-    )
-    if teacher_permutation is None:
-        if config.teacher.require_checkpoint:
+
+    surrogate: LPAPSurrogateTransformer | None = None
+    surrogate_loaded = False
+    teacher_permutation: torch.Tensor | None = None
+    if config.teacher.frontend_mode == "surrogate":
+        (
+            surrogate,
+            surrogate_loaded,
+            surrogate_model_config,
+            teacher_permutation,
+        ) = _create_surrogate_teacher(
+            path=surrogate_checkpoint_path,
+            load_best=config.teacher.load_best,
+            require_checkpoint=config.teacher.require_checkpoint,
+            config=config,
+            device=target_device,
+        )
+        surrogate.eval()
+        for parameter in surrogate.parameters():
+            parameter.requires_grad_(False)
+    else:
+        surrogate_model_config = _fallback_surrogate_model_config(config)
+
+    decoder = LPAPDecoderTransformer(
+        value_count=config.value_count,
+        frontend_initial_temperature=config.decoder.frontend_initial_temperature,
+        hidden_dim=config.decoder.hidden_dim,
+        layer_count=config.decoder.layer_count,
+        head_count=config.decoder.head_count,
+    ).to(target_device)
+
+    init_decoder_permutation: torch.Tensor | None = None
+    if config.teacher.init_decoder_checkpoint_name:
+        init_path = resolve_checkpoint_path(
+            root,
+            config.teacher.init_decoder_checkpoint_name,
+            ensure=True,
+        )
+        if not init_path.exists():
+            raise FileNotFoundError(
+                f"init decoder checkpoint not found: {init_path}"
+            )
+        init_payload = load_training_checkpoint(init_path, map_location=target_device)
+        init_training_state = init_payload.get("training_state")
+        if not isinstance(init_training_state, dict):
+            raise ValueError(
+                f"init decoder checkpoint training_state must be a dict: {init_path}"
+            )
+        init_model_config = init_training_state.get("model_config") or {}
+        if (
+            isinstance(init_model_config, dict)
+            and config.teacher.exact_k_max is None
+            and "k_max" in init_model_config
+        ):
+            surrogate_model_config = dict(surrogate_model_config)
+            surrogate_model_config["k_max"] = int(init_model_config["k_max"])
+        init_decoder_permutation = permutation_from_training_state(
+            init_training_state,
+            value_count=config.value_count,
+            path=init_path,
+            role="decoder",
+        )
+        state_key = "best_model_state" if config.teacher.load_best else "model_state"
+        decoder.load_state_dict(init_payload[state_key])
+
+    if teacher_permutation is not None:
+        permutation = teacher_permutation.to(device=target_device)
+    elif init_decoder_permutation is not None:
+        permutation = init_decoder_permutation.to(device=target_device)
+    else:
+        if (
+            config.teacher.frontend_mode == "surrogate"
+            and config.teacher.require_checkpoint
+        ):
             raise ValueError(
                 "surrogate checkpoint is missing training_state.permutation: "
                 f"{surrogate_checkpoint_path}"
@@ -471,19 +602,7 @@ def create_lpap_decoder_training_session(
             seed=config.run.permutation_seed,
             device=target_device,
         )
-    else:
-        permutation = teacher_permutation.to(device=target_device)
-    surrogate.eval()
-    for parameter in surrogate.parameters():
-        parameter.requires_grad_(False)
 
-    decoder = LPAPDecoderTransformer(
-        value_count=config.value_count,
-        frontend_initial_temperature=config.decoder.frontend_initial_temperature,
-        hidden_dim=config.decoder.hidden_dim,
-        layer_count=config.decoder.layer_count,
-        head_count=config.decoder.head_count,
-    ).to(target_device)
     optimizer = torch.optim.AdamW(
         decoder.parameters(), lr=config.optimizer.learning_rate
     )
@@ -510,6 +629,7 @@ def create_lpap_decoder_training_session(
         model_config=config.model_config(surrogate_model_config=surrogate_model_config),
         metadata={
             "device": str(target_device),
+            "frontend_mode": config.teacher.frontend_mode,
             "surrogate_checkpoint_loaded": surrogate_loaded,
             "surrogate_model_config": surrogate_model_config,
             "energy_bank_path": str(config.data.energy_bank.path),
@@ -522,24 +642,29 @@ def create_lpap_decoder_training_session(
         decoder_training_state = decoder_payload.get("training_state")
         if not isinstance(decoder_training_state, dict):
             raise ValueError("decoder checkpoint training_state must be a dictionary")
-        from lpap.teacher_checkpoints import (
-            permutation_from_training_state,
-            require_matching_pair_permutation,
-        )
-
+        fold_order = decoder_training_state.get("fold_order") or (
+            decoder_training_state.get("model_config") or {}
+        ).get("fold_order")
+        if fold_order != LPAP_FOLD_ORDER:
+            raise ValueError(
+                f"decoder checkpoint fold_order={fold_order!r} does not match {LPAP_FOLD_ORDER!r}"
+            )
         decoder_permutation = permutation_from_training_state(
             decoder_training_state,
             value_count=config.value_count,
             path=checkpoint_path,
             role="decoder",
         )
-        permutation = require_matching_pair_permutation(
-            surrogate_permutation=permutation.detach().cpu(),
-            decoder_permutation=decoder_permutation,
-            value_count=config.value_count,
-            surrogate_path=surrogate_checkpoint_path,
-            decoder_path=checkpoint_path,
-        ).to(device=target_device)
+        if config.teacher.frontend_mode == "surrogate":
+            permutation = require_matching_pair_permutation(
+                surrogate_permutation=permutation.detach().cpu(),
+                decoder_permutation=decoder_permutation,
+                value_count=config.value_count,
+                surrogate_path=surrogate_checkpoint_path,
+                decoder_path=checkpoint_path,
+            ).to(device=target_device)
+        else:
+            permutation = decoder_permutation.to(device=target_device)
     generator = torch.Generator(device=target_device).manual_seed(
         config.run.seed + resume_info.start_step
     )
@@ -555,7 +680,7 @@ def create_lpap_decoder_training_session(
         surrogate_checkpoint_loaded=surrogate_loaded,
         surrogate_model_config=surrogate_model_config,
         energy_bank=energy_bank,
-        surrogate_k_max=surrogate_model_config["k_max"],
+        surrogate_k_max=int(surrogate_model_config["k_max"]),
         permutation=permutation,
         surrogate=surrogate,
         decoder=decoder,
@@ -583,6 +708,20 @@ def validate_lpap_decoder(
             device=session.device,
         )
     )
+    if config.teacher.frontend_mode == "exact":
+        return evaluate_lpap_decoder_exact_batch(
+            decoder=session.decoder,
+            values=batch,
+            bucket_count=config.data.bucket_count,
+            k_max=session.surrogate_k_max,
+            permutation=session.permutation,
+            use_triton=config.teacher.use_triton,
+            source_ce_weight=config.regularization.source_ce_weight,
+            source_ce_l1_reference=config.regularization.source_ce_l1_reference,
+            source_ce_power=config.regularization.source_ce_power,
+        )
+    if session.surrogate is None:
+        raise RuntimeError("surrogate model is required when frontend_mode='surrogate'")
     return evaluate_lpap_decoder_batch(
         decoder=session.decoder,
         surrogate=session.surrogate,
@@ -627,18 +766,36 @@ def iter_lpap_decoder_training(
     )
     for step in range(session.resume_info.start_step, config.run.steps + 1):
         batch = next(train_batches)
-        metrics = train_lpap_decoder_step(
-            decoder=session.decoder,
-            surrogate=session.surrogate,
-            optimizer=session.optimizer,
-            values=batch,
-            bucket_count=config.data.bucket_count,
-            k_max=session.surrogate_k_max,
-            permutation=session.permutation,
-            source_ce_weight=config.regularization.source_ce_weight,
-            source_ce_l1_reference=config.regularization.source_ce_l1_reference,
-            source_ce_power=config.regularization.source_ce_power,
-        )
+        if config.teacher.frontend_mode == "exact":
+            metrics = train_lpap_decoder_exact_step(
+                decoder=session.decoder,
+                optimizer=session.optimizer,
+                values=batch,
+                bucket_count=config.data.bucket_count,
+                k_max=session.surrogate_k_max,
+                permutation=session.permutation,
+                use_triton=config.teacher.use_triton,
+                source_ce_weight=config.regularization.source_ce_weight,
+                source_ce_l1_reference=config.regularization.source_ce_l1_reference,
+                source_ce_power=config.regularization.source_ce_power,
+            )
+        else:
+            if session.surrogate is None:
+                raise RuntimeError(
+                    "surrogate model is required when frontend_mode='surrogate'"
+                )
+            metrics = train_lpap_decoder_step(
+                decoder=session.decoder,
+                surrogate=session.surrogate,
+                optimizer=session.optimizer,
+                values=batch,
+                bucket_count=config.data.bucket_count,
+                k_max=session.surrogate_k_max,
+                permutation=session.permutation,
+                source_ce_weight=config.regularization.source_ce_weight,
+                source_ce_l1_reference=config.regularization.source_ce_l1_reference,
+                source_ce_power=config.regularization.source_ce_power,
+            )
         step_metrics = {
             "loss": metrics.loss,
             "reconstruction_l1": metrics.reconstruction_l1,
@@ -674,6 +831,7 @@ def iter_lpap_decoder_training(
             training_state={
                 "seed": config.run.seed,
                 "validation_seed": config.validation.seed,
+                "fold_order": LPAP_FOLD_ORDER,
                 "permutation": session.permutation.detach().cpu(),
             },
         )
@@ -686,9 +844,12 @@ def collect_lpap_decoder_gallery(
 ) -> list[LPAPDecoderGalleryItem]:
     config = session.config
     decoder_was_training = session.decoder.training
-    surrogate_was_training = session.surrogate.training
+    surrogate_was_training = (
+        session.surrogate.training if session.surrogate is not None else False
+    )
     session.decoder.eval()
-    session.surrogate.eval()
+    if session.surrogate is not None:
+        session.surrogate.eval()
     with torch.no_grad():
         values = sample_teacher_energy_batch(
             session.energy_bank,
@@ -696,35 +857,52 @@ def collect_lpap_decoder_gallery(
             generator=session.validation_generator,
             device=session.device,
         )
-        surrogate_tokens = prepare_lpap_surrogate_batch(
-            values,
-            bucket_count=config.data.bucket_count,
-            permutation=session.permutation,
-        )
-        surrogate_logits = session.surrogate(surrogate_tokens)
-        decoder_batch = prepare_lpap_decoder_batch(
-            values=values,
-            surrogate_logits=surrogate_logits,
-            bucket_count=config.data.bucket_count,
-            k_max=session.surrogate_k_max,
-            temperature=session.decoder.frontend_temperature(),
-            permutation=session.permutation,
-        )
+        if config.teacher.frontend_mode == "exact" or session.surrogate is None:
+            decoder_batch = prepare_exact_lpap_decoder_batch(
+                values=values,
+                bucket_count=config.data.bucket_count,
+                k_max=session.surrogate_k_max,
+                permutation=session.permutation,
+                use_triton=config.teacher.use_triton,
+            )
+            lpap_values = reconstruct_lpap_bucket_values(decoder_batch)
+            surrogate_hard_values = lpap_values
+        else:
+            surrogate_tokens = prepare_lpap_surrogate_batch(
+                values,
+                bucket_count=config.data.bucket_count,
+                permutation=session.permutation,
+            )
+            surrogate_logits = session.surrogate(surrogate_tokens)
+            decoder_batch = prepare_lpap_decoder_batch(
+                values=values,
+                surrogate_logits=surrogate_logits,
+                bucket_count=config.data.bucket_count,
+                k_max=session.surrogate_k_max,
+                temperature=session.decoder.frontend_temperature(),
+                permutation=session.permutation,
+                surrogate_tokens=surrogate_tokens,
+            )
+            lpap_values = reconstruct_lpap_bucket_values(decoder_batch)
+            predicted_sources = local_classes_to_source_indices(
+                surrogate_logits.argmax(dim=-1),
+                bucket_count=config.data.bucket_count,
+                probe_count=config.data.probe_count,
+                permutation=session.permutation,
+            )
+            surrogate_hard_values = torch.zeros_like(values).scatter_add(
+                1,
+                predicted_sources,
+                decoder_batch.surrogate_targets.buckets.to(dtype=values.dtype),
+            )
         logits = session.decoder(decoder_batch.tokens)
-        lpap_values = reconstruct_lpap_bucket_values(decoder_batch)
-        surrogate_hard_values = torch.zeros_like(values).scatter_add(
-            1,
-            surrogate_logits.argmax(dim=-1),
-            decoder_batch.surrogate_targets.buckets.to(dtype=values.dtype),
-        )
         decoder_values = reconstruct_lpap_decoder_values(logits, decoder_batch)
 
     if decoder_was_training:
         session.decoder.train()
-    if surrogate_was_training:
+    if session.surrogate is not None and surrogate_was_training:
         session.surrogate.train()
 
-    # Energy-bank rows are Hilbert-ordered (flow encode); unflatten for spatial panels.
     side = int(values.shape[-1] ** 0.5)
     if side * side != int(values.shape[-1]):
         raise ValueError(

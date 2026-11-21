@@ -10,7 +10,7 @@ import torch
 from lpap.checkpoints import load_training_checkpoint
 from lpap.decoder import LPAPDecoderTransformer
 from lpap.decoder_training import _surrogate_model_config_from_checkpoint
-from lpap.permutation import as_long_permutation
+from lpap.permutation import LPAP_FOLD_ORDER, as_long_permutation
 from lpap.surrogate import LPAPSurrogateTransformer
 
 
@@ -82,19 +82,19 @@ def load_surrogate_source(
     load_best: bool,
     require_checkpoint: bool,
     device: torch.device,
-) -> tuple[LPAPSurrogateTransformer, dict[str, int], torch.Tensor | None]:
+) -> tuple[LPAPSurrogateTransformer, dict[str, int | str], torch.Tensor | None]:
     model_config, payload = _surrogate_model_config_from_checkpoint(
         path=path, require_checkpoint=require_checkpoint
     )
     if model_config is None or payload is None:
         raise FileNotFoundError(f"surrogate checkpoint not found: {path}")
     surrogate = LPAPSurrogateTransformer(
-        value_count=model_config["value_count"],
-        probe_count=model_config["probe_count"],
-        k_max=model_config["k_max"],
-        hidden_dim=model_config["hidden_dim"],
-        layer_count=model_config["layer_count"],
-        head_count=model_config["head_count"],
+        value_count=int(model_config["value_count"]),
+        probe_count=int(model_config["probe_count"]),
+        k_max=int(model_config["k_max"]),
+        hidden_dim=int(model_config["hidden_dim"]),
+        layer_count=int(model_config["layer_count"]),
+        head_count=int(model_config["head_count"]),
     ).to(device)
     state_key = "best_model_state" if load_best else "model_state"
     surrogate.load_state_dict(payload[state_key])
@@ -117,7 +117,7 @@ def load_surrogate_source(
         model_config,
         as_long_permutation(
             torch.as_tensor(training_state["permutation"]),
-            value_count=model_config["value_count"],
+            value_count=int(model_config["value_count"]),
         ),
     )
 
@@ -147,6 +147,11 @@ def _decoder_model_config_from_checkpoint(
     if missing:
         raise ValueError(
             "decoder checkpoint model_config is missing: " + ", ".join(missing)
+        )
+    fold_order = model_config.get("fold_order") or training_state.get("fold_order")
+    if fold_order != LPAP_FOLD_ORDER:
+        raise ValueError(
+            f"decoder checkpoint fold_order={fold_order!r} does not match {LPAP_FOLD_ORDER!r}"
         )
     return dict(model_config), payload
 
@@ -197,7 +202,7 @@ def load_decoder_source(
 def validate_lpap_pair_matches_sequence_length(
     *,
     sequence_length: int,
-    surrogate_model_config: dict[str, int],
+    surrogate_model_config: dict[str, int | str],
     decoder_model_config: dict[str, object],
 ) -> None:
     expected = {
@@ -208,7 +213,7 @@ def validate_lpap_pair_matches_sequence_length(
     mismatches = [
         f"{name} surrogate={surrogate_model_config[name]} expected={value}"
         for name, value in expected.items()
-        if surrogate_model_config[name] != value
+        if int(surrogate_model_config[name]) != value
     ]
     decoder_value_count = int(decoder_model_config["value_count"])
     if decoder_value_count != sequence_length:
@@ -243,10 +248,9 @@ def lpap_pair_training_state_record(
     value_count: int,
 ) -> dict[str, Any]:
     """Self-contained pair layout for AE ``training_state.lpap_pairs``."""
-    from lpap.permutation import as_long_permutation
-
     return {
         "name": name,
+        "fold_order": LPAP_FOLD_ORDER,
         "permutation": as_long_permutation(permutation, value_count=value_count),
     }
 
@@ -258,8 +262,6 @@ def parse_ae_lpap_pair_permutations(
     value_count: int,
 ) -> list[torch.Tensor]:
     """Require AE ``training_state.lpap_pairs[*].permutation``."""
-    from lpap.permutation import as_long_permutation
-
     raw_pairs = training_state.get("lpap_pairs")
     if not isinstance(raw_pairs, list | tuple):
         raise ValueError("AE checkpoint training_state.lpap_pairs must be a list")
@@ -271,6 +273,11 @@ def parse_ae_lpap_pair_permutations(
     for index, entry in enumerate(raw_pairs):
         if not isinstance(entry, dict):
             raise ValueError(f"AE lpap_pairs[{index}] must be a dict")
+        fold_order = entry.get("fold_order") or training_state.get("fold_order")
+        if fold_order is not None and fold_order != LPAP_FOLD_ORDER:
+            raise ValueError(
+                f"AE lpap_pairs[{index}] fold_order={fold_order!r} does not match {LPAP_FOLD_ORDER!r}"
+            )
         raw = entry.get("permutation")
         if raw is None:
             raise ValueError(
