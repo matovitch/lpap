@@ -186,6 +186,7 @@ class LPAPSurrogateTransformer(nn.Module):
                     hidden_dim=hidden_dim,
                     head_count=head_count,
                     dropout=dropout,
+                    circular=True,
                 )
                 for _layer_index in range(layer_count)
             ]

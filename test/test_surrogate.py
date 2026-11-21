@@ -122,6 +122,25 @@ class LPAPSurrogateTest(unittest.TestCase):
                 head_count=4,
             )
 
+    def test_surrogate_is_circular_shift_equivariant(self) -> None:
+        torch.manual_seed(23)
+        model = LPAPSurrogateTransformer(
+            value_count=1024,
+            probe_count=8,
+            k_max=16,
+            hidden_dim=32,
+            layer_count=2,
+            head_count=4,
+        )
+        model.eval()
+        tokens = torch.randn(2, 128, 8, generator=torch.Generator().manual_seed(24))
+
+        base_logits = model(tokens)
+        for shift in (1, 15, 64, -17):
+            rolled_logits = model(torch.roll(tokens, shifts=shift, dims=1))
+            expected = torch.roll(base_logits, shifts=shift, dims=1)
+            torch.testing.assert_close(rolled_logits, expected, atol=1e-4, rtol=1e-4)
+
 
 if __name__ == "__main__":
     unittest.main()

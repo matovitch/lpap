@@ -1,8 +1,36 @@
 from __future__ import annotations
 
+import math
+
 import torch
 import torch.nn.functional as torch_functional
 from torch import nn
+
+
+def _rope_cos_sin(
+    *,
+    token_count: int,
+    rotary_dim: int,
+    device: torch.device,
+    dtype: torch.dtype,
+    circular: bool,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    compute_dtype = torch.promote_types(dtype, torch.float32)
+    positions = torch.arange(token_count, device=device, dtype=compute_dtype)
+    if circular:
+        harmonics = torch.arange(
+            1, (rotary_dim // 2) + 1, device=device, dtype=compute_dtype
+        )
+        inv_frequencies = (2.0 * math.pi / token_count) * harmonics
+    else:
+        frequencies = torch.arange(
+            0, rotary_dim, 2, device=device, dtype=compute_dtype
+        )
+        inv_frequencies = 1.0 / (10000 ** (frequencies / rotary_dim))
+    angles = positions[:, None] * inv_frequencies[None, :]
+    cosines = angles.cos().to(dtype=dtype)[None, None, :, :]
+    sines = angles.sin().to(dtype=dtype)[None, None, :, :]
+    return cosines, sines
 
 
 def apply_rope(
@@ -10,6 +38,7 @@ def apply_rope(
     *,
     cosines: torch.Tensor | None = None,
     sines: torch.Tensor | None = None,
+    circular: bool = False,
 ) -> torch.Tensor:
     head_dim = tensor.shape[-1]
     rotary_dim = head_dim - (head_dim % 2)
@@ -17,16 +46,13 @@ def apply_rope(
         return tensor
 
     if cosines is None or sines is None:
-        positions = torch.arange(
-            tensor.shape[-2], device=tensor.device, dtype=tensor.dtype
+        cosines, sines = _rope_cos_sin(
+            token_count=tensor.shape[-2],
+            rotary_dim=rotary_dim,
+            device=tensor.device,
+            dtype=tensor.dtype,
+            circular=circular,
         )
-        frequencies = torch.arange(
-            0, rotary_dim, 2, device=tensor.device, dtype=tensor.dtype
-        )
-        inv_frequencies = 1.0 / (10000 ** (frequencies / rotary_dim))
-        angles = positions[:, None] * inv_frequencies[None, :]
-        cosines = angles.cos()[None, None, :, :]
-        sines = angles.sin()[None, None, :, :]
 
     rotary = tensor[..., :rotary_dim]
     pass_through = tensor[..., rotary_dim:]
@@ -40,13 +66,16 @@ def apply_rope(
 
 
 class RotarySelfAttention(nn.Module):
-    def __init__(self, *, hidden_dim: int, head_count: int) -> None:
+    def __init__(
+        self, *, hidden_dim: int, head_count: int, circular: bool = False
+    ) -> None:
         super().__init__()
         if hidden_dim % head_count != 0:
             raise ValueError("hidden_dim must be divisible by head_count")
         self.hidden_dim = hidden_dim
         self.head_count = head_count
         self.head_dim = hidden_dim // head_count
+        self.circular = circular
         self.qkv = nn.Linear(hidden_dim, hidden_dim * 3)
         self.output = nn.Linear(hidden_dim, hidden_dim)
         self.register_buffer("_rope_cosines", torch.empty(0), persistent=False)
@@ -64,12 +93,13 @@ class RotarySelfAttention(nn.Module):
             or self._rope_cosines.device != device
             or self._rope_cosines.dtype != dtype
         ):
-            positions = torch.arange(token_count, device=device, dtype=dtype)
-            frequencies = torch.arange(0, rotary_dim, 2, device=device, dtype=dtype)
-            inv_frequencies = 1.0 / (10000 ** (frequencies / rotary_dim))
-            angles = positions[:, None] * inv_frequencies[None, :]
-            self._rope_cosines = angles.cos()[None, None, :, :]
-            self._rope_sines = angles.sin()[None, None, :, :]
+            self._rope_cosines, self._rope_sines = _rope_cos_sin(
+                token_count=token_count,
+                rotary_dim=rotary_dim,
+                device=device,
+                dtype=dtype,
+                circular=self.circular,
+            )
         return self._rope_cosines, self._rope_sines
 
     def forward(
@@ -117,11 +147,12 @@ class TransformerBlock(nn.Module):
         head_count: int,
         mlp_multiplier: int = 4,
         dropout: float = 0.0,
+        circular: bool = False,
     ) -> None:
         super().__init__()
         self.attention_norm = nn.LayerNorm(hidden_dim)
         self.attention = RotarySelfAttention(
-            hidden_dim=hidden_dim, head_count=head_count
+            hidden_dim=hidden_dim, head_count=head_count, circular=circular
         )
         self.mlp_norm = nn.LayerNorm(hidden_dim)
         self.mlp = nn.Sequential(
