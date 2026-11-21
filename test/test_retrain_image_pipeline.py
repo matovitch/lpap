@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import torch
 
@@ -282,6 +283,9 @@ class RetrainImagePipelineTest(unittest.TestCase):
             repo_root / cfg.autoencoder_config, "image_autoencoder"
         )
         self.assertEqual(ae_cfg.source.flow_checkpoint_name, "image_energy_flow.pt")
+        self.assertEqual(ae_cfg.integration.image_to_energy_steps, 4)
+        self.assertEqual(ae_cfg.integration.energy_to_image_steps, 4)
+        self.assertEqual(ae_cfg.validation.euler_steps, (4,))
         self.assertEqual(
             [pair.surrogate_checkpoint_name for pair in ae_cfg.source.lpap_pairs],
             expected_surrogates,
@@ -346,6 +350,101 @@ class RetrainImagePipelineTest(unittest.TestCase):
             ft_result = results[-1]
             self.assertEqual(ft_result.last_metrics["surrogate_teacher_ce"], 0.0)
             self.assertEqual(ft_result.last_metrics["weighted_accuracy"], 1.0)
+
+    def test_pushover_notification_on_success(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            pipeline_path = _write_tiny_pipeline_workspace(root)
+            cfg = load_retrain_pipeline_config(pipeline_path)
+
+            with mock.patch(
+                "lpap.retrain_image_pipeline.send_pushover",
+                autospec=True,
+                return_value={"status": 1},
+            ) as mock_push:
+                results = run_image_retrain_pipeline(
+                    project_root=root,
+                    config=cfg,
+                    stages=("surrogates",),
+                    device="cpu",
+                    notify_on_finished=True,
+                    step_overrides={"surrogates": 1},
+                )
+
+            self.assertEqual(len(results), 2)
+            mock_push.assert_called_once()
+            args, kwargs = mock_push.call_args
+            self.assertEqual(len(args), 1)
+            self.assertIn("surrogates/surrogate_c4_k2", args[0])
+            self.assertIn("surrogates/surrogate_c8_k3", args[0])
+            self.assertEqual(
+                kwargs.get("title"), "LPAP image retrain pipeline finished"
+            )
+
+    def test_pushover_notification_on_failure_and_reraises(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            pipeline_path = _write_tiny_pipeline_workspace(root)
+            cfg = load_retrain_pipeline_config(pipeline_path)
+
+            with (
+                mock.patch(
+                    "lpap.retrain_image_pipeline.send_pushover",
+                    autospec=True,
+                    return_value={"status": 1},
+                ) as mock_push,
+                mock.patch(
+                    "lpap.retrain_image_pipeline.iter_lpap_decoder_training",
+                    side_effect=RuntimeError("boom in decoder"),
+                ),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "boom in decoder"):
+                    run_image_retrain_pipeline(
+                        project_root=root,
+                        config=cfg,
+                        stages=("surrogates", "decoders"),
+                        device="cpu",
+                        notify_on_finished=True,
+                        step_overrides={"surrogates": 1, "decoders": 1},
+                    )
+
+            mock_push.assert_called_once()
+            args, kwargs = mock_push.call_args
+            self.assertEqual(len(args), 1)
+            self.assertIn("stage=decoders", args[0])
+            self.assertIn("RuntimeError: boom in decoder", args[0])
+            self.assertIn("done surrogates/surrogate_c4_k2", args[0])
+            self.assertEqual(
+                kwargs.get("title"), "LPAP image retrain pipeline failed"
+            )
+
+    def test_pushover_failure_error_does_not_mask_original_exception(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            pipeline_path = _write_tiny_pipeline_workspace(root)
+            cfg = load_retrain_pipeline_config(pipeline_path)
+
+            with (
+                mock.patch(
+                    "lpap.retrain_image_pipeline.send_pushover",
+                    autospec=True,
+                    side_effect=RuntimeError("notify failed"),
+                ),
+                mock.patch(
+                    "lpap.retrain_image_pipeline.iter_lpap_surrogate_training",
+                    side_effect=ValueError("original failure"),
+                ),
+            ):
+                with self.assertWarns(UserWarning):
+                    with self.assertRaisesRegex(ValueError, "original failure"):
+                        run_image_retrain_pipeline(
+                            project_root=root,
+                            config=cfg,
+                            stages=("surrogates",),
+                            device="cpu",
+                            notify_on_finished=True,
+                            step_overrides={"surrogates": 1},
+                        )
 
 
 if __name__ == "__main__":

@@ -94,10 +94,10 @@ batch size 32, `N = 1024`; expect ~1.5-2x longer on T4, ~0.4-0.6x on A100):
 | `surrogates` (`c256_k24`) | 15,000 | 12-layer RoPE transformer over `C=256`, local `96`-class head | ~15-25 min |
 | `surrogates` (`c512_k32`) | 15,000 | 12-layer RoPE transformer over `C=512`, local `64`-class head | ~30-50 min |
 | `decoders` (`c128`, `c256`, `c512`) | 3 x 15,000 | Frozen surrogate forward + 8-layer decoder transformer (`1024`-class output) | ~45-80 min total |
-| `autoencoder` (tri-pair) | 70,000 | 16-step `i2e` + 3 surrogate/decoder pairs + 3x 16-step `e2i` per step | ~6-12 hr |
-| `decoder_exact_finetune` | 3,000 | Frozen 16-step `i2e` + exact `lpap_tokens_triton` + trainable decoders + frozen `e2i` | ~10-20 min |
+| `autoencoder` (tri-pair) | 70,000 | 4-step `i2e` + 3 surrogate/decoder pairs + 3x 4-step `e2i` per step | ~2-4 hr |
+| `decoder_exact_finetune` | 3,000 | Frozen 4-step `i2e` + exact `lpap_tokens_triton` + trainable decoders + frozen `e2i` | ~5-10 min |
 
-Total sequential wall time on one L4/A10G: roughly 8-14 hours (dominated by the
+Total sequential wall time on one L4/A10G: roughly 4-6 hours (dominated by the
 70k-step tri-pair AE stage).
 
 ## Metrics To Compare Against The Prior Run

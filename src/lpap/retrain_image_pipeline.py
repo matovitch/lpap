@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import tomllib
+import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -359,135 +360,174 @@ def run_image_retrain_pipeline(
     )
     overrides = step_overrides or {}
 
-    _ensure_prerequisites(root, config, ordered_stages)
     results: list[RetrainStageResult] = []
+    current_stage = "prerequisites"
 
-    if "surrogates" in ordered_stages:
-        for teacher_relpath in config.teacher_configs:
-            teacher_path = _resolve_path(root, teacher_relpath)
-            surrogate_cfg = project_teacher_config(
-                teacher_path,
-                "surrogate",
-                resume_from_checkpoint=resolved_resume,
-            )
-            if "surrogates" in overrides:
-                surrogate_cfg = replace(
-                    surrogate_cfg,
-                    run=replace(surrogate_cfg.run, steps=int(overrides["surrogates"])),
+    try:
+        _ensure_prerequisites(root, config, ordered_stages)
+
+        if "surrogates" in ordered_stages:
+            current_stage = "surrogates"
+            for teacher_relpath in config.teacher_configs:
+                teacher_path = _resolve_path(root, teacher_relpath)
+                surrogate_cfg = project_teacher_config(
+                    teacher_path,
+                    "surrogate",
+                    resume_from_checkpoint=resolved_resume,
                 )
-            session = create_lpap_surrogate_training_session(
-                project_root=root,
-                config=surrogate_cfg,
-                device=device,
+                if "surrogates" in overrides:
+                    surrogate_cfg = replace(
+                        surrogate_cfg,
+                        run=replace(
+                            surrogate_cfg.run, steps=int(overrides["surrogates"])
+                        ),
+                    )
+                session = create_lpap_surrogate_training_session(
+                    project_root=root,
+                    config=surrogate_cfg,
+                    device=device,
+                )
+                session.training_run.config = replace(
+                    session.training_run.config,
+                    upload_artifacts_on_checkpoint=resolved_upload,
+                    notify_on_finished=False,
+                )
+                results.append(
+                    _consume_training_iter(
+                        iter_lpap_surrogate_training(session),
+                        stage="surrogates",
+                        name=surrogate_cfg.run.run_id,
+                        checkpoint_path=session.checkpoint_path,
+                    )
+                )
+
+        if "decoders" in ordered_stages:
+            current_stage = "decoders"
+            for teacher_relpath in config.teacher_configs:
+                teacher_path = _resolve_path(root, teacher_relpath)
+                decoder_cfg = project_teacher_config(
+                    teacher_path,
+                    "decoder",
+                    resume_from_checkpoint=resolved_resume,
+                )
+                if "decoders" in overrides:
+                    decoder_cfg = replace(
+                        decoder_cfg,
+                        run=replace(decoder_cfg.run, steps=int(overrides["decoders"])),
+                    )
+                session = create_lpap_decoder_training_session(
+                    project_root=root,
+                    config=decoder_cfg,
+                    device=device,
+                )
+                session.training_run.config = replace(
+                    session.training_run.config,
+                    upload_artifacts_on_checkpoint=resolved_upload,
+                    notify_on_finished=False,
+                )
+                results.append(
+                    _consume_training_iter(
+                        iter_lpap_decoder_training(session),
+                        stage="decoders",
+                        name=decoder_cfg.run.run_id,
+                        checkpoint_path=session.checkpoint_path,
+                    )
+                )
+
+        ae_base_cfg: ImageAutoencoderTrainingConfig | None = None
+        if (
+            "autoencoder" in ordered_stages
+            or "decoder_exact_finetune" in ordered_stages
+        ):
+            ae_path = _resolve_path(root, config.autoencoder_config)
+            loaded_ae = training_config_from_file(ae_path, "image_autoencoder")
+            if not isinstance(loaded_ae, ImageAutoencoderTrainingConfig):
+                raise TypeError(
+                    "autoencoder_config did not load ImageAutoencoderTrainingConfig"
+                )
+            ae_base_cfg = loaded_ae
+
+        if "autoencoder" in ordered_stages:
+            current_stage = "autoencoder"
+            assert ae_base_cfg is not None
+            ae_cfg = replace(
+                ae_base_cfg,
+                run=replace(
+                    ae_base_cfg.run,
+                    run_training=True,
+                    resume_from_checkpoint=resolved_resume,
+                    steps=int(overrides.get("autoencoder", ae_base_cfg.run.steps)),
+                    upload_artifacts_on_checkpoint=resolved_upload,
+                    notify_on_finished=False,
+                ),
             )
-            session.training_run.config = replace(
-                session.training_run.config,
-                upload_artifacts_on_checkpoint=resolved_upload,
-                notify_on_finished=False,
+            session = create_image_autoencoder_training_session(
+                project_root=root,
+                config=ae_cfg,
+                device=device,
             )
             results.append(
                 _consume_training_iter(
-                    iter_lpap_surrogate_training(session),
-                    stage="surrogates",
-                    name=surrogate_cfg.run.run_id,
+                    iter_image_autoencoder_training(session),
+                    stage="autoencoder",
+                    name=ae_cfg.run.run_id,
                     checkpoint_path=session.checkpoint_path,
                 )
             )
 
-    if "decoders" in ordered_stages:
-        for teacher_relpath in config.teacher_configs:
-            teacher_path = _resolve_path(root, teacher_relpath)
-            decoder_cfg = project_teacher_config(
-                teacher_path,
-                "decoder",
-                resume_from_checkpoint=resolved_resume,
-            )
-            if "decoders" in overrides:
-                decoder_cfg = replace(
-                    decoder_cfg,
-                    run=replace(decoder_cfg.run, steps=int(overrides["decoders"])),
+        if "decoder_exact_finetune" in ordered_stages:
+            current_stage = "decoder_exact_finetune"
+            assert ae_base_cfg is not None
+            exact_cfg = config.decoder_exact_finetune
+            if "decoder_exact_finetune" in overrides:
+                exact_cfg = replace(
+                    exact_cfg, steps=int(overrides["decoder_exact_finetune"])
                 )
-            session = create_lpap_decoder_training_session(
-                project_root=root,
-                config=decoder_cfg,
-                device=device,
-            )
-            session.training_run.config = replace(
-                session.training_run.config,
+            ft_ae_cfg = build_exact_finetune_autoencoder_config(
+                ae_base_cfg,
+                exact_cfg,
+                resume_from_checkpoint=resolved_resume,
                 upload_artifacts_on_checkpoint=resolved_upload,
                 notify_on_finished=False,
+            )
+            session = create_image_autoencoder_training_session(
+                project_root=root,
+                config=ft_ae_cfg,
+                device=device,
             )
             results.append(
                 _consume_training_iter(
-                    iter_lpap_decoder_training(session),
-                    stage="decoders",
-                    name=decoder_cfg.run.run_id,
+                    iter_image_autoencoder_training(session),
+                    stage="decoder_exact_finetune",
+                    name=ft_ae_cfg.run.run_id,
                     checkpoint_path=session.checkpoint_path,
                 )
             )
-
-    ae_base_cfg: ImageAutoencoderTrainingConfig | None = None
-    if "autoencoder" in ordered_stages or "decoder_exact_finetune" in ordered_stages:
-        ae_path = _resolve_path(root, config.autoencoder_config)
-        loaded_ae = training_config_from_file(ae_path, "image_autoencoder")
-        if not isinstance(loaded_ae, ImageAutoencoderTrainingConfig):
-            raise TypeError("autoencoder_config did not load ImageAutoencoderTrainingConfig")
-        ae_base_cfg = loaded_ae
-
-    if "autoencoder" in ordered_stages:
-        assert ae_base_cfg is not None
-        ae_cfg = replace(
-            ae_base_cfg,
-            run=replace(
-                ae_base_cfg.run,
-                run_training=True,
-                resume_from_checkpoint=resolved_resume,
-                steps=int(overrides.get("autoencoder", ae_base_cfg.run.steps)),
-                upload_artifacts_on_checkpoint=resolved_upload,
-                notify_on_finished=False,
-            ),
-        )
-        session = create_image_autoencoder_training_session(
-            project_root=root,
-            config=ae_cfg,
-            device=device,
-        )
-        results.append(
-            _consume_training_iter(
-                iter_image_autoencoder_training(session),
-                stage="autoencoder",
-                name=ae_cfg.run.run_id,
-                checkpoint_path=session.checkpoint_path,
-            )
-        )
-
-    if "decoder_exact_finetune" in ordered_stages:
-        assert ae_base_cfg is not None
-        exact_cfg = config.decoder_exact_finetune
-        if "decoder_exact_finetune" in overrides:
-            exact_cfg = replace(
-                exact_cfg, steps=int(overrides["decoder_exact_finetune"])
-            )
-        ft_ae_cfg = build_exact_finetune_autoencoder_config(
-            ae_base_cfg,
-            exact_cfg,
-            resume_from_checkpoint=resolved_resume,
-            upload_artifacts_on_checkpoint=resolved_upload,
-            notify_on_finished=False,
-        )
-        session = create_image_autoencoder_training_session(
-            project_root=root,
-            config=ft_ae_cfg,
-            device=device,
-        )
-        results.append(
-            _consume_training_iter(
-                iter_image_autoencoder_training(session),
-                stage="decoder_exact_finetune",
-                name=ft_ae_cfg.run.run_id,
-                checkpoint_path=session.checkpoint_path,
-            )
-        )
+    except Exception as exc:
+        if resolved_notify:
+            failure_lines = [
+                f"stage={current_stage}",
+                f"error={type(exc).__name__}: {exc}",
+            ]
+            for item in results:
+                best_str = (
+                    "n/a" if item.best_metric is None else f"{item.best_metric:.5f}"
+                )
+                failure_lines.append(
+                    f"done {item.stage}/{item.name}: "
+                    f"steps={item.steps_completed} best={best_str}"
+                )
+            try:
+                send_pushover(
+                    "\n".join(failure_lines),
+                    title="LPAP image retrain pipeline failed",
+                )
+            except Exception as notify_exc:
+                warnings.warn(
+                    f"Pushover failure notification failed: {notify_exc}",
+                    stacklevel=2,
+                )
+        raise
 
     if resolved_notify:
         summary_lines = [
@@ -496,8 +536,8 @@ def run_image_retrain_pipeline(
             for item in results
         ]
         send_pushover(
-            "LPAP image retrain pipeline finished",
             "\n".join(summary_lines) or "no stages executed",
+            title="LPAP image retrain pipeline finished",
         )
 
     return results

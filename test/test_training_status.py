@@ -191,6 +191,27 @@ class TrainingStatusTest(unittest.TestCase):
             encoded = json.dumps(summary, default=str)
             self.assertIn('"step": 1', encoded)
 
+    def test_missing_checkpoint_and_log_handled_gracefully(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            logs = root / "training_logs"
+            logs.mkdir()
+            (logs / "ae_bg.log").write_text("step=10 loss=0.5\n", encoding="utf-8")
+
+            summary = summarize_training_status(
+                project_root=root,
+                checkpoint_name="image_autoencoder_tri_lnorm-v2.pt",
+                log_name="image_autoencoder_tri_lnorm-v2.sqlite",
+                bg_stem="ae_bg",
+            )
+            self.assertIsNone(summary["checkpoint"])
+            self.assertIsNone(summary["run"])
+            self.assertEqual(summary["bg"]["log_last_step"], 10)
+            text = format_training_status(summary)
+            self.assertIn("checkpoint: missing", text)
+            self.assertIn("run: missing", text)
+            self.assertIn("bg:", text)
+
 
 if __name__ == "__main__":
     unittest.main()

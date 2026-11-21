@@ -113,6 +113,10 @@ def summarize_training_status(
     log_path = resolve_artifact_path(
         root, name=log_name, subdirectory="training_logs"
     )
+    has_bg = bg_stem is not None and bool(str(bg_stem).strip())
+    if checkpoint_path is None and log_path is None and not has_bg:
+        raise ValueError("provide --checkpoint and/or --log")
+
     summary: dict[str, Any] = {
         "project_root": str(root.resolve()),
         "checkpoint_path": None if checkpoint_path is None else str(checkpoint_path),
@@ -126,9 +130,7 @@ def summarize_training_status(
         "bg": None,
     }
 
-    if checkpoint_path is not None:
-        if not checkpoint_path.is_file():
-            raise FileNotFoundError(checkpoint_path)
+    if checkpoint_path is not None and checkpoint_path.is_file():
         payload = load_training_checkpoint(checkpoint_path, map_location="cpu")
         summary["checkpoint"] = {
             "step": int(payload["step"]),
@@ -136,38 +138,36 @@ def summarize_training_status(
             "keys": sorted(str(key) for key in payload),
         }
 
-    if log_path is not None:
-        if not log_path.is_file():
-            raise FileNotFoundError(log_path)
+    if log_path is not None and log_path.is_file():
         resolved_run_id = run_id
         if resolved_run_id is None:
             runs = list_training_runs(log_path, limit=1)
-            if not runs:
-                raise KeyError(f"no runs in training log: {log_path}")
-            resolved_run_id = str(runs[0]["run_id"])
-            summary["run_id"] = resolved_run_id
-        record = load_run_record(log_path, run_id=resolved_run_id)
-        summary["run"] = {
-            "run_id": record["run_id"],
-            "status": record["status"],
-            "updated_at": record["updated_at"],
-            "checkpoint_path": record["checkpoint_path"],
-            "comment": record.get("comment", ""),
-        }
-        summary["best_metric_row"] = load_best_metric_row(
-            log_path,
-            run_id=resolved_run_id,
-            metric_name=metric_name,
-            mode=metric_mode,
-        )
-        summary["recent_metrics"] = load_recent_metrics(
-            log_path, run_id=resolved_run_id, limit=recent_limit
-        )
-        summary["log_max_step"] = max_logged_step(
-            log_path, run_id=resolved_run_id
-        )
+            if runs:
+                resolved_run_id = str(runs[0]["run_id"])
+                summary["run_id"] = resolved_run_id
+        if resolved_run_id is not None:
+            record = load_run_record(log_path, run_id=resolved_run_id)
+            summary["run"] = {
+                "run_id": record["run_id"],
+                "status": record["status"],
+                "updated_at": record["updated_at"],
+                "checkpoint_path": record["checkpoint_path"],
+                "comment": record.get("comment", ""),
+            }
+            summary["best_metric_row"] = load_best_metric_row(
+                log_path,
+                run_id=resolved_run_id,
+                metric_name=metric_name,
+                mode=metric_mode,
+            )
+            summary["recent_metrics"] = load_recent_metrics(
+                log_path, run_id=resolved_run_id, limit=recent_limit
+            )
+            summary["log_max_step"] = max_logged_step(
+                log_path, run_id=resolved_run_id
+            )
 
-    if bg_stem is not None and str(bg_stem).strip():
+    if has_bg:
         stem = str(bg_stem).strip()
         pid_path = root / "training_logs" / f"{stem}.pid"
         bg_log_path = root / "training_logs" / f"{stem}.log"
@@ -178,9 +178,6 @@ def summarize_training_status(
             "log_last_step": _last_bg_log_step(bg_log_path),
             "log_tail": _bg_log_tail(bg_log_path, lines=log_tail_lines),
         }
-
-    if summary["checkpoint"] is None and summary["run"] is None:
-        raise ValueError("provide --checkpoint and/or --log")
 
     return summary
 
@@ -197,6 +194,8 @@ def format_training_status(summary: Mapping[str, Any]) -> str:
             f"step={checkpoint.get('step')} best_metric={checkpoint.get('best_metric')}"
         )
         lines.append(f"checkpoint_path: {summary.get('checkpoint_path')}")
+    elif summary.get("checkpoint_path"):
+        lines.append(f"checkpoint: missing ({summary.get('checkpoint_path')})")
     if summary.get("log_max_step") is not None:
         lines.append(f"log_max_step: {summary.get('log_max_step')}")
     run = summary.get("run")
@@ -208,6 +207,8 @@ def format_training_status(summary: Mapping[str, Any]) -> str:
         lines.append(f"log_path: {summary.get('log_path')}")
         if run.get("comment"):
             lines.append(f"comment: {run.get('comment')}")
+    elif summary.get("log_path"):
+        lines.append(f"run: missing ({summary.get('log_path')})")
     best = summary.get("best_metric_row")
     if isinstance(best, Mapping):
         metric_items = [

@@ -52,8 +52,8 @@ kernel_size = 3
 zero_init_output = true
 
 [integration]
-image_to_energy_steps = 16
-energy_to_image_steps = 16
+image_to_energy_steps = 4
+energy_to_image_steps = 4
 
 [loss]
 image_l2_weight = 1.0
@@ -75,7 +75,7 @@ batch_size = 32
 num_batches = 8
 seed = 60123
 validate_at_end = true
-euler_steps = [16]
+euler_steps = [4]
 
 [run]
 run_training = true
