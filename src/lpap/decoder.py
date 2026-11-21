@@ -169,7 +169,7 @@ def prepare_lpap_decoder_batch(
         tokens=decoder_tokens,
         values=values,
         targets=targets.source_indices,
-        weights=amplitudes.abs(),
+        weights=amplitudes.abs().detach(),
         amplitudes=amplitudes,
         dibs=dibs.to(dtype=amplitudes.dtype),
         entropy=entropy,

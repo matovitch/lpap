@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 
 import torch
 
@@ -39,6 +40,40 @@ class LPAPDecoderTest(unittest.TestCase):
         self.assertEqual(batch.targets.shape, (1, 2))
         self.assertTrue(torch.all(batch.weights >= 0))
         self.assertTrue(torch.all(batch.entropy >= 0))
+
+    def test_ce_weights_are_stop_gradient(self) -> None:
+        # Weights only rescale the CE; amplitudes (decoder tokens) keep gradients.
+        values = torch.tensor([[1.0, -2.0, 3.0, 4.0]])
+        surrogate_logits = torch.tensor([[[0.0, 1.0], [1.0, 0.0]]], requires_grad=True)
+        temperature = torch.tensor(0.5, requires_grad=True)
+
+        batch = prepare_lpap_decoder_batch(
+            values=values,
+            surrogate_logits=surrogate_logits,
+            bucket_count=2,
+            k_max=1,
+            temperature=temperature,
+        )
+
+        self.assertFalse(batch.weights.requires_grad)
+        self.assertTrue(batch.amplitudes.requires_grad)
+        torch.testing.assert_close(batch.weights, batch.amplitudes.detach().abs())
+
+        # Cut the reconstruction path; the CE weights are then the only route
+        # from the loss back to the temperature / surrogate logits.
+        ce_only = replace(batch, amplitudes=batch.amplitudes.detach())
+        logits = torch.randn(1, 2, 4, requires_grad=True)
+        loss, _metrics = lpap_decoder_loss(
+            logits,
+            ce_only,
+            source_ce_weight=1.0,
+            source_ce_l1_reference=1.0,
+            source_ce_power=2.0,
+        )
+        loss.backward()
+        self.assertIsNone(temperature.grad)
+        self.assertIsNone(surrogate_logits.grad)
+        self.assertIsNotNone(logits.grad)
 
     def test_dibs_from_local_logits_divides_by_probe_count(self) -> None:
         # C=3, P=2, k_max=3 -> 6 local classes = dib * 2 + probe.
