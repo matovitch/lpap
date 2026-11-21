@@ -123,6 +123,8 @@ Extra molab-workflow helpers (same `MOLAB_*` env):
   (ephemeral; prefer commit + `molab-sync` for durable updates)
 - `molab-push-training-configs.sh` — copy `configs/training/*.toml` → `/marimo`
 - `molab-export-notebook.sh` — backport live cells → `molab/lab.py`
+- `molab-press.sh` — queue a UI press (e.g. `train_button`) as a normal notebook run
+- `molab-train-watch.sh` — train cell heartbeat via the server file API (safe while training)
 - `molab-train-status.sh` / `molab-launch-ae-bidirectional-flow.sh` / `molab-launch-image-energy-flow.sh` — long AE / image-energy flow runs
 - `molab-notify.sh` — Pushover on job finish / handoff (prefer over agent polling)
 

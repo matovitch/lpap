@@ -88,6 +88,8 @@ if [[ -n "$session" ]]; then
   fi
 fi
 
+molab_guard_busy_kernel || exit 1
+
 args=(--url "$url" --token "$token")
 if [[ -n "$session" ]]; then
   args+=(--session "$session")

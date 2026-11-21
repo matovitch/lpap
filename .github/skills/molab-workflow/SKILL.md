@@ -53,11 +53,13 @@ All under `.github/skills/molab-workflow/scripts/` (require `MOLAB_URL` +
 | Script | Purpose |
 |--------|---------|
 | `molab-exec.sh` | Scratchpad / `cm` against the paired kernel |
+| `molab-press.sh` | Queue a UI element press (run_button, checkbox, …) as a normal notebook run |
+| `molab-train-watch.sh` | Train cell heartbeat (state, stage, steps, GPU, VRAM) via the server file API — kernel untouched |
 | `notebook-map.sh` | DAG / detached-cell audit (calls `execute-code`) |
 | `notebook-ready.sh` | Gate that public names exist in `ctx.globals` |
 | `execute-watch.sh` | Agent-side short probes until a log pattern matches |
 | `molab-sync.sh` | Reinstall `lpap` from git + storage/training TOMLs/helpers/secrets |
-| `molab-push-training-configs.sh` | Copy `configs/training/*.toml` → `/marimo/configs/training/` |
+| `molab-push-training-configs.sh` | Copy local `configs/training/*.toml` → `/marimo/configs/training/` (ad-hoc edits; notebook setup syncs the pinned commit's TOMLs itself) |
 | `molab-inject-secrets.sh` | Secrets → kernel env only |
 | `molab-train-status.sh` | On-demand AE bg / ckpt / SQLite summary (not a completion waiter) |
 | `molab-notify.sh` | Pushover ping (job finished / agent handoff) |
@@ -168,6 +170,20 @@ Current AE lab roles (rename/extend as the notebook evolves):
 9. **Name durable cells** (see above); talk about them by name with the human.
 10. **No unconditional force-reinstall in lab setup cells** — use `molab-sync`
    (or `LPAP_FORCE_REINSTALL`) instead of wiping the env on every re-run-all.
+11. **Press buttons with `molab-press.sh`, never `ctx.set_ui_value`** for
+   anything long-running (Prepare session, Start training). `set_ui_value`
+   runs the dependent cells inside the scratch request, and they are
+   interrupted when that request ends. `molab-press.sh` queues an
+   `UpdateUIElementCommand` and returns at once, exactly like a human click.
+12. **Never `molab-exec` while a long cell runs.** The exec queues behind the
+   busy cell, and abandoning it (client timeout, Ctrl-C) interrupts that cell.
+   `molab-exec` refuses while the train heartbeat says `running`
+   (`MOLAB_EXEC_FORCE=1` only to stop a run on purpose). Monitor with
+   `molab-train-watch.sh`, Pushover and HF artifact commits instead.
+13. **Training configs follow the pinned code.** The notebook setup cell calls
+   `lpap.training_configs.sync_training_configs`, which replaces
+   `/marimo/configs/training/*.toml` with the TOMLs of the installed lpap
+   commit (GitHub archive) and fails on a missing referenced TOML.
 
 ## Long AE runs (default)
 
