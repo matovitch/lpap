@@ -263,3 +263,176 @@ Bug proofs in `LpapSuspectedBugsTest` (every test fails on current code):
 3. **Fixing `decoder_dibs_from_source_logits` (Finding #1) & DIB encoding**: Fixing `permutation` in `decoder_dibs_from_source_logits` invalidates existing decoder/AE checkpoints (which were trained on `(i - idx % C) % C`). Since the next target is LLM hidden states (fresh models anyway), should we also switch DIB normalization from `dib / (C - 1)` to `dib / max(min(k_max, C) - 1, 1)` or a learned/sinusoidal DIB embedding, and should the surrogate predict local `(roll, probe)` logits (`k_max * P` classes, permutation-invariant) instead of full `N` classes?
 4. **Direct STE/routing LPAP vs learned surrogate for LLM hidden states**: `lpap_torch` already propagates exact straight-through routing gradients through `buckets` (verified even across multi-hop swap-backs). For the LLM bottleneck, do you still want the learned `LPAPSurrogateTransformer` (for soft differentiable index selection + entropy), or do you want to support an exact-LPAP bypass mode (`values -> exact LPAP (a, d) -> decoder`) as an ablation / fast baseline?
 5. **Triton kernel priority**: Given that `lpap_torch` rewritten with `torch.where` (no boolean-mask syncs) + `torch.compile` runs fully fused on GPU with autograd support and `source_indices` output, is keeping and rewriting `lpap_triton` still desired, or should `torch.compile`-friendly pure PyTorch be the primary implementation?
+
+---
+
+## Follow-up
+
+### 1. Fold Convention & Checkpoint Metadata
+
+**Where permutation seeds, permutation tensors, and fold order are recorded:**
+
+- **Checkpoints (`.pt` -> `training_state_json`)**:
+  - `permutation_seed` is **explicitly stripped** from every checkpoint by `_without_permutation_seed` (`src/lpap/checkpoints.py:99-111, 145-147, 223`). No checkpoint stores `permutation_seed`.
+  - Instead, checkpoints store the concrete **permutation tensor** (serialized as a JSON int list in `training_state_json`):
+    - Surrogate & decoder checkpoints: `training_state["permutation"]` (`src/lpap/surrogate_training.py:486`, `src/lpap/decoder_training.py:677`).
+    - AE checkpoints: `training_state["lpap_pairs"][i]["permutation"]` (`src/lpap/image_autoencoder_training.py:1192-1199`, `src/lpap/teacher_checkpoints.py:239-251`).
+  - Note: on resume, decoder (`src/lpap/decoder_training.py:520-542`) and AE (`src/lpap/image_autoencoder_training.py:854-871`) reload and verify `training_state["permutation"]`, whereas surrogate resume (`src/lpap/surrogate_training.py:329-375`) regenerates `permutation` from `config.run.permutation_seed` (CPU-seeded `randperm`) rather than loading the tensor from the checkpoint.
+- **SQLite training logs (`training_logs/*.sqlite` -> `runs.config_json`)**: `permutation_seed` **is** recorded here because `TrainingRun` writes `config.as_run_config()` without stripping (`src/lpap/training.py:162-168`, `src/lpap/surrogate_training.py:183`, `src/lpap/decoder_training.py:133`).
+- **Fold convention**: **Not recorded anywhere** (not in checkpoints, `model_config`, `training_state`, TOML configs, or SQLite). It is hardcoded implicitly in `fold_permutation_tokens` (`src/lpap/permutation.py:89`) and `lpap_surrogate_targets` (`src/lpap/surrogate.py:109`).
+
+**Column-major vs row-major tradeoff:**
+
+- **Why column-major (`pos = p * C + b`, `bucket = pos % C`) is reasonable**:
+  - Matches `fold_permutation_tokens`, `surrogate.py`, `animations/lpap_operator.py:45-47`, and all existing surrogate checkpoints (keeping column-major preserves existing surrogate checkpoints — see Section 5 below).
+  - Aligns naturally with hash-modulo arithmetic (`source_bucket = pos % C`).
+  - Once `apply_permutation` runs, a random gather already allocates a new tensor; pre-folding `perm.reshape(P, C).T.contiguous()` produces a contiguous `(B, C, P)` tensor in one gather with **zero** extra transpose overhead.
+- **Concrete pushback for row-major (`pos = b * P + p`, `reshape(..., C, P)`)**:
+  - Without permutation (direct `lpap(values)` calls, benchmarks, tests), row-major `reshape(..., C, P)` is a **zero-copy contiguous view** (coalesced probe reads in Triton), whereas column-major `reshape(..., P, C).movedim(-1, -2)` produces a non-contiguous view with stride `C` along probes — forcing either uncoalesced stride-`C` GPU loads or an extra `.contiguous()` transpose copy.
+  - Row-major already matches `ops.py:41`, `triton_ops.py:44`, `doc/lpap.md:130-138`, `doc/lpap-pseudocode.md:43`, and `test/test_lpap.py`.
+- **Conclusion**: Keeping **column-major** is fine and preserves existing surrogate checkpoints, provided we (a) unify `ops.py`, `triton_ops.py`, `doc/lpap.md`, and `doc/lpap-pseudocode.md` onto column-major, (b) make the internal core operator take contiguous `(..., C, P)` folded tokens (or fuse `perm_folded` gather) so Triton never does stride-`C` inner-loop reads, and (c) record `fold_order = "column_major"` in `model_config` if ambiguity can recur.
+
+---
+
+### 2. Worked Trace for Finding #2, `>=` Semantics, Fix, and Severity Downgrade
+
+**Concrete trace of current `lpap_surrogate_targets` on `x = [10.0, 0.0, 0.0, 0.0]` (`C=2, P=2, K=2`, identity permutation):**
+
+Folded column-major: lane 0 holds `[10.0 (idx 0), 0.0 (idx 2)]`; lane 1 holds `[0.0 (idx 1), 0.0 (idx 3)]`.
+
+- **Init**:
+  - `work = [[10.0, 0.0], [0.0, 0.0]]`, `work_indices = [[0, 1], [0, 1]]`, `dibs_diff = [[0, 0], [0, 0]]`
+  - `buckets = [0.0, 0.0]` (phantom zeros), `bucket_indices = [0, 0]`, `dibs = [0, 0]`
+- **Roll `k = 0`** (`source_lanes = [0, 1]`):
+  - `cand_pos = [0, 0]`, `cand = [10.0, 0.0]`, `sel_idx = [0, 0]`, `cand_dib = [0, 0]`, `update = [True, True]`
+  - Both buckets swap their phantom initial `0.0` (with `bucket_indices = 0`) back into `work[:, :, 0]`:
+  - `work = [[0.0, 0.0], [0.0, 0.0]]`, `work_indices = [[0, 1], [0, 1]]`, `dibs_diff = [[0, 0], [0, 0]]`
+  - `buckets = [10.0, 0.0]`, `bucket_indices = [0, 0]`, `dibs = [0, 0]`
+- **Roll `k = 1`** (`source_lanes = [1, 0]`):
+  - Bucket 0 reads lane 1 (`[0.0, 0.0]`): `|0| >= |10|` is `False` -> keeps `10.0`.
+  - Bucket 1 (holding real `0.0` from idx 1!) reads lane 0 (`[phantom_0 (work_indices=0), real_0 (work_indices=1)]`):
+    - `argmax` picks slot `0` — the **phantom zero** that Bucket 0 swapped into lane 0 at `k = 0`, carrying `work_indices = 0` (the probe slot of `10.0`).
+    - Because of `>=`, `|0.0| >= |0.0|` is `True`, so the **phantom zero re-enters Bucket 1**:
+  - `cand_pos = [0, 0]`, `cand = [0.0, 0.0]`, `sel_idx = [0, 0]`, `cand_dib = [1, 1]`, `update = [False, True]`
+  - `buckets = [10.0, 0.0]`, `bucket_indices = [0, 0]`, `dibs = [0, 1]`
+- **Index recovery (`surrogate.py:108-109`)**:
+  - `source_buckets = ([0, 1] - [0, 1]) % 2 = [0, 0]`
+  - `source_indices = bucket_indices * 2 + source_buckets = [0, 0]` -> **`x[source_indices] = [10.0, 10.0] != buckets = [10.0, 0.0]`** (duplicate index `0`).
+  - On all-zero `[0, 0, 0, 0]` with `K = 2`, both buckets pick phantom constants at `k = 1`, zeroing `values.grad`.
+
+**Plain assessment & severity downgrade (Critical -> Medium):**
+
+- The author's intuition holds on **dense non-zero inputs** (`|x_i| > 0`): at `k = 0` every bucket receives a strictly positive amplitude, so at `k >= 1` swapped-back phantom zeros (`|0| < |bucket|`) **never re-enter**.
+- The phantom-zero bug triggers **only when a bucket holds an exact `0.0`** (e.g., an all-zero lane at `k = 0`, sparse/ReLU/padded activations, all-zero tensors, or `C = N` with a zero entry).
+- Furthermore, in `lpap_surrogate_loss`, zero buckets receive `weights = buckets.abs() = 0`, so duplicate `source_indices` on zero buckets contribute **zero** surrogate CE loss (they do still leak into decoder `source_ce`, where `weights = amplitudes.abs()` uses the non-zero soft surrogate expectation, and corrupt `dibs` / zero-input gradients).
+- **Finding #2 is therefore downgraded from Critical to Medium**: dormant on the current dense float32 image energy bank, but a real correctness hazard for sparse/ReLU/padded LLM activations and edge-case invariants.
+
+**Nuance on `>=` vs Robin Hood hashing:**
+
+- On the Manim grid `_ROWS` (`C=4, P=3, K=3`), `>=` reduces total DIB from `4` (under strict `>`) to `3` (`dibs = [2, 1, 0, 0]` vs `[2, 2, 0, 0]`) because at `k=1`, `-6` (`dib=1`) evicts `6` (`dib=0`), which then re-enters bucket 1 (`5 < 6`) at `k=2` with `dib=1`.
+- However, because LPAP drops displaced items when all buckets are strong (unlike fixed-key-set Robin Hood hashing where total DIB is conserved), unconditional `>=` **increases** DIB whenever an evicted tied element finds no weaker bucket downstream (on 200 random integer `4x3` grids with `K=4`, mean `sum(dib)` is `3.09` with `>=` vs `1.08` with `>`, and mean `max(dib)` is `1.72` vs `0.96`). And if `K > C` (or `C = 1, K >= 2`), `>=` on ties wraps around and produces `dib >= C`.
+
+**Proposed fix keeping `>=` on real values:**
+
+Track `work_valid` (bool, init `True`) and `bucket_valid` (bool, init `False`), and validate/cap `k_max <= C` (or stop rolls at `min(k_max, C)` so `0 <= dib < C` always holds by induction):
+
+- Candidate scoring: `scores = torch.where(lane_valid, lane_values.abs(), -1.0)` (since `abs >= 0`, vacated slots can never win `argmax`).
+- Update rule: `update = cand_valid & (~bucket_valid | (cand.abs() >= buckets.abs()))`.
+- Swap-back: write `(old_bucket, old_dib - k, old_probe)` into `work` with `work_valid = old_bucket_valid` — so filling an initially empty bucket marks its vacated `work` slot `False` and **never** injects a phantom zero back into `work`.
+- **Verification**:
+  - Manim `_ROWS` (`C=4, P=3, K=3`): `buckets = [7, 6, -8, 9]`, `dibs = [2, 1, 0, 0]`, `source_indices = [6, 4, 2, 3]` — **bit-exact match with `animations/lpap_operator.py`**.
+  - `[10, 0, 0, 0]` (`C=2, P=2, K=2`): `buckets = [10, 0]`, `dibs = [0, 1]`, `source_indices = [0, 2]`, `x[source_indices] = [10, 0]` (no duplicate).
+  - `C = N` `[1, 2, 0, 4]` (`K=3`): `dibs = [0, 0, 0, 0]` (all `work` slots become invalid after `k = 0`).
+  - All-zero `[0, 0, 0, 0]` (`K=2`): buckets hold real input elements, preserving autograd gradients.
+
+---
+
+### 3. Local `(dib, probe)` Logits vs Full-`N` Source-Index Logits
+
+**What the surrogate predicts:**
+
+- Under LPAP with `k_eff = min(k_max, C)` rolls, every item that lands in bucket `i` has `dib = d in {0, ..., k_eff - 1}` and original probe slot `p in {0, ..., P - 1}` in lane `(i - d) % C`. Only `M = k_eff * P` out of `N = C * P` source positions are reachable by bucket `i`.
+- Replace `LPAPSurrogateTransformer.output = nn.Linear(hidden_dim, N)` with `nn.Linear(hidden_dim, k_eff * P)`, producing `local_logits` of shape `(B, C, k_eff * P)` (viewable as `(B, C, k_eff, P)`), where class `c = d * P + p` selects probe `p` from lane `(i - d) % C`.
+- Calling this `(dib, probe)` is more exact than `(roll, probe)`: on swap-back re-entry at roll `k`, `d = dibs_diff + k <= k < k_eff` is the item's true DIB, not the roll step `k`.
+
+**Class count comparison (`M = k_eff * P` vs `N`):**
+
+| Config | `N` | `C` | `P` | `k_eff` | Full-`N` classes | Local `(d, p)` classes | Reduction |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `c128_k16` | 1024 | 128 | 8 | 16 | 1024 | **128** | 8x |
+| `c256_k24` | 1024 | 256 | 4 | 24 | 1024 | **96** | 10.7x |
+| `c512_k32` | 1024 | 512 | 2 | 32 | 1024 | **64** | 16x |
+| LLM `D=4096, C=256, K=16` | 4096 | 256 | 16 | 16 | 4096 | **256** | 16x |
+| LLM `D=4096, C=512, K=16` | 4096 | 512 | 8 | 16 | 4096 | **128** | 32x |
+
+**Recovery of targets, DIB, amplitude, entropy, and global `source_index`:**
+
+- **Surrogate training target**: `target_class = targets.dibs * P + targets.bucket_probes` (no `permutation` lookup required).
+- **DIB**:
+  - Hard argmax: `best = local_logits.argmax(dim=-1)` -> `dib = best // P` (guaranteed in `[0, k_eff - 1]`; makes Bug #1 structurally impossible).
+  - Optional soft DIB: `E[d] = sum_d P(d) * d` where `P(d) = probs.reshape(B, C, k_eff, P).sum(dim=-1)`.
+- **Amplitude (decoder frontend)**: gather each bucket's `k_eff` visible lanes from already-folded `tokens (B, C, P)` into `visible[b, i, d, p] = tokens[b, (i - d) % C, p]` of shape `(B, C, k_eff, P)`, then `amplitudes = (probs * visible).sum(dim=(-2, -1))` (`O(B * C * k_eff * P)` instead of `O(B * C * N)`).
+- **Entropy**: `-(probs * probs.clamp_min(1e-12).log()).sum(dim=-1)` over the `k_eff * P` reachable candidates (bounded by `log(k_eff * P)` instead of `log(N)`).
+- **Global unpermuted `source_index`** (for decoder `source_ce`, scatter, or galleries):
+  - `d = best // P`, `p = best % P`, `src_bucket = (bucket_index - d) % C`
+  - Column-major: `permuted_pos = p * C + src_bucket` -> `source_index = permutation[permuted_pos]`.
+
+**Permutation invariance:**
+
+- With full-`N` logits, the surrogate takes permuted `tokens` and predicts unpermuted `0..N-1`, so its `output` linear layer must memorize the specific `permutation` table; changing `permutation_seed` breaks the surrogate, and buckets cannot share output structure.
+- With local `(dib, probe)` logits, both inputs and outputs live purely in folded-lane coordinates. The **surrogate** becomes **permutation-invariant** and **bucket-shift-equivariant** (one trained surrogate per `(C, P, K)` works with any permutation).
+- The **decoder** remains **permutation-dependent** because it maps `(a, d)` back to unpermuted indices `0..N-1` using the specific collision sets induced by `permutation`.
+
+**Pros / Cons & Retraining Impact:**
+
+- **Pros**: 8x–32x smaller head/logits/softmax (important at LLM `D = 2048..4096`); zero wasted probability mass on unreachable indices; structurally eliminates Bug #1; permutation-invariant surrogate; cleaner entropy; easy soft DIB option.
+- **Cons**: Changes `LPAPSurrogateTransformer.output` shape `(hidden_dim, N) -> (hidden_dim, k_eff * P)`, invalidating existing surrogate checkpoints; requires capping `k_eff = min(k_max, C)`.
+- **Retraining impact**: Adopts Scenario B below (surrogates must retrain too). Strongly recommended for the fresh LLM stack; optional for the image rerun depending on whether reusing the 3 existing surrogate checkpoints matters more than retraining them once.
+
+---
+
+### 4. Exact Triton Op at Inference (+ Optional Decoder-Only Fine-Tuning)
+
+Requirements to run exact `lpap_triton` at inference (`values -> exact_lpap -> (a, d, entropy=0) -> decoder`) and optionally fine-tune only the decoder on it:
+
+1. **Bug #1 fixed + matching frontend contract**: Decoder must be trained on true permuted DIBs (not `(i - P[pos] % C) % C`). Exact-LPAP frontend must apply the same DIB normalizer (`dib / max(bucket_count - 1, 1)` or `dib / max(min(k_max, bucket_count) - 1, 1)`) and pass `entropy = torch.zeros_like(amplitudes)` (unless the entropy channel is removed).
+2. **Fold & permutation unification**: Unify `lpap_triton` with the canonical fold (column-major) and apply the checkpoint's stored `permutation` before folding (ideally passing contiguous `(B, C, P)` tokens produced by a single fused `values[..., perm_folded]` gather).
+3. **Mandatory Triton kernel fixes (`src/lpap/triton_ops.py`)**:
+   - **Replace `tl.static_range` (`triton_ops.py:43, 51-52`) with dynamic `range`** (blocker: `C=512, K=32` currently statically unrolls `17,408` loop bodies). For actual inference speed at small batch sizes (`B = 1..32`), also consider keeping `buckets`/`dibs` in SRAM/registers or parallelizing over buckets rather than doing serial `K * C` global-memory round-trips inside 1 program per batch item, and benchmark against `torch.compile`-d `torch.where` PyTorch.
+   - **Guard `NaN` OOB indexing** (`triton_ops.py:58-64`: clamp/mask `candidate_index < probe_count` and suppress writes when invalid).
+   - **Validate `value_count > 0` and short-circuit `batch_count == 0`**.
+   - **Use `int64` offsets**: `batch_index = tl.program_id(0).to(tl.int64)` to prevent `int32` overflow on large LLM `(B * T, D)` batches.
+   - **Explicit store dtypes**: cast `0` to `tl.int64` and `0.0` to `values.dtype` (`fp16`/`bf16` safe).
+   - **Add `work_valid`/`bucket_valid` mask** (Section 2) so Triton matches `lpap_torch` on zero/sparse inputs.
+4. **Gradients & decoder-only fine-tuning**:
+   - **Inference (`torch.no_grad()`)**: No custom backward needed.
+   - **Decoder-only fine-tuning on exact LPAP**: Encoder / `values` are frozen/detached, so gradients stop at `decoder_tokens` and **no custom backward in `lpap_triton` is needed**. Still, `lpap_triton` should raise `RuntimeError` when `values.requires_grad` instead of silently detaching on CUDA. (If end-to-end encoder gradients through exact LPAP are ever wanted later, returning `source_indices` makes a straight-through amplitude backward a ~10-line `scatter_add_`.)
+   - **`source_indices` output**: Not needed for inference or decoder fine-tuning with `source_ce_weight = 0.0`. Only needed if decoder fine-tuning keeps `source_ce_weight > 0` (adds one `int32`/`int64` `work_probe`/`bucket_probe` tracker to the kernel).
+   - **Train-test gap**: Switching from soft surrogate `(E[a], argmax_dib, H > 0)` to exact LPAP `(exact_a, exact_dib, H = 0)` leaves `decoder.log_frontend_temperature` unused and shifts input sharpness/entropy to 0; short decoder-only fine-tuning on exact LPAP directly closes that gap.
+
+---
+
+### 5. Checkpoint Invalidation & Minimal Retraining Order (Image Experiments)
+
+Artifacts in the current image pipeline: `image_energy_flow.pt` -> `data/encoded_energies_bank_flow_best_4step.pt` -> 3 surrogates (`c128_k16`, `c256_k24`, `c512_k32`) -> 3 decoders (`c128_k16`, `c256_k24`, `c512_k32`) -> `image_autoencoder_tri_lnorm.pt`.
+
+| Artifact | Scenario A: Minimal fix (keep col-major + full-`N` surrogate; fix Bug #1 + Bug #2 mask) | Scenario B: Also switch surrogate to local `(dib, probe)` logits (or row-major fold) | Why |
+| --- | --- | --- | --- |
+| `image_energy_flow.pt` | **Keep** | **Keep** | Pure image <-> energy flow; no LPAP. |
+| `data/encoded_energies_bank_flow_best_4step.pt` | **Keep** | **Keep** | Encoded directly from `image_energy_flow.pt`. |
+| `surrogate_c{128_k16,256_k24,512_k32}.pt` | **Keep** | **Retrain** | Under Scenario A, Bug #1 is never called in surrogate training, `k_max < C`, dense float32 energies have ~0 exact zeros, and zero buckets have `weight = 0` in `lpap_surrogate_loss`. Verify by re-evaluating saved surrogates after the Bug #2 fix (val metrics should match). Under Scenario B, output head / fold changes. |
+| `decoder_c{128_k16,256_k24,512_k32}.pt` | **Retrain** | **Retrain** | Every training step fed corrupted DIBs from Bug #1 (`(i - P[pos] % C) % C`). |
+| `image_autoencoder_tri_lnorm.pt` | **Retrain** | **Retrain** | Initialized from invalidated decoders and co-trained (`train_* = True` in `molab/jobs.py:242-245`) through the buggy `prepare_lpap_decoder_batch` DIB path. |
+
+**Minimal retraining order:**
+
+- **Scenario A (minimal rerun — keep existing surrogates)**:
+  1. Keep `image_energy_flow.pt`, `encoded_energies_bank_flow_best_4step.pt`, and `surrogate_c{128_k16,256_k24,512_k32}.pt` (run one validation check on each surrogate after the Bug #2 mask fix to confirm bit-identical/matching val loss).
+  2. Retrain `decoder_c128_k16.pt`, `decoder_c256_k24.pt`, and `decoder_c512_k32.pt` from scratch (`resume_from_checkpoint=False`). All 3 are independent (can run in parallel).
+  3. Retrain `image_autoencoder_tri_lnorm.pt` from scratch (`resume_from_checkpoint=False`) once all 3 decoders finish.
+  4. *(Optional)* Short decoder-only fine-tuning on exact `lpap_triton` `(a, d, entropy=0)`.
+- **Scenario B (if upgrading surrogate to local `(dib, probe)` logits or changing fold)**:
+  1. Keep `image_energy_flow.pt` and `encoded_energies_bank_flow_best_4step.pt`.
+  2. Retrain the 3 surrogates (`c128_k16`, `c256_k24`, `c512_k32`) from scratch; each paired decoder can start as soon as its own surrogate finishes.
+  3. Retrain `image_autoencoder_tri_lnorm.pt` from scratch once all 3 pairs finish.
+
