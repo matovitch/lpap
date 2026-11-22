@@ -353,7 +353,7 @@ def _checkpoint_step_from_file(path: Path) -> int | None:
         return None
     try:
         return int(payload["step"])
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return None
 
 

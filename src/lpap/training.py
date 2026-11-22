@@ -124,7 +124,7 @@ class TrainingRun:
                         self.config.checkpoint_path
                     ),
                 )
-            except FileNotFoundError, ValueError, OSError:
+            except (FileNotFoundError, ValueError, OSError):
                 pass
         prepare_resume_log(
             checkpoint_path=self.config.checkpoint_path,

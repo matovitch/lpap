@@ -68,6 +68,7 @@ All under `.github/skills/molab-workflow/scripts/` (require `MOLAB_URL` +
 | `molab-launch-lpap-teacher.sh` | Detached surrogate or decoder teacher |
 | `molab-push-package-file.sh` | Hot-patch one local `src/lpap/*.py` into site-packages + reload |
 | `molab-export-notebook.sh` | Backport live cells → `molab/lab.py` |
+| `molab-export-pics.sh` | AE loss, best-ckpt gallery, teachers PNGs — file API + HF, kernel untouched |
 
 **Hot-patch vs sync:** use `molab-push-package-file.sh` for short try-before-commit
 probes (e.g. gallery γ). It is **ephemeral** — `molab-sync` / pip reinstall
@@ -184,6 +185,35 @@ Current AE lab roles (rename/extend as the notebook evolves):
    `lpap.training_configs.sync_training_configs`, which replaces
    `/marimo/configs/training/*.toml` with the TOMLs of the installed lpap
    commit (GitHub archive) and fails on a missing referenced TOML.
+
+## Export plots while training
+
+The dashboard cells write PNGs under `/marimo/public/lpap_viz/` only when they
+re-run. While the train cell is busy those files go stale, and a scratch exec
+(`molab-exec`) would queue behind the cell and interrupt training if abandoned.
+
+`molab-export-pics.sh` never touches the kernel:
+
+- Fresh SQLite logs (and the generated AE TOML) come through the server file API.
+- The best AE checkpoint is downloaded from the Hugging Face dual-slot pointer
+  (`checkpoints/<stem>.current.json`). The live `/marimo/checkpoints/*.pt` is
+  ~600 MB; `file_details` can return it as an 800 MB base64 JSON, but `jq` and
+  short timeouts have already truncated that payload. HF is the reliable path.
+- Loss, gallery (CPU, best `best_model_state`) and teachers PNGs are rendered
+  locally into `--output-dir`.
+
+```bash
+bash .github/skills/molab-workflow/scripts/molab-export-pics.sh \
+  --suffix -v3 \
+  --output-dir ./lpap_viz \
+  --project-root /path/to/cache   # storage.toml, images, teacher checkpoints
+```
+
+`--run v3` is the same as `--suffix -v3`. Needs `MOLAB_URL` + `MOLAB_TOKEN` and
+an HF token (`HF_TOKEN`, or `configs/secrets.toml` / `SECRETS_TOML`). Use
+`LPAP_PYTHON` if `python3` has no torch / matplotlib. `--project-root` is a
+local cache: missing teacher checkpoints or the image archive are pulled from
+HF with `ensure_*`.
 
 ## Long AE runs (default)
 
