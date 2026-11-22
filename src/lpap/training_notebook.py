@@ -252,18 +252,18 @@ def default_image_autoencoder_training_config() -> ImageAutoencoderTrainingConfi
         source=ImageAutoencoderSourceConfig(
             lpap_pairs=(
                 ImageAutoencoderLpapPairConfig(
-                    surrogate_checkpoint_name="surrogate_c128_k16-v2.pt",
-                    decoder_checkpoint_name="decoder_c128_k16-v2.pt",
+                    surrogate_checkpoint_name="surrogate_c128_k16-v3.pt",
+                    decoder_checkpoint_name="decoder_c128_k16-v3.pt",
                     name="c128_k16",
                 ),
                 ImageAutoencoderLpapPairConfig(
-                    surrogate_checkpoint_name="surrogate_c256_k24-v2.pt",
-                    decoder_checkpoint_name="decoder_c256_k24-v2.pt",
+                    surrogate_checkpoint_name="surrogate_c256_k24-v3.pt",
+                    decoder_checkpoint_name="decoder_c256_k24-v3.pt",
                     name="c256_k24",
                 ),
                 ImageAutoencoderLpapPairConfig(
-                    surrogate_checkpoint_name="surrogate_c512_k32-v2.pt",
-                    decoder_checkpoint_name="decoder_c512_k32-v2.pt",
+                    surrogate_checkpoint_name="surrogate_c512_k32-v3.pt",
+                    decoder_checkpoint_name="decoder_c512_k32-v3.pt",
                     name="c512_k32",
                 ),
             ),
@@ -310,9 +310,9 @@ def default_image_autoencoder_training_config() -> ImageAutoencoderTrainingConfi
             seed=2_987,
             display_every=5,
             log_every=1,
-            run_id="image_autoencoder",
-            checkpoint_name="image_autoencoder.pt",
-            log_name="image_autoencoder.sqlite",
+            run_id="image_autoencoder_tri_lnorm-v3",
+            checkpoint_name="image_autoencoder_tri_lnorm-v3.pt",
+            log_name="image_autoencoder_tri_lnorm-v3.sqlite",
             comment=(
                 "16-step e2e AE; bidirectional flow clone at init"
             ),

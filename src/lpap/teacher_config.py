@@ -158,6 +158,7 @@ def _project_surrogate(
             hidden_dim=int(section.get("hidden_dim", 256)),
             layer_count=int(section.get("layer_count", 12)),
             head_count=int(section.get("head_count", 8)),
+            use_triton=bool(section.get("use_triton", False)),
         ),
         optimizer=LPAPSurrogateOptimizerConfig(
             learning_rate=float(section.get("learning_rate", 1.0e-3))

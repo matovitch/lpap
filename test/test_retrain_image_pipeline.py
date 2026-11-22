@@ -273,12 +273,12 @@ class RetrainImagePipelineTest(unittest.TestCase):
         for relpath in cfg.teacher_configs:
             surr = project_teacher_config(repo_root / relpath, "surrogate")
             dec = project_teacher_config(repo_root / relpath, "decoder")
-            self.assertTrue(surr.run.run_id.endswith("-v2"))
-            self.assertTrue(surr.run.checkpoint_name.endswith("-v2.pt"))
-            self.assertTrue(surr.run.log_name.endswith("-v2.sqlite"))
-            self.assertTrue(dec.run.run_id.endswith("-v2"))
-            self.assertTrue(dec.run.checkpoint_name.endswith("-v2.pt"))
-            self.assertTrue(dec.run.log_name.endswith("-v2.sqlite"))
+            self.assertTrue(surr.run.run_id.endswith("-v3"))
+            self.assertTrue(surr.run.checkpoint_name.endswith("-v3.pt"))
+            self.assertTrue(surr.run.log_name.endswith("-v3.sqlite"))
+            self.assertTrue(dec.run.run_id.endswith("-v3"))
+            self.assertTrue(dec.run.checkpoint_name.endswith("-v3.pt"))
+            self.assertTrue(dec.run.log_name.endswith("-v3.sqlite"))
             self.assertEqual(dec.teacher.checkpoint_name, surr.run.checkpoint_name)
             expected_surrogates.append(surr.run.checkpoint_name)
             expected_decoders.append(dec.run.checkpoint_name)
@@ -298,23 +298,23 @@ class RetrainImagePipelineTest(unittest.TestCase):
             [pair.decoder_checkpoint_name for pair in ae_cfg.source.lpap_pairs],
             expected_decoders,
         )
-        self.assertEqual(ae_cfg.run.run_id, "image_autoencoder_tri_lnorm-v2")
+        self.assertEqual(ae_cfg.run.run_id, "image_autoencoder_tri_lnorm-v3")
         self.assertEqual(
-            ae_cfg.run.checkpoint_name, "image_autoencoder_tri_lnorm-v2.pt"
+            ae_cfg.run.checkpoint_name, "image_autoencoder_tri_lnorm-v3.pt"
         )
         self.assertEqual(
-            ae_cfg.run.log_name, "image_autoencoder_tri_lnorm-v2.sqlite"
+            ae_cfg.run.log_name, "image_autoencoder_tri_lnorm-v3.sqlite"
         )
         self.assertEqual(
-            cfg.decoder_exact_finetune.run_id, "image_autoencoder_tri_exact_ft-v2"
+            cfg.decoder_exact_finetune.run_id, "image_autoencoder_tri_exact_ft-v3"
         )
         self.assertEqual(
             cfg.decoder_exact_finetune.checkpoint_name,
-            "image_autoencoder_tri_exact_ft-v2.pt",
+            "image_autoencoder_tri_exact_ft-v3.pt",
         )
         self.assertEqual(
             cfg.decoder_exact_finetune.log_name,
-            "image_autoencoder_tri_exact_ft-v2.sqlite",
+            "image_autoencoder_tri_exact_ft-v3.sqlite",
         )
         self.assertEqual(cfg.performance.autocast_dtype, "bf16")
         self.assertTrue(cfg.performance.energy_bank_on_device)

@@ -27,12 +27,12 @@ It executes four ordered stages:
 
 | Order | Stage | Config(s) | Outputs (`checkpoints/` & `training_logs/`) |
 | --- | --- | --- | --- |
-| 1 | `surrogates` (x3) | `configs/training/teacher_c128_k16.toml`, `teacher_c256_k24.toml`, `teacher_c512_k32.toml` | `surrogate_c128_k16-v2.{pt,sqlite}`, `surrogate_c256_k24-v2.{pt,sqlite}`, `surrogate_c512_k32-v2.{pt,sqlite}` |
-| 2 | `decoders` (x3) | Same 3 `teacher_*.toml` files (each loads its fresh `-v2` surrogate checkpoint + stored `permutation` and `fold_order`) | `decoder_c128_k16-v2.{pt,sqlite}`, `decoder_c256_k24-v2.{pt,sqlite}`, `decoder_c512_k32-v2.{pt,sqlite}` |
-| 3 | `autoencoder` | `configs/training/image_autoencoder.toml` (tri-pair `c128_k16` + `c256_k24` + `c512_k32` using `-v2` teachers + existing `image_energy_flow.pt`) | `image_autoencoder_tri_lnorm-v2.{pt,sqlite}` |
-| 4 | `decoder_exact_finetune` (optional) | `[decoder_exact_finetune]` in `configs/training/retrain_image_pipeline.toml` (loads Stage-3 `-v2` AE, freezes `i2e`/`surrogates`/`e2i`, trains only `decoders` on exact LPAP `(a, normalized_dib, 0)`) | `image_autoencoder_tri_exact_ft-v2.{pt,sqlite}` |
+| 1 | `surrogates` (x3) | `configs/training/teacher_c128_k16.toml`, `teacher_c256_k24.toml`, `teacher_c512_k32.toml` | `surrogate_c128_k16-v3.{pt,sqlite}`, `surrogate_c256_k24-v3.{pt,sqlite}`, `surrogate_c512_k32-v3.{pt,sqlite}` |
+| 2 | `decoders` (x3) | Same 3 `teacher_*.toml` files (`frontend_mode = "exact"`, permutation from `pair.permutation_seed`) | `decoder_c128_k16-v3.{pt,sqlite}`, `decoder_c256_k24-v3.{pt,sqlite}`, `decoder_c512_k32-v3.{pt,sqlite}` |
+| 3 | `autoencoder` | `configs/training/image_autoencoder.toml` (tri-pair `c128_k16` + `c256_k24` + `c512_k32` using `-v3` teachers + existing `image_energy_flow.pt`) | `image_autoencoder_tri_lnorm-v3.{pt,sqlite}` |
+| 4 | `decoder_exact_finetune` (optional) | `[decoder_exact_finetune]` in `configs/training/retrain_image_pipeline.toml` (loads Stage-3 `-v3` AE, freezes `i2e`/`surrogates`/`e2i`, trains only `decoders` on exact LPAP amplitudes and one-hot DIBs) | `image_autoencoder_tri_exact_ft-v3.{pt,sqlite}` |
 
-All newly trained artifacts carry the `-v2` suffix so HF checkpoint uploads
+All newly trained artifacts carry the `-v3` suffix so HF checkpoint uploads
 never overwrite prior checkpoints. Each saved checkpoint records
 `fold_order = "column_major"` and its concrete `permutation` tensor(s) in
 `training_state`. Pair loads require matching `value_count`, `bucket_count`,
@@ -83,8 +83,8 @@ python -m molab.jobs launch-retrain-image-pipeline \
   --config configs/training/retrain_image_pipeline.toml
 ```
 
-This spawns a detached Python worker (`training_logs/run_retrain_image_pipeline-v2_bg.py`),
-tracks its PID/log under `training_logs/retrain_image_pipeline-v2_bg.{pid,log}`,
+This spawns a detached Python worker (`training_logs/run_retrain_image_pipeline-v3_bg.py`),
+tracks its PID/log under `training_logs/retrain_image_pipeline-v3_bg.{pid,log}`,
 uploads checkpoints to HF storage on validation improvement, and sends a
 Pushover summary when the pipeline completes.
 
@@ -132,20 +132,20 @@ Both flow directions integrate in fp32 inside that autocast.
 ## Metrics To Compare Against The Prior Run
 
 Inspect SQLite logs (`training_logs/*.sqlite`) and `molab/lab.py` galleries to
-evaluate the `-v2` checkpoints:
+evaluate the `-v3` checkpoints:
 
-1. **Surrogates (`surrogate_c{128_k16,256_k24,512_k32}-v2.sqlite`)**
+1. **Surrogates (`surrogate_c{128_k16,256_k24,512_k32}-v3.sqlite`)**
    - `validation_loss` (cross-entropy over `k_max * P` local classes: 128, 96, 64).
    - `validation_weighted_accuracy` and `validation_accuracy`.
-2. **Decoders (`decoder_c{128_k16,256_k24,512_k32}-v2.sqlite`)**
+2. **Decoders (`decoder_c{128_k16,256_k24,512_k32}-v3.sqlite`)**
    - `validation_reconstruction_l1` (primary decoder KPI).
    - `validation_weighted_accuracy`, `validation_accuracy`, and `validation_source_ce`.
-3. **Tri-pair AE (`image_autoencoder_tri_lnorm-v2.sqlite`)**
+3. **Tri-pair AE (`image_autoencoder_tri_lnorm-v3.sqlite`)**
    - `validation_image_reconstruction_l2` overall and per pair (`c128_k16`, `c256_k24`, `c512_k32`).
    - `validation_energy_reconstruction_l1` overall and per pair.
    - `validation_surrogate_teacher_ce`, `validation_weighted_accuracy`, `validation_decoder_accuracy`, and `validation_decoder_weighted_accuracy` overall and per pair.
    - Signed-mass health: `validation_encoded_positive_mass`, `validation_encoded_negative_mass`, `validation_signed_mass_imbalance`, and `validation_encoded_energy_rms` (confirm encoded energies stay bipolar near `floor_tau = 0.1` rather than collapsing toward 0).
    - RMS: `validation_decoded_energy_rms` and `validation_reconstructed_image_rms` are the mean across pairs. Each pair also logs `validation_decoded_energy_rms/<name>` and `validation_reconstructed_image_rms/<name>`. `validation_image_rms` is the shared input RMS.
    - Visual check in `molab/lab.py` (`ae_gallery` and `ae_energy_latent`: oracle LPAP vs surrogate-hard vs decoder-soft energy and reconstructed images).
-4. **Exact-LPAP decoder fine-tune (`image_autoencoder_tri_exact_ft-v2.sqlite`)**
+4. **Exact-LPAP decoder fine-tune (`image_autoencoder_tri_exact_ft-v3.sqlite`)**
    - Compare Stage-4 `validation_image_reconstruction_l2` and `validation_energy_reconstruction_l1` (using exact LPAP with `entropy = 0`) directly against Stage-3 surrogate-frontend validation metrics and Stage-3 evaluated at step 0 under exact LPAP (measures closure of the surrogate-to-exact train-test gap).

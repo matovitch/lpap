@@ -22,21 +22,21 @@ def ae_status():
     )
 
     _root = _Path("/marimo")
-    _run_id_prefix = "image_autoencoder_tri_lnorm-v2"
-    _ckpt_name = "image_autoencoder_tri_lnorm-v2.pt"
-    _log_name = "image_autoencoder_tri_lnorm-v2.sqlite"
-    _bg_stem = "image_autoencoder_tri_lnorm-v2_bg"
+    _run_id_prefix = "image_autoencoder_tri_lnorm-v3"
+    _ckpt_name = "image_autoencoder_tri_lnorm-v3.pt"
+    _log_name = "image_autoencoder_tri_lnorm-v3.sqlite"
+    _bg_stem = "image_autoencoder_tri_lnorm-v3_bg"
 
     _needed = {
         "flow": _root / "checkpoints" / "image_energy_flow.pt",
-        "c128_s": _root / "checkpoints" / "surrogate_c128_k16-v2.pt",
-        "c128_d": _root / "checkpoints" / "decoder_c128_k16-v2.pt",
-        "c256_s": _root / "checkpoints" / "surrogate_c256_k24-v2.pt",
-        "c256_d": _root / "checkpoints" / "decoder_c256_k24-v2.pt",
-        "c512_s": _root / "checkpoints" / "surrogate_c512_k32-v2.pt",
-        "c512_d": _root / "checkpoints" / "decoder_c512_k32-v2.pt",
+        "c128_s": _root / "checkpoints" / "surrogate_c128_k16-v3.pt",
+        "c128_d": _root / "checkpoints" / "decoder_c128_k16-v3.pt",
+        "c256_s": _root / "checkpoints" / "surrogate_c256_k24-v3.pt",
+        "c256_d": _root / "checkpoints" / "decoder_c256_k24-v3.pt",
+        "c512_s": _root / "checkpoints" / "surrogate_c512_k32-v3.pt",
+        "c512_d": _root / "checkpoints" / "decoder_c512_k32-v3.pt",
         "ae": _root / "checkpoints" / _ckpt_name,
-        "ae_exact_ft": _root / "checkpoints" / "image_autoencoder_tri_exact_ft-v2.pt",
+        "ae_exact_ft": _root / "checkpoints" / "image_autoencoder_tri_exact_ft-v3.pt",
     }
     _ckpt_lines = []
     for _label, _path in _needed.items():
@@ -263,7 +263,7 @@ def ae_gallery():
     from lpap.training_plots import render_image_autoencoder_gallery_html as _render_ae
 
     _root = _Path("/marimo")
-    _ckpt_name = "image_autoencoder_tri_lnorm-v2.pt"
+    _ckpt_name = "image_autoencoder_tri_lnorm-v3.pt"
     _gamma = 1.0
     _base = _ae_cfg_from_project(_root, "image_autoencoder")
     _ensure_checkpoint(_root, _base.source.flow_checkpoint_name)
@@ -368,7 +368,7 @@ def ae_energy_latent():
     )
 
     _root = _Path("/marimo")
-    _ckpt_name = "image_autoencoder_tri_lnorm-v2.pt"
+    _ckpt_name = "image_autoencoder_tri_lnorm-v3.pt"
     _gamma = 1.0
     _sample_count = 6
     _focus = 0  # 0-based; sample 1 in the UI

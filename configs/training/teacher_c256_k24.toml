@@ -2,7 +2,7 @@
 # Launch: --config configs/training/teacher_c256_k24.toml --backend surrogate|decoder
 
 [pair]
-name = "c256_k24-v2"
+name = "c256_k24-v3"
 bucket_count = 256
 probe_count = 4
 k_max = 24
@@ -17,6 +17,7 @@ energies_key = "energies"
 batch_size = 128
 
 [surrogate]
+use_triton = true
 hidden_dim = 256
 layer_count = 12
 head_count = 8

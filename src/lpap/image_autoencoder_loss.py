@@ -123,6 +123,7 @@ def format_loss_probe_report(probe: ImageAutoencoderLossProbe) -> str:
         "image_reconstruction_l2",
         "energy_reconstruction_l1",
         "surrogate_teacher_ce",
+        "decoder_source_ce",
         "signed_mass_balance",
     ):
         lines.append(

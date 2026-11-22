@@ -84,6 +84,15 @@ def decoder_dibs_from_local_logits(
     return logits.argmax(dim=-1) // probe_count
 
 
+# (C, P, k_max, permutation data_ptr, device) -> (permutation, indices).
+# A hit also checks tensor equality so a recycled data_ptr cannot reuse a
+# table built for a different permutation.
+_CANDIDATE_INDEX_CACHE: dict[
+    tuple[int, int, int, int | None, str, int | None],
+    tuple[torch.Tensor | None, torch.Tensor],
+] = {}
+
+
 def _candidate_source_indices(
     *,
     bucket_count: int,
@@ -92,6 +101,27 @@ def _candidate_source_indices(
     permutation: Int[torch.Tensor, "n"] | None,
     device: torch.device,
 ) -> Int[torch.Tensor, "buckets k_max probe"]:
+    cache_key = (
+        bucket_count,
+        probe_count,
+        k_max,
+        None if permutation is None else permutation.data_ptr(),
+        device.type,
+        device.index,
+    )
+    cached = _CANDIDATE_INDEX_CACHE.get(cache_key)
+    if cached is not None:
+        cached_permutation, cached_indices = cached
+        same_permutation = permutation is None or (
+            cached_permutation is not None
+            and cached_indices.device == device
+            and torch.equal(cached_permutation, permutation)
+        )
+        if same_permutation and cached_indices.device == device:
+            return cached_indices
+    if len(_CANDIDATE_INDEX_CACHE) > 32:
+        _CANDIDATE_INDEX_CACHE.clear()
+
     bucket_arange = torch.arange(bucket_count, device=device, dtype=torch.long)
     dib_arange = torch.arange(k_max, device=device, dtype=torch.long)
     probe_arange = torch.arange(probe_count, device=device, dtype=torch.long)
@@ -101,17 +131,18 @@ def _candidate_source_indices(
         probe_indices=probe_arange[None, None, :],
         bucket_count=bucket_count,
     )
-    if permutation is None:
-        return flat_indices
-    if permutation.ndim != 1:
-        raise ValueError("permutation must be one-dimensional")
-    if permutation.numel() != bucket_count * probe_count:
-        raise ValueError("permutation length must match bucket_count * probe_count")
-    return (
-        permutation.to(device=device, dtype=torch.long)
-        .index_select(0, flat_indices.reshape(-1))
-        .reshape_as(flat_indices)
-    )
+    if permutation is not None:
+        if permutation.ndim != 1:
+            raise ValueError("permutation must be one-dimensional")
+        if permutation.numel() != bucket_count * probe_count:
+            raise ValueError("permutation length must match bucket_count * probe_count")
+        flat_indices = (
+            permutation.to(device=device, dtype=torch.long)
+            .index_select(0, flat_indices.reshape(-1))
+            .reshape_as(flat_indices)
+        )
+    _CANDIDATE_INDEX_CACHE[cache_key] = (permutation, flat_indices)
+    return flat_indices
 
 
 def prepare_lpap_decoder_batch(
@@ -122,6 +153,7 @@ def prepare_lpap_decoder_batch(
     k_max: int,
     permutation: Int[torch.Tensor, "n"] | None = None,
     surrogate_tokens: Float[torch.Tensor, "batch buckets probe"] | None = None,
+    use_triton: bool = False,
 ) -> LPAPDecoderBatch:
     """Build decoder inputs via categorical straight-through over local surrogate classes."""
     if values.ndim != 2:
@@ -148,7 +180,10 @@ def prepare_lpap_decoder_batch(
         k_max=k_max,
     )
     targets = lpap_surrogate_targets(
-        tokens.detach(), k_max=k_max, permutation=permutation
+        tokens.detach(),
+        k_max=k_max,
+        permutation=permutation,
+        use_triton=use_triton,
     )
 
     probabilities = torch.softmax(surrogate_logits, dim=-1)
@@ -419,6 +454,49 @@ def reconstruct_lpap_bucket_values(
     )
 
 
+@dataclass(frozen=True)
+class LPAPDecoderProbeStats:
+    """Probe cross-entropy and accuracy shared by the decoder loss and the AE."""
+
+    source_ce: torch.Tensor
+    accuracy: torch.Tensor
+    weighted_accuracy: torch.Tensor
+    dib_accuracy: torch.Tensor
+
+
+def lpap_decoder_probe_stats(
+    probe_logits: Float[torch.Tensor, "batch buckets probe"],
+    batch: LPAPDecoderBatch,
+) -> LPAPDecoderProbeStats:
+    """DIB-masked probe CE plus end-to-end and DIB-only accuracy."""
+    if probe_logits.ndim != 3:
+        raise ValueError("probe_logits must have shape batch x buckets x probe")
+    weights = batch.weights.to(dtype=probe_logits.dtype)
+    weight_total = weights.sum().clamp_min(torch.finfo(probe_logits.dtype).eps)
+    dib_match = batch.dibs.eq(batch.surrogate_targets.dibs)
+    matched_weights = weights * dib_match.to(dtype=probe_logits.dtype)
+    matched_weight_total = matched_weights.sum().clamp_min(
+        torch.finfo(probe_logits.dtype).eps
+    )
+    source_ce_per_bucket = torch_functional.cross_entropy(
+        probe_logits.reshape(-1, probe_logits.shape[-1]),
+        batch.target_probes.reshape(-1),
+        reduction="none",
+    ).reshape_as(batch.target_probes)
+    source_ce = (source_ce_per_bucket * matched_weights).sum() / matched_weight_total
+    predicted_probes = probe_logits.argmax(dim=-1)
+    correct = dib_match & predicted_probes.eq(batch.target_probes)
+    accuracy = correct.to(torch.float32).mean()
+    weighted_accuracy = (correct.to(probe_logits.dtype) * weights).sum() / weight_total
+    dib_accuracy = dib_match.to(torch.float32).mean()
+    return LPAPDecoderProbeStats(
+        source_ce=source_ce,
+        accuracy=accuracy,
+        weighted_accuracy=weighted_accuracy,
+        dib_accuracy=dib_accuracy,
+    )
+
+
 def lpap_decoder_loss(
     probe_logits: Float[torch.Tensor, "batch buckets probe"],
     batch: LPAPDecoderBatch,
@@ -440,21 +518,8 @@ def lpap_decoder_loss(
     reconstruction_l1 = torch_functional.l1_loss(
         reconstruction, batch.values, reduction="mean"
     )
-    weights = batch.weights.to(dtype=probe_logits.dtype)
-    weight_total = weights.sum().clamp_min(torch.finfo(probe_logits.dtype).eps)
-
-    dib_match = batch.dibs.eq(batch.surrogate_targets.dibs)
-    matched_weights = weights * dib_match.to(dtype=probe_logits.dtype)
-    matched_weight_total = matched_weights.sum().clamp_min(
-        torch.finfo(probe_logits.dtype).eps
-    )
-
-    source_ce_per_bucket = torch_functional.cross_entropy(
-        probe_logits.reshape(-1, probe_logits.shape[-1]),
-        batch.target_probes.reshape(-1),
-        reduction="none",
-    ).reshape_as(batch.target_probes)
-    source_ce = (source_ce_per_bucket * matched_weights).sum() / matched_weight_total
+    probe_stats = lpap_decoder_probe_stats(probe_logits, batch)
+    source_ce = probe_stats.source_ce
     adaptive_ce_weight = source_ce_weight * (
         reconstruction_l1.detach() / source_ce_l1_reference
     ).clamp(0.0, 1.0).pow(source_ce_power)
@@ -462,21 +527,15 @@ def lpap_decoder_loss(
 
     source_ce_weight_metric = float(adaptive_ce_weight.detach().cpu())
     loss = reconstruction_l1 + source_ce_regularizer
-
-    predicted_probes = probe_logits.argmax(dim=-1)
-    correct = dib_match & predicted_probes.eq(batch.target_probes)
-    accuracy = correct.to(torch.float32).mean()
-    weighted_accuracy = (
-        correct.to(probe_logits.dtype) * weights
-    ).sum() / weight_total
+    weights = batch.weights.to(dtype=probe_logits.dtype)
     metrics = LPAPDecoderMetrics(
         loss=float(loss.detach().cpu()),
         reconstruction_l1=float(reconstruction_l1.detach().cpu()),
         source_ce=float(source_ce.detach().cpu()),
         source_ce_regularizer=float(source_ce_regularizer.detach().cpu()),
         source_ce_weight=source_ce_weight_metric,
-        accuracy=float(accuracy.detach().cpu()),
-        weighted_accuracy=float(weighted_accuracy.detach().cpu()),
+        accuracy=float(probe_stats.accuracy.detach().cpu()),
+        weighted_accuracy=float(probe_stats.weighted_accuracy.detach().cpu()),
         mean_weight=float(weights.mean().detach().cpu()),
         mean_entropy=float(batch.entropy.mean().detach().cpu()),
     )
@@ -492,6 +551,7 @@ def train_lpap_decoder_step(
     bucket_count: int,
     k_max: int,
     permutation: Int[torch.Tensor, "n"] | None = None,
+    use_triton: bool = False,
     source_ce_weight: float = 0.0,
     source_ce_l1_reference: float = 1.0,
     source_ce_power: float = 2.0,
@@ -514,6 +574,7 @@ def train_lpap_decoder_step(
         k_max=k_max,
         permutation=permutation,
         surrogate_tokens=surrogate_tokens,
+        use_triton=use_triton,
     )
     probe_logits = decoder(decoder_batch.amplitudes, decoder_batch.dib_weights)
     loss, metrics = lpap_decoder_loss(
@@ -538,6 +599,7 @@ def evaluate_lpap_decoder_batch(
     bucket_count: int,
     k_max: int,
     permutation: Int[torch.Tensor, "n"] | None = None,
+    use_triton: bool = False,
     source_ce_weight: float = 0.0,
     source_ce_l1_reference: float = 1.0,
     source_ce_power: float = 2.0,
@@ -562,6 +624,7 @@ def evaluate_lpap_decoder_batch(
             k_max=k_max,
             permutation=permutation,
             surrogate_tokens=surrogate_tokens,
+            use_triton=use_triton,
         )
         probe_logits = decoder(decoder_batch.amplitudes, decoder_batch.dib_weights)
         _loss, metrics = lpap_decoder_loss(

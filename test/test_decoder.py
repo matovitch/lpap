@@ -6,6 +6,7 @@ from dataclasses import replace
 import torch
 
 from lpap.decoder import (
+    _candidate_source_indices,
     LPAPDecoderTransformer,
     decoder_dibs_from_local_logits,
     decoder_predicted_source_indices,
@@ -348,6 +349,24 @@ class LPAPDecoderTest(unittest.TestCase):
         )
         self.assertGreaterEqual(step_metrics.weighted_accuracy, 0.0)
         self.assertLessEqual(step_metrics.weighted_accuracy, 1.0)
+
+    def test_candidate_source_indices_are_cached_for_the_same_permutation(self) -> None:
+        permutation = make_permutation_indices(value_count=16, seed=5)
+        first = _candidate_source_indices(
+            bucket_count=4,
+            probe_count=4,
+            k_max=2,
+            permutation=permutation,
+            device=permutation.device,
+        )
+        second = _candidate_source_indices(
+            bucket_count=4,
+            probe_count=4,
+            k_max=2,
+            permutation=permutation,
+            device=permutation.device,
+        )
+        self.assertEqual(first.data_ptr(), second.data_ptr())
 
 
 if __name__ == "__main__":

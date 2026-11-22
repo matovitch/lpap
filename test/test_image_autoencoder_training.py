@@ -919,6 +919,8 @@ class ImageAutoencoderTrainingTest(unittest.TestCase):
             self.assertIn("decoder_weighted_accuracy", metrics)
             self.assertIn("decoder_source_ce", metrics)
             self.assertIn("decoder_accuracy/c4", metrics)
+            self.assertIn("surrogate_dib_accuracy", metrics)
+            self.assertIn("surrogate_dib_accuracy/c4", metrics)
             self.assertIn("decoder_weighted_accuracy/c4", metrics)
             self.assertIn("validation_decoder_accuracy", metrics)
             self.assertGreaterEqual(metrics["decoder_accuracy"], 0.0)

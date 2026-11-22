@@ -2,7 +2,7 @@
 # Launch: --config configs/training/teacher_c128_k16.toml --backend surrogate|decoder
 
 [pair]
-name = "c128_k16-v2"
+name = "c128_k16-v3"
 bucket_count = 128
 probe_count = 8
 k_max = 16
@@ -17,6 +17,7 @@ energies_key = "energies"
 batch_size = 128
 
 [surrogate]
+use_triton = true
 hidden_dim = 256
 layer_count = 12
 head_count = 8

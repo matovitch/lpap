@@ -66,10 +66,10 @@ class DecoderExactFinetuneConfig:
     validation_num_batches: int = 8
     display_every: int = 25
     log_every: int = 5
-    run_id: str = "image_autoencoder_tri_exact_ft-v2"
-    checkpoint_name: str = "image_autoencoder_tri_exact_ft-v2.pt"
-    log_name: str = "image_autoencoder_tri_exact_ft-v2.sqlite"
-    comment: str = "decoder-only exact LPAP fine-tune of tri-pair AE (v2)"
+    run_id: str = "image_autoencoder_tri_exact_ft-v3"
+    checkpoint_name: str = "image_autoencoder_tri_exact_ft-v3.pt"
+    log_name: str = "image_autoencoder_tri_exact_ft-v3.sqlite"
+    comment: str = "decoder-only exact LPAP fine-tune of tri-pair AE"
 
     def validate(self) -> None:
         if self.steps <= 0:
@@ -200,16 +200,16 @@ def load_retrain_pipeline_config(path: str | Path) -> RetrainPipelineConfig:
             validation_num_batches=int(exact_raw.get("validation_num_batches", 8)),
             display_every=int(exact_raw.get("display_every", 25)),
             log_every=int(exact_raw.get("log_every", 5)),
-            run_id=str(exact_raw.get("run_id", "image_autoencoder_tri_exact_ft-v2")),
+            run_id=str(exact_raw.get("run_id", "image_autoencoder_tri_exact_ft-v3")),
             checkpoint_name=str(
-                exact_raw.get("checkpoint_name", "image_autoencoder_tri_exact_ft-v2.pt")
+                exact_raw.get("checkpoint_name", "image_autoencoder_tri_exact_ft-v3.pt")
             ),
             log_name=str(
-                exact_raw.get("log_name", "image_autoencoder_tri_exact_ft-v2.sqlite")
+                exact_raw.get("log_name", "image_autoencoder_tri_exact_ft-v3.sqlite")
             ),
             comment=str(
                 exact_raw.get(
-                    "comment", "decoder-only exact LPAP fine-tune of tri-pair AE (v2)"
+                    "comment", "decoder-only exact LPAP fine-tune of tri-pair AE"
                 )
             ),
         ),

@@ -17,22 +17,22 @@ train_decoder = true
 train_energy_to_image_flow = true
 lpap_frontend_mode = "surrogate"
 init_checkpoint_name = ""
-use_triton = false
+use_triton = true
 
 [[source.lpap_pairs]]
 name = "c128_k16"
-surrogate_checkpoint_name = "surrogate_c128_k16-v2.pt"
-decoder_checkpoint_name = "decoder_c128_k16-v2.pt"
+surrogate_checkpoint_name = "surrogate_c128_k16-v3.pt"
+decoder_checkpoint_name = "decoder_c128_k16-v3.pt"
 
 [[source.lpap_pairs]]
 name = "c256_k24"
-surrogate_checkpoint_name = "surrogate_c256_k24-v2.pt"
-decoder_checkpoint_name = "decoder_c256_k24-v2.pt"
+surrogate_checkpoint_name = "surrogate_c256_k24-v3.pt"
+decoder_checkpoint_name = "decoder_c256_k24-v3.pt"
 
 [[source.lpap_pairs]]
 name = "c512_k32"
-surrogate_checkpoint_name = "surrogate_c512_k32-v2.pt"
-decoder_checkpoint_name = "decoder_c512_k32-v2.pt"
+surrogate_checkpoint_name = "surrogate_c512_k32-v3.pt"
+decoder_checkpoint_name = "decoder_c512_k32-v3.pt"
 
 [image_to_energy_flow]
 sequence_length = 1024
@@ -90,8 +90,8 @@ steps = 17500
 seed = 2987
 display_every = 25
 log_every = 5
-run_id = "image_autoencoder_tri_lnorm-v2"
-checkpoint_name = "image_autoencoder_tri_lnorm-v2.pt"
-log_name = "image_autoencoder_tri_lnorm-v2.sqlite"
-comment = "tri-pair AE c128_k16+c256_k24+c512_k32 (v2 local logits); bidirectional flow clone at init"
+run_id = "image_autoencoder_tri_lnorm-v3"
+checkpoint_name = "image_autoencoder_tri_lnorm-v3.pt"
+log_name = "image_autoencoder_tri_lnorm-v3.sqlite"
+comment = "tri-pair AE c128_k16+c256_k24+c512_k32; categorical ST decoder; bidirectional flow clone at init"
 pinned = true

@@ -316,8 +316,12 @@ class LPAPDecoderTrainingSession:
     surrogate_checkpoint_loaded: bool
     surrogate_model_config: dict[str, int | str]
     energy_bank: torch.Tensor
-    surrogate_k_max: int
+    k_max: int
     permutation: torch.Tensor
+
+    @property
+    def surrogate_k_max(self) -> int:
+        return self.k_max
     surrogate: LPAPSurrogateTransformer | None
     decoder: LPAPDecoderTransformer
     optimizer: torch.optim.Optimizer
@@ -333,6 +337,19 @@ class LPAPDecoderGalleryItem:
     lpap: torch.Tensor
     surrogate_hard: torch.Tensor
     decoder: torch.Tensor
+
+
+def _pair_layout(
+    config: LPAPDecoderTrainingConfig, *, k_max: int
+) -> dict[str, int | str]:
+    """Shared fold fields. Exact mode has no surrogate architecture to record."""
+    return {
+        "value_count": config.value_count,
+        "bucket_count": config.data.bucket_count,
+        "probe_count": config.data.probe_count,
+        "k_max": k_max,
+        "fold_order": LPAP_FOLD_ORDER,
+    }
 
 
 def _fallback_surrogate_model_config(
@@ -528,7 +545,12 @@ def create_lpap_decoder_training_session(
         for parameter in surrogate.parameters():
             parameter.requires_grad_(False)
     else:
-        surrogate_model_config = _fallback_surrogate_model_config(config)
+        layout_k_max = (
+            config.teacher.exact_k_max
+            if config.teacher.exact_k_max is not None
+            else min(LPAPSurrogateModelConfig().k_max, config.data.bucket_count)
+        )
+        surrogate_model_config = _pair_layout(config, k_max=layout_k_max)
 
     init_payload: dict[str, Any] | None = None
     init_decoder_permutation: torch.Tensor | None = None
@@ -621,7 +643,14 @@ def create_lpap_decoder_training_session(
             "device": str(target_device),
             "frontend_mode": config.teacher.frontend_mode,
             "surrogate_checkpoint_loaded": surrogate_loaded,
-            "surrogate_model_config": surrogate_model_config,
+            "pair_layout": _pair_layout(
+                config, k_max=int(surrogate_model_config["k_max"])
+            ),
+            **(
+                {"surrogate_model_config": surrogate_model_config}
+                if surrogate is not None
+                else {}
+            ),
             "energy_bank_path": str(config.data.energy_bank.path),
             "energy_bank_rows": int(energy_bank.shape[0]),
         },
@@ -670,7 +699,7 @@ def create_lpap_decoder_training_session(
         surrogate_checkpoint_loaded=surrogate_loaded,
         surrogate_model_config=surrogate_model_config,
         energy_bank=energy_bank,
-        surrogate_k_max=int(surrogate_model_config["k_max"]),
+        k_max=int(surrogate_model_config["k_max"]),
         permutation=permutation,
         surrogate=surrogate,
         decoder=decoder,
@@ -717,8 +746,9 @@ def validate_lpap_decoder(
         surrogate=session.surrogate,
         values=batch,
         bucket_count=config.data.bucket_count,
-        k_max=session.surrogate_k_max,
+        k_max=session.k_max,
         permutation=session.permutation,
+        use_triton=config.teacher.use_triton,
         source_ce_weight=config.regularization.source_ce_weight,
         source_ce_l1_reference=config.regularization.source_ce_l1_reference,
         source_ce_power=config.regularization.source_ce_power,
@@ -780,8 +810,9 @@ def iter_lpap_decoder_training(
                 optimizer=session.optimizer,
                 values=batch,
                 bucket_count=config.data.bucket_count,
-                k_max=session.surrogate_k_max,
+                k_max=session.k_max,
                 permutation=session.permutation,
+                use_triton=config.teacher.use_triton,
                 source_ce_weight=config.regularization.source_ce_weight,
                 source_ce_l1_reference=config.regularization.source_ce_l1_reference,
                 source_ce_power=config.regularization.source_ce_power,
@@ -868,9 +899,10 @@ def collect_lpap_decoder_gallery(
                 values=values,
                 surrogate_logits=surrogate_logits,
                 bucket_count=config.data.bucket_count,
-                k_max=session.surrogate_k_max,
+                k_max=session.k_max,
                 permutation=session.permutation,
                 surrogate_tokens=surrogate_tokens,
+                use_triton=config.teacher.use_triton,
             )
             lpap_values = reconstruct_lpap_bucket_values(decoder_batch)
             predicted_sources = local_classes_to_source_indices(

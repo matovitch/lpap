@@ -2,7 +2,7 @@
 # Launch: --config configs/training/teacher_c512_k32.toml --backend surrogate|decoder
 
 [pair]
-name = "c512_k32-v2"
+name = "c512_k32-v3"
 bucket_count = 512
 probe_count = 2
 k_max = 32
@@ -17,6 +17,7 @@ energies_key = "energies"
 batch_size = 128
 
 [surrogate]
+use_triton = true
 hidden_dim = 256
 layer_count = 12
 head_count = 8

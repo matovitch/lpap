@@ -15,11 +15,17 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
+
+
+def _pyplot():
+    """Import matplotlib only when a figure is actually rendered."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    return plt
 
 PAIRS_DEFAULT = ("c128_k16", "c256_k24", "c512_k32")
 AE_STEM_DEFAULT = "image_autoencoder_tri_lnorm"
@@ -280,7 +286,8 @@ def render_teachers(
     pairs: tuple[str, ...],
     output: Path,
 ) -> dict[str, Any]:
-    fig, ax = plt.subplots(1, 3, figsize=(13, 3.6))
+    plt = _pyplot()
+    fig, ax = plt.subplots(1, 4, figsize=(16, 3.6))
     summary: dict[str, Any] = {}
     any_plotted = False
     for i, pair in enumerate(pairs):
@@ -307,6 +314,11 @@ def render_teachers(
             acc_s, acc = series(con, rid, "validation_accuracy")
             if kind == "decoder" and len(acc_s):
                 ax[2].plot(acc_s, acc, color=color, lw=1.3, label=pair)
+                weight_steps, weighted = series(
+                    con, rid, "validation_weighted_accuracy"
+                )
+                if len(weight_steps):
+                    ax[3].plot(weight_steps, weighted, color=color, lw=1.3, label=pair)
             summary[f"{kind}/{pair}"] = {
                 "step": int(steps[-1]),
                 "best_val": float(val_loss.min()) if len(val_loss) else None,
@@ -320,6 +332,7 @@ def render_teachers(
             "surrogate validation loss",
             "decoder validation recon L1",
             "decoder validation accuracy",
+            "decoder validation weighted accuracy",
         ),
     ):
         axis.set_title(title, fontsize=9)
@@ -347,6 +360,7 @@ def render_ae_loss(
     pairs: tuple[str, ...],
     output: Path,
 ) -> dict[str, Any]:
+    plt = _pyplot()
     con = sqlite3.connect(f"file:{log_path}?mode=ro", uri=True)
     rid = latest_run(con)
     if rid is None:
@@ -362,7 +376,7 @@ def render_ae_loss(
     resumes = resume_steps(con, rid)
     n = min(map(len, (st, loss, img, energy, ce, sm)))
     st, loss, img, energy, ce, sm = (arr[:n] for arr in (st, loss, img, energy, ce, sm))
-    fig, axes = plt.subplots(4, 1, figsize=(10, 11.5), sharex=True)
+    fig, axes = plt.subplots(5, 1, figsize=(10, 14), sharex=True)
     axis = axes[0]
     axis.plot(st, loss, lw=1, color="#92400e", label="train loss")
     if len(vs):
@@ -425,6 +439,32 @@ def render_ae_loss(
     axis.legend(fontsize=8)
     axis.grid(True, alpha=0.3)
     axis.set_title("per-pair validation image L2 (dashed = v2 final)")
+    axis = axes[4]
+    for i, pair in enumerate(pairs):
+        dec_steps, dec_acc = series(con, rid, f"validation_decoder_accuracy/{pair}")
+        dib_steps, dib_acc = series(con, rid, f"validation_surrogate_dib_accuracy/{pair}")
+        if len(dec_steps):
+            axis.plot(
+                dec_steps,
+                dec_acc,
+                color=f"C{i}",
+                lw=1.3,
+                label=f"{pair} decoder",
+            )
+        if len(dib_steps):
+            axis.plot(
+                dib_steps,
+                dib_acc,
+                color=f"C{i}",
+                lw=1.0,
+                ls=":",
+                label=f"{pair} surrogate DIB",
+            )
+    axis.set_ylim(0, 1)
+    axis.set_xlabel("step")
+    axis.legend(fontsize=7, ncol=2)
+    axis.grid(True, alpha=0.3)
+    axis.set_title("per-pair validation accuracy (solid decoder, dotted surrogate DIB)")
     fig.tight_layout()
     fig.savefig(output, dpi=130)
     plt.close(fig)
@@ -453,6 +493,7 @@ def render_gallery(
     output: Path,
     sample_count: int = 6,
 ) -> dict[str, Any]:
+    plt = _pyplot()
     import torch
     from lpap.checkpoints import load_training_checkpoint
     from lpap.image_autoencoder_training import (

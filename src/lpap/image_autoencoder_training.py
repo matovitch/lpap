@@ -14,6 +14,7 @@ from lpap.checkpoints import load_training_checkpoint
 from lpap.decoder import (
     LPAPDecoderBatch,
     LPAPDecoderTransformer,
+    lpap_decoder_probe_stats,
     prepare_exact_lpap_decoder_batch,
     prepare_lpap_decoder_batch,
     reconstruct_lpap_bucket_values,
@@ -453,6 +454,7 @@ class ImageAutoencoderMetrics:
     decoder_source_ce: float = 0.0
     decoder_accuracy: float = 0.0
     decoder_weighted_accuracy: float = 0.0
+    surrogate_dib_accuracy: float = 0.0
     pair_metrics: dict[str, float] = field(default_factory=dict)
 
 
@@ -554,6 +556,7 @@ class ImageAutoencoderModel(nn.Module):
                     k_max=k_max,
                     permutation=permutation,
                     surrogate_tokens=surrogate_tokens,
+                    use_triton=use_triton,
                 )
             decoder_logits = decoder(
                 decoder_batch.amplitudes, decoder_batch.dib_weights
@@ -1075,6 +1078,7 @@ def _forward_loss(
     weighted_accuracies: list[float] = []
     decoder_accuracies: list[float] = []
     decoder_weighted_accuracies: list[float] = []
+    dib_accuracies: list[float] = []
     decoded_energy_rms_values: list[float] = []
     reconstructed_image_rms_values: list[float] = []
     for runtime, pair_output in zip(session.lpap_pairs, output.pairs, strict=True):
@@ -1087,42 +1091,20 @@ def _forward_loss(
             )
             pair_weighted_accuracy = pair_surrogate_metrics.weighted_accuracy
 
-        decoder_batch = pair_output.decoder_batch
-        probe_logits = pair_output.decoder_logits
-        decoder_weights = decoder_batch.weights.to(dtype=probe_logits.dtype)
-        decoder_weight_total = decoder_weights.sum().clamp_min(
-            torch.finfo(decoder_weights.dtype).eps
+        probe_stats = lpap_decoder_probe_stats(
+            pair_output.decoder_logits, pair_output.decoder_batch
         )
-        dib_match = decoder_batch.dibs.eq(decoder_batch.surrogate_targets.dibs)
-        matched_weights = decoder_weights * dib_match.to(dtype=probe_logits.dtype)
-        matched_weight_total = matched_weights.sum().clamp_min(
-            torch.finfo(decoder_weights.dtype).eps
-        )
-        decoder_ce_per_bucket = torch_functional.cross_entropy(
-            probe_logits.reshape(-1, probe_logits.shape[-1]),
-            decoder_batch.target_probes.reshape(-1),
-            reduction="none",
-        ).reshape_as(decoder_batch.target_probes)
-        pair_decoder_ce = (
-            decoder_ce_per_bucket * matched_weights
-        ).sum() / matched_weight_total
-        predicted_probes = probe_logits.argmax(dim=-1)
-        decoder_correct = dib_match & predicted_probes.eq(decoder_batch.target_probes)
-        pair_decoder_accuracy = float(
-            decoder_correct.to(torch.float32).mean().detach().cpu()
-        )
+        pair_decoder_ce = probe_stats.source_ce
+        pair_decoder_accuracy = float(probe_stats.accuracy.detach().cpu())
         pair_decoder_weighted_accuracy = float(
-            (
-                (decoder_correct.to(decoder_weights.dtype) * decoder_weights).sum()
-                / decoder_weight_total
-            )
-            .detach()
-            .cpu()
+            probe_stats.weighted_accuracy.detach().cpu()
         )
+        pair_dib_accuracy = float(probe_stats.dib_accuracy.detach().cpu())
 
         pair_image_l2 = torch_functional.mse_loss(
             pair_output.reconstructed_image, image
         )
+        decoder_batch = pair_output.decoder_batch
         if config.loss.energy_l1_target == "lpap_buckets":
             if config.loss.detach_energy_target:
                 pair_energy_target = reconstruct_lpap_bucket_values(
@@ -1154,6 +1136,7 @@ def _forward_loss(
         weighted_accuracies.append(pair_weighted_accuracy)
         decoder_accuracies.append(pair_decoder_accuracy)
         decoder_weighted_accuracies.append(pair_decoder_weighted_accuracy)
+        dib_accuracies.append(pair_dib_accuracy)
         decoded_energy_rms_values.append(pair_decoded_energy_rms)
         reconstructed_image_rms_values.append(pair_reconstructed_image_rms)
         prefix = runtime.name
@@ -1174,6 +1157,7 @@ def _forward_loss(
         pair_metric_values[f"decoder_weighted_accuracy/{prefix}"] = (
             pair_decoder_weighted_accuracy
         )
+        pair_metric_values[f"surrogate_dib_accuracy/{prefix}"] = pair_dib_accuracy
         pair_metric_values[f"decoded_energy_rms/{prefix}"] = pair_decoded_energy_rms
         pair_metric_values[f"reconstructed_image_rms/{prefix}"] = (
             pair_reconstructed_image_rms
@@ -1228,6 +1212,7 @@ def _forward_loss(
         decoder_weighted_accuracy=float(
             sum(decoder_weighted_accuracies) / len(decoder_weighted_accuracies)
         ),
+        surrogate_dib_accuracy=float(sum(dib_accuracies) / len(dib_accuracies)),
         pair_metrics=pair_metric_values,
     )
     return loss, metrics, output
@@ -1329,6 +1314,10 @@ def average_image_autoencoder_metrics(
             metrics.decoder_weighted_accuracy for metrics in metrics_list
         )
         / count,
+        surrogate_dib_accuracy=sum(
+            metrics.surrogate_dib_accuracy for metrics in metrics_list
+        )
+        / count,
         pair_metrics={
             key: sum(metrics.pair_metrics.get(key, 0.0) for metrics in metrics_list)
             / count
@@ -1371,6 +1360,7 @@ def _metrics_dict(metrics: ImageAutoencoderMetrics) -> dict[str, float]:
         "weighted_accuracy": metrics.surrogate_weighted_accuracy,
         "decoder_accuracy": metrics.decoder_accuracy,
         "decoder_weighted_accuracy": metrics.decoder_weighted_accuracy,
+        "surrogate_dib_accuracy": metrics.surrogate_dib_accuracy,
         "signed_mass_balance": metrics.signed_mass_balance,
         "signed_mass_imbalance": metrics.signed_mass_imbalance,
         "signed_mass_gap": metrics.signed_mass_gap,

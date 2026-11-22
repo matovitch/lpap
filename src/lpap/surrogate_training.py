@@ -101,6 +101,7 @@ class LPAPSurrogateModelConfig:
     hidden_dim: int = 128
     layer_count: int = 4
     head_count: int = 4
+    use_triton: bool = False
 
     def validate(self) -> None:
         if self.k_max <= 0:
@@ -114,12 +115,13 @@ class LPAPSurrogateModelConfig:
         if self.hidden_dim % self.head_count != 0:
             raise ValueError("hidden_dim must be divisible by head_count")
 
-    def as_dict(self) -> dict[str, int]:
+    def as_dict(self) -> dict[str, int | bool]:
         return {
             "k_max": self.k_max,
             "hidden_dim": self.hidden_dim,
             "layer_count": self.layer_count,
             "head_count": self.head_count,
+            "use_triton": self.use_triton,
         }
 
 
@@ -262,6 +264,7 @@ def lpap_surrogate_training_config_from_dict(
             hidden_dim=int(data["model"]["hidden_dim"]),
             layer_count=int(data["model"]["layer_count"]),
             head_count=int(data["model"]["head_count"]),
+            use_triton=bool(data["model"].get("use_triton", False)),
         ),
         optimizer=LPAPSurrogateOptimizerConfig(
             learning_rate=float(data["optimizer"]["learning_rate"])
@@ -446,6 +449,7 @@ def validate_lpap_surrogate(
         bucket_count=config.data.bucket_count,
         k_max=config.model.k_max,
         permutation=session.permutation,
+        use_triton=config.model.use_triton,
     )
 
 
@@ -487,6 +491,7 @@ def iter_lpap_surrogate_training(
             bucket_count=config.data.bucket_count,
             k_max=config.model.k_max,
             permutation=session.permutation,
+            use_triton=config.model.use_triton,
         )
         step_metrics = {
             "loss": metrics.loss,

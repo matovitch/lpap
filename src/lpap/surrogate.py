@@ -105,12 +105,18 @@ def lpap_surrogate_targets(
     *,
     k_max: int,
     permutation: Int[torch.Tensor, "n"] | None = None,
+    use_triton: bool = False,
 ) -> LPAPSurrogateTargets:
-    """Compute exact LPAP supervision targets using :func:`lpap_tokens_torch`."""
+    """Compute exact LPAP supervision targets using PyTorch or Triton LPAP."""
     _validate_token_values(tokens)
     bucket_count = tokens.shape[1]
     probe_count = tokens.shape[2]
-    result = lpap_tokens_torch(tokens, k_max=k_max)
+    if use_triton and tokens.is_cuda:
+        from lpap.triton_ops import lpap_tokens_triton
+
+        result = lpap_tokens_triton(tokens.detach(), k_max=k_max)
+    else:
+        result = lpap_tokens_torch(tokens, k_max=k_max)
     local_classes = result.dibs * probe_count + result.bucket_probes
     source_indices = local_classes_to_source_indices(
         local_classes,
@@ -269,6 +275,7 @@ def train_lpap_surrogate_step(
     bucket_count: int,
     k_max: int,
     permutation: Int[torch.Tensor, "n"] | None = None,
+    use_triton: bool = False,
 ) -> LPAPSurrogateMetrics:
     model.train()
     model_device = next(model.parameters()).device
@@ -279,7 +286,7 @@ def train_lpap_surrogate_step(
         values, bucket_count=bucket_count, permutation=permutation
     )
     targets = lpap_surrogate_targets(
-        tokens.detach(), k_max=k_max, permutation=permutation
+        tokens.detach(), k_max=k_max, permutation=permutation, use_triton=use_triton
     )
     logits = model(tokens)
     loss, metrics = lpap_surrogate_loss(logits, targets)
@@ -297,6 +304,7 @@ def evaluate_lpap_surrogate_batch(
     bucket_count: int,
     k_max: int,
     permutation: Int[torch.Tensor, "n"] | None = None,
+    use_triton: bool = False,
 ) -> LPAPSurrogateMetrics:
     was_training = model.training
     model.eval()
@@ -308,7 +316,9 @@ def evaluate_lpap_surrogate_batch(
         tokens = prepare_lpap_surrogate_batch(
             values, bucket_count=bucket_count, permutation=permutation
         )
-        targets = lpap_surrogate_targets(tokens, k_max=k_max, permutation=permutation)
+        targets = lpap_surrogate_targets(
+            tokens, k_max=k_max, permutation=permutation, use_triton=use_triton
+        )
         logits = model(tokens)
         _loss, metrics = lpap_surrogate_loss(logits, targets)
     if was_training:
@@ -325,6 +335,7 @@ def train_lpap_surrogate(
     k_max: int,
     steps: int,
     permutation: Int[torch.Tensor, "n"] | None = None,
+    use_triton: bool = False,
 ) -> list[LPAPSurrogateMetrics]:
     metrics: list[LPAPSurrogateMetrics] = []
     for step_index, values in enumerate(batches):
@@ -338,6 +349,7 @@ def train_lpap_surrogate(
                 bucket_count=bucket_count,
                 k_max=k_max,
                 permutation=permutation,
+                use_triton=use_triton,
             )
         )
     return metrics
