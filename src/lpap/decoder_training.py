@@ -54,14 +54,11 @@ DecoderFrontendMode = Literal["surrogate", "exact"]
 
 @dataclass(frozen=True)
 class LPAPDecoderModelConfig:
-    frontend_initial_temperature: float = 0.25
     hidden_dim: int = 128
     layer_count: int = 4
     head_count: int = 4
 
     def validate(self) -> None:
-        if self.frontend_initial_temperature <= 0:
-            raise ValueError("frontend_initial_temperature must be positive")
         if self.hidden_dim <= 0:
             raise ValueError("hidden_dim must be positive")
         if self.layer_count <= 0:
@@ -71,9 +68,8 @@ class LPAPDecoderModelConfig:
         if self.hidden_dim % self.head_count != 0:
             raise ValueError("hidden_dim must be divisible by head_count")
 
-    def as_dict(self) -> dict[str, int | float]:
+    def as_dict(self) -> dict[str, int]:
         return {
-            "frontend_initial_temperature": self.frontend_initial_temperature,
             "hidden_dim": self.hidden_dim,
             "layer_count": self.layer_count,
             "head_count": self.head_count,
@@ -226,7 +222,6 @@ class LPAPDecoderTrainingConfig:
             "fold_order": LPAP_FOLD_ORDER,
             "frontend_mode": self.teacher.frontend_mode,
             "surrogate": dict(surrogate_model_config),
-            "frontend_initial_temperature": self.decoder.frontend_initial_temperature,
             "hidden_dim": self.decoder.hidden_dim,
             "layer_count": self.decoder.layer_count,
             "head_count": self.decoder.head_count,
@@ -250,9 +245,6 @@ def lpap_decoder_training_config_from_dict(
             energy_bank=energy_bank_config_from_dict(data["data"]["energy_bank"]),
         ),
         decoder=LPAPDecoderModelConfig(
-            frontend_initial_temperature=float(
-                data["decoder"]["frontend_initial_temperature"]
-            ),
             hidden_dim=int(data["decoder"]["hidden_dim"]),
             layer_count=int(data["decoder"]["layer_count"]),
             head_count=int(data["decoder"]["head_count"]),
@@ -538,14 +530,7 @@ def create_lpap_decoder_training_session(
     else:
         surrogate_model_config = _fallback_surrogate_model_config(config)
 
-    decoder = LPAPDecoderTransformer(
-        value_count=config.value_count,
-        frontend_initial_temperature=config.decoder.frontend_initial_temperature,
-        hidden_dim=config.decoder.hidden_dim,
-        layer_count=config.decoder.layer_count,
-        head_count=config.decoder.head_count,
-    ).to(target_device)
-
+    init_payload: dict[str, Any] | None = None
     init_decoder_permutation: torch.Tensor | None = None
     if config.teacher.init_decoder_checkpoint_name:
         init_path = resolve_checkpoint_path(
@@ -575,6 +560,17 @@ def create_lpap_decoder_training_session(
             path=init_path,
             role="decoder",
         )
+
+    decoder = LPAPDecoderTransformer(
+        bucket_count=config.data.bucket_count,
+        probe_count=config.data.probe_count,
+        k_max=int(surrogate_model_config["k_max"]),
+        hidden_dim=config.decoder.hidden_dim,
+        layer_count=config.decoder.layer_count,
+        head_count=config.decoder.head_count,
+    ).to(target_device)
+
+    if init_payload is not None:
         state_key = "best_model_state" if config.teacher.load_best else "model_state"
         decoder.load_state_dict(init_payload[state_key])
 
@@ -873,7 +869,6 @@ def collect_lpap_decoder_gallery(
                 surrogate_logits=surrogate_logits,
                 bucket_count=config.data.bucket_count,
                 k_max=session.surrogate_k_max,
-                temperature=session.decoder.frontend_temperature(),
                 permutation=session.permutation,
                 surrogate_tokens=surrogate_tokens,
             )
@@ -887,10 +882,12 @@ def collect_lpap_decoder_gallery(
             surrogate_hard_values = torch.zeros_like(values).scatter_add(
                 1,
                 predicted_sources,
-                decoder_batch.surrogate_targets.buckets.to(dtype=values.dtype),
+                decoder_batch.amplitudes.to(dtype=values.dtype),
             )
-        logits = session.decoder(decoder_batch.tokens)
-        decoder_values = reconstruct_lpap_decoder_values(logits, decoder_batch)
+        probe_logits = session.decoder(
+            decoder_batch.amplitudes, decoder_batch.dib_weights
+        )
+        decoder_values = reconstruct_lpap_decoder_values(probe_logits, decoder_batch)
 
     if decoder_was_training:
         session.decoder.train()

@@ -136,7 +136,6 @@ def default_decoder_training_config() -> LPAPDecoderTrainingConfig:
             energy_bank=EnergyBankConfig(path="data/encoded_energies_bank_flow_best.pt"),
         ),
         decoder=LPAPDecoderModelConfig(
-            frontend_initial_temperature=0.25,
             hidden_dim=256,
             layer_count=8,
             head_count=8,

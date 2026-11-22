@@ -192,12 +192,21 @@ def _project_decoder(
     validation_raw = dict(section.pop("validation", {}) or {})
     if resume_from_checkpoint is not None:
         run_raw["resume_from_checkpoint"] = resume_from_checkpoint
+    frontend_mode = section.get("frontend_mode", "exact")
+    exact_k_max_raw = section.get("exact_k_max")
+    if exact_k_max_raw is not None:
+        exact_k_max: int | None = int(exact_k_max_raw)
+    elif frontend_mode == "exact":
+        exact_k_max = pair.k_max
+    else:
+        exact_k_max = None
+    use_triton = bool(section.get("use_triton", frontend_mode == "exact"))
+    require_checkpoint = bool(
+        section.get("require_checkpoint", frontend_mode == "surrogate")
+    )
     config = LPAPDecoderTrainingConfig(
         data=_shared_data(pair),
         decoder=LPAPDecoderModelConfig(
-            frontend_initial_temperature=float(
-                section.get("frontend_initial_temperature", 0.25)
-            ),
             hidden_dim=int(section.get("hidden_dim", 256)),
             layer_count=int(section.get("layer_count", 8)),
             head_count=int(section.get("head_count", 8)),
@@ -209,7 +218,10 @@ def _project_decoder(
         teacher=LPAPDecoderTeacherConfig(
             checkpoint_name=pair.surrogate_checkpoint_name,
             load_best=bool(section.get("load_best", True)),
-            require_checkpoint=bool(section.get("require_checkpoint", True)),
+            require_checkpoint=require_checkpoint,
+            frontend_mode=frontend_mode,
+            exact_k_max=exact_k_max,
+            use_triton=use_triton,
         ),
         regularization=LPAPDecoderRegularizationConfig(
             source_ce_weight=float(section.get("source_ce_weight", 0.1)),

@@ -85,7 +85,6 @@ class LPAPDecoderTrainingTest(unittest.TestCase):
                     energy_bank=EnergyBankConfig(path="data/encoded_energies_ae_best.pt"),
                 ),
                 decoder=LPAPDecoderModelConfig(
-                    frontend_initial_temperature=0.5,
                     hidden_dim=16,
                     layer_count=1,
                     head_count=4,
@@ -152,6 +151,38 @@ class LPAPDecoderTrainingTest(unittest.TestCase):
             exact_results = list(iter_lpap_decoder_training(exact_session))
             self.assertEqual(len(exact_results), 2)
             self.assertEqual(exact_results[-1].metrics["mean_entropy"], 0.0)
+
+            # Standalone exact-mode decoder (no init checkpoint, no surrogate) uses
+            # permutation_seed matching Stage-1 surrogate's permutation.
+            standalone_exact_config = LPAPDecoderTrainingConfig(
+                data=config.data,
+                decoder=config.decoder,
+                validation=config.validation,
+                teacher=LPAPDecoderTeacherConfig(
+                    frontend_mode="exact",
+                    exact_k_max=2,
+                    require_checkpoint=False,
+                ),
+                regularization=LPAPDecoderRegularizationConfig(source_ce_weight=0.1),
+                run=LPAPDecoderRunConfig(
+                    steps=1,
+                    permutation_seed=123,
+                    resume_from_checkpoint=False,
+                    display_every=1,
+                    run_id="tiny-decoder-exact-fresh",
+                    checkpoint_name="decoder_exact_fresh.pt",
+                    log_name="decoder_exact_fresh.sqlite",
+                ),
+            )
+            standalone_session = create_lpap_decoder_training_session(
+                project_root=root, config=standalone_exact_config, device="cpu"
+            )
+            torch.testing.assert_close(
+                standalone_session.permutation.cpu(), permutation
+            )
+            standalone_results = list(iter_lpap_decoder_training(standalone_session))
+            self.assertEqual(len(standalone_results), 1)
+            self.assertEqual(standalone_results[-1].metrics["mean_entropy"], 0.0)
 
 
 if __name__ == "__main__":

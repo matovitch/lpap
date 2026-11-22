@@ -139,12 +139,11 @@ evaluate the `-v2` checkpoints:
    - `validation_weighted_accuracy` and `validation_accuracy`.
 2. **Decoders (`decoder_c{128_k16,256_k24,512_k32}-v2.sqlite`)**
    - `validation_reconstruction_l1` (primary decoder KPI).
-   - `validation_weighted_accuracy`, `validation_source_ce`, and `validation_mean_entropy`.
-   - Learned frontend temperature `decoder.frontend_temperature()`.
+   - `validation_weighted_accuracy`, `validation_accuracy`, and `validation_source_ce`.
 3. **Tri-pair AE (`image_autoencoder_tri_lnorm-v2.sqlite`)**
    - `validation_image_reconstruction_l2` overall and per pair (`c128_k16`, `c256_k24`, `c512_k32`).
    - `validation_energy_reconstruction_l1` overall and per pair.
-   - `validation_surrogate_teacher_ce` and `validation_weighted_accuracy` per pair.
+   - `validation_surrogate_teacher_ce`, `validation_weighted_accuracy`, `validation_decoder_accuracy`, and `validation_decoder_weighted_accuracy` overall and per pair.
    - Signed-mass health: `validation_encoded_positive_mass`, `validation_encoded_negative_mass`, `validation_signed_mass_imbalance`, and `validation_encoded_energy_rms` (confirm encoded energies stay bipolar near `floor_tau = 0.1` rather than collapsing toward 0).
    - RMS: `validation_decoded_energy_rms` and `validation_reconstructed_image_rms` are the mean across pairs. Each pair also logs `validation_decoded_energy_rms/<name>` and `validation_reconstructed_image_rms/<name>`. `validation_image_rms` is the shared input RMS.
    - Visual check in `molab/lab.py` (`ae_gallery` and `ae_energy_latent`: oracle LPAP vs surrogate-hard vs decoder-soft energy and reconstructed images).

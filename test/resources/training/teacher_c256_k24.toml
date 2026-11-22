@@ -42,7 +42,8 @@ comment = "C=256 energy-bank surrogate; k_max=24; N=1024"
 pinned = false
 
 [decoder]
-frontend_initial_temperature = 0.25
+frontend_mode = "exact"
+use_triton = true
 hidden_dim = 256
 layer_count = 8
 head_count = 8
@@ -51,7 +52,7 @@ source_ce_weight = 0.1
 source_ce_l1_reference = 0.05
 source_ce_power = 2.0
 load_best = true
-require_checkpoint = true
+require_checkpoint = false
 
 [decoder.validation]
 enabled = true

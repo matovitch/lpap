@@ -252,6 +252,7 @@ def build_exact_finetune_autoencoder_config(
             image_l2_weight=exact.image_l2_weight,
             energy_l1_weight=exact.energy_l1_weight,
             surrogate_teacher_weight=0.0,
+            decoder_source_ce_weight=0.0,
             signed_mass_balance_weight=0.0,
             detach_energy_target=True,
         ),

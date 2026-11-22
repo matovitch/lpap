@@ -60,10 +60,13 @@ energy_to_image_steps = 4
 image_l2_weight = 1.0
 energy_l1_weight = 0.05
 surrogate_teacher_weight = 0.05
+decoder_source_ce_weight = 0.0
 signed_mass_balance_weight = 0.01
 signed_mass_floor_tau = 0.1
 signed_mass_floor_coef = 1.0
 detach_energy_target = false
+detach_surrogate_ce_inputs = false
+energy_l1_target = "dense"
 
 [optimizer]
 # Was 2.0e-5 @ bs32; sqrt batch scaling.

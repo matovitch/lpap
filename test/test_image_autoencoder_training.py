@@ -35,6 +35,7 @@ from lpap.flow_training import (
     FlowModelConfig,
     FlowOptimizerConfig,
     FlowValidationConfig,
+    cycle_image_batches,
 )
 from lpap.permutation import LPAP_FOLD_ORDER, make_permutation_indices
 from lpap.surrogate import LPAPSurrogateTransformer
@@ -94,8 +95,9 @@ def _save_tiny_teacher_pair(
         },
     )
     decoder = LPAPDecoderTransformer(
-        value_count=value_count,
-        frontend_initial_temperature=0.5,
+        bucket_count=bucket_count,
+        probe_count=probe_count,
+        k_max=2,
         hidden_dim=16,
         layer_count=1,
         head_count=4,
@@ -110,7 +112,7 @@ def _save_tiny_teacher_pair(
                 "bucket_count": bucket_count,
                 "probe_count": probe_count,
                 "k_max": 2,
-                "frontend_mode": "surrogate",
+                "frontend_mode": "exact",
                 "surrogate": {
                     "value_count": value_count,
                     "bucket_count": bucket_count,
@@ -118,7 +120,6 @@ def _save_tiny_teacher_pair(
                     "k_max": 2,
                     "fold_order": LPAP_FOLD_ORDER,
                 },
-                "frontend_initial_temperature": 0.5,
                 "hidden_dim": 16,
                 "layer_count": 1,
                 "head_count": 4,
@@ -785,12 +786,20 @@ class ImageAutoencoderTrainingTest(unittest.TestCase):
             decoder_model_config = dict(decoder_state["model_config"])
             decoder_model_config["k_max"] = 4
             decoder_state["model_config"] = decoder_model_config
+            k4_decoder = LPAPDecoderTransformer(
+                bucket_count=int(decoder_model_config["bucket_count"]),
+                probe_count=int(decoder_model_config["probe_count"]),
+                k_max=4,
+                hidden_dim=int(decoder_model_config["hidden_dim"]),
+                layer_count=int(decoder_model_config["layer_count"]),
+                head_count=int(decoder_model_config["head_count"]),
+            )
             save_training_checkpoint(
                 decoder_path,
-                model=session.model.decoders[0],
+                model=k4_decoder,
                 step=int(decoder_payload["step"]),
                 best_metric=decoder_payload.get("best_metric"),
-                best_model_state=decoder_payload.get("best_model_state"),
+                best_model_state=k4_decoder.state_dict(),
                 optimizer=None,
                 training_state=decoder_state,
             )
@@ -834,6 +843,137 @@ class ImageAutoencoderTrainingTest(unittest.TestCase):
             )
             self.assertEqual(list(iter(resumed.image_loader.sampler)), expected)
             self.assertNotEqual(fresh_order, expected)
+
+    def test_detach_surrogate_ce_inputs_isolates_encoder_flow_gradients(self) -> None:
+        from dataclasses import replace
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            base_session = _build_tiny_autoencoder_session(root)
+            images = next(cycle_image_batches(base_session.image_loader))
+            ce_only_loss = ImageAutoencoderLossConfig(
+                image_l2_weight=0.0,
+                energy_l1_weight=0.0,
+                surrogate_teacher_weight=1.0,
+                signed_mass_balance_weight=0.0,
+                detach_surrogate_ce_inputs=True,
+            )
+            detached_cfg = replace(
+                base_session.config,
+                loss=ce_only_loss,
+                run=replace(base_session.config.run, resume_from_checkpoint=False),
+            )
+            detached_session = create_image_autoencoder_training_session(
+                project_root=root, config=detached_cfg, device="cpu"
+            )
+            train_image_autoencoder_step(session=detached_session, images=images)
+            i2e_grads_detached = [
+                p.grad
+                for p in detached_session.model.image_to_energy_flow.parameters()
+                if p.grad is not None and float(p.grad.abs().sum()) > 0.0
+            ]
+            surr_grads_detached = [
+                p.grad
+                for p in detached_session.model.surrogates[0].parameters()
+                if p.grad is not None and float(p.grad.abs().sum()) > 0.0
+            ]
+            self.assertEqual(len(i2e_grads_detached), 0)
+            self.assertGreater(len(surr_grads_detached), 0)
+
+            attached_cfg = replace(
+                detached_cfg,
+                loss=replace(ce_only_loss, detach_surrogate_ce_inputs=False),
+            )
+            attached_session = create_image_autoencoder_training_session(
+                project_root=root, config=attached_cfg, device="cpu"
+            )
+            train_image_autoencoder_step(session=attached_session, images=images)
+            i2e_grads_attached = [
+                p.grad
+                for p in attached_session.model.image_to_energy_flow.parameters()
+                if p.grad is not None and float(p.grad.abs().sum()) > 0.0
+            ]
+            self.assertGreater(len(i2e_grads_attached), 0)
+
+    def test_energy_l1_target_lpap_buckets_and_decoder_metrics_logged(self) -> None:
+        from dataclasses import replace
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            base_session = _build_tiny_autoencoder_session(root)
+            cfg = replace(
+                base_session.config,
+                loss=replace(
+                    base_session.config.loss,
+                    energy_l1_target="lpap_buckets",
+                    decoder_source_ce_weight=0.1,
+                ),
+                run=replace(base_session.config.run, resume_from_checkpoint=False),
+            )
+            session = create_image_autoencoder_training_session(
+                project_root=root, config=cfg, device="cpu"
+            )
+            results = list(iter_image_autoencoder_training(session))
+            metrics = results[-1].metrics
+            self.assertIn("decoder_accuracy", metrics)
+            self.assertIn("decoder_weighted_accuracy", metrics)
+            self.assertIn("decoder_source_ce", metrics)
+            self.assertIn("decoder_accuracy/c4", metrics)
+            self.assertIn("decoder_weighted_accuracy/c4", metrics)
+            self.assertIn("validation_decoder_accuracy", metrics)
+            self.assertGreaterEqual(metrics["decoder_accuracy"], 0.0)
+            self.assertLessEqual(metrics["decoder_accuracy"], 1.0)
+
+    def test_frozen_submodules_stay_in_eval_mode_across_train_eval_gallery(
+        self,
+    ) -> None:
+        from dataclasses import replace
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            base_session = _build_tiny_autoencoder_session(root)
+            cfg = replace(
+                base_session.config,
+                source=replace(
+                    base_session.config.source,
+                    train_image_to_energy_flow=False,
+                    train_surrogate=False,
+                    train_decoder=True,
+                    train_energy_to_image_flow=False,
+                    lpap_frontend_mode="exact",
+                ),
+                loss=replace(
+                    base_session.config.loss,
+                    surrogate_teacher_weight=0.0,
+                    signed_mass_balance_weight=0.0,
+                    detach_energy_target=True,
+                ),
+                run=replace(base_session.config.run, resume_from_checkpoint=False),
+            )
+            session = create_image_autoencoder_training_session(
+                project_root=root, config=cfg, device="cpu"
+            )
+            images = next(cycle_image_batches(session.image_loader))
+
+            train_metrics = train_image_autoencoder_step(session=session, images=images)
+            self.assertFalse(session.model.image_to_energy_flow.training)
+            self.assertFalse(session.model.surrogates[0].training)
+            self.assertTrue(session.model.decoders[0].training)
+            self.assertFalse(session.model.energy_to_image_flow.training)
+            self.assertGreaterEqual(train_metrics.decoder_accuracy, 0.0)
+            self.assertIn("decoder_accuracy/c4", train_metrics.pair_metrics)
+
+            evaluate_image_autoencoder_batch(session=session, images=images)
+            self.assertFalse(session.model.image_to_energy_flow.training)
+            self.assertFalse(session.model.surrogates[0].training)
+            self.assertTrue(session.model.decoders[0].training)
+            self.assertFalse(session.model.energy_to_image_flow.training)
+
+            collect_image_autoencoder_gallery(session, sample_count=1)
+            self.assertFalse(session.model.image_to_energy_flow.training)
+            self.assertFalse(session.model.surrogates[0].training)
+            self.assertTrue(session.model.decoders[0].training)
+            self.assertFalse(session.model.energy_to_image_flow.training)
 
 
 if __name__ == "__main__":

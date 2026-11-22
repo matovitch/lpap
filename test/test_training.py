@@ -339,7 +339,6 @@ class TrainingRunTest(unittest.TestCase):
             decoder_config = LPAPDecoderTrainingConfig(
                 data=surrogate_config.data,
                 decoder=LPAPDecoderModelConfig(
-                    frontend_initial_temperature=0.75,
                     hidden_dim=32,
                     layer_count=2,
                     head_count=4,
@@ -376,7 +375,7 @@ class TrainingRunTest(unittest.TestCase):
             self.assertEqual(loaded_surrogate.data.energy_bank.path, "data/bank.pt")
             self.assertEqual(loaded_decoder.data.energy_bank.path, "data/bank.pt")
             self.assertFalse(loaded_decoder.run.resume_from_checkpoint)
-            self.assertEqual(loaded_decoder.decoder.frontend_initial_temperature, 0.75)
+            self.assertEqual(loaded_decoder.decoder.hidden_dim, 32)
             self.assertEqual(loaded_decoder.teacher.checkpoint_name, "teacher.pt")
 
 

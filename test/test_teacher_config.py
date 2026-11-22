@@ -31,7 +31,10 @@ class TeacherConfigProjectionTest(unittest.TestCase):
         self.assertEqual(decoder.run.run_id, "decoder_c128_k16")
         self.assertEqual(surrogate.run.permutation_seed, 123)
         self.assertEqual(decoder.run.permutation_seed, 123)
-        self.assertTrue(decoder.teacher.require_checkpoint)
+        self.assertEqual(decoder.teacher.frontend_mode, "exact")
+        self.assertEqual(decoder.teacher.exact_k_max, 16)
+        self.assertTrue(decoder.teacher.use_triton)
+        self.assertFalse(decoder.teacher.require_checkpoint)
 
     def test_rejects_k_max_gt_bucket_count(self) -> None:
         pair = TeacherPairConfig(
@@ -89,7 +92,6 @@ class DecoderRequiresSurrogatePermutationTest(unittest.TestCase):
                     energy_bank=EnergyBankConfig(path="data/bank.pt"),
                 ),
                 decoder=LPAPDecoderModelConfig(
-                    frontend_initial_temperature=0.5,
                     hidden_dim=16,
                     layer_count=1,
                     head_count=4,
@@ -149,7 +151,6 @@ class DecoderRequiresSurrogatePermutationTest(unittest.TestCase):
                     energy_bank=EnergyBankConfig(path="data/bank.pt"),
                 ),
                 decoder=LPAPDecoderModelConfig(
-                    frontend_initial_temperature=0.5,
                     hidden_dim=16,
                     layer_count=1,
                     head_count=4,

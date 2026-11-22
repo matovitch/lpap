@@ -98,8 +98,9 @@ class TeacherCheckpointsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "decoder.pt"
             decoder = LPAPDecoderTransformer(
-                value_count=16,
-                frontend_initial_temperature=0.5,
+                bucket_count=4,
+                probe_count=4,
+                k_max=2,
                 hidden_dim=16,
                 layer_count=1,
                 head_count=4,
@@ -113,7 +114,6 @@ class TeacherCheckpointsTest(unittest.TestCase):
                         "value_count": 16,
                         "bucket_count": 4,
                         "probe_count": 4,
-                        "frontend_initial_temperature": 0.5,
                         "hidden_dim": 16,
                         "layer_count": 1,
                         "head_count": 4,

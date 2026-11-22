@@ -12,9 +12,11 @@ from torch.utils.data import DataLoader
 
 from lpap.checkpoints import load_training_checkpoint
 from lpap.decoder import (
+    LPAPDecoderBatch,
     LPAPDecoderTransformer,
     prepare_exact_lpap_decoder_batch,
     prepare_lpap_decoder_batch,
+    reconstruct_lpap_bucket_values,
     reconstruct_lpap_decoder_values,
 )
 from lpap.flow import DilatedConvFlow1d, integrate_euler_midpoint_time
@@ -199,11 +201,15 @@ class ImageAutoencoderIntegrationConfig:
         }
 
 
+EnergyL1Target = Literal["dense", "lpap_buckets"]
+
+
 @dataclass(frozen=True)
 class ImageAutoencoderLossConfig:
     image_l2_weight: float = 1.0
     energy_l1_weight: float = 0.05
     surrogate_teacher_weight: float = 0.05
+    decoder_source_ce_weight: float = 0.0
     # Signed-mass on encoded energy e (see lpap.image_autoencoder_loss):
     #   m+/m- = mean(relu(+/- e)); scale by floor_tau (not by m++m-).
     #   L = ((m+-m-)/tau)^2 + floor_coef * sum_sides (relu(tau-m)/tau)^2
@@ -211,6 +217,8 @@ class ImageAutoencoderLossConfig:
     signed_mass_floor_tau: float = 0.1
     signed_mass_floor_coef: float = 1.0
     detach_energy_target: bool = False
+    detach_surrogate_ce_inputs: bool = False
+    energy_l1_target: EnergyL1Target = "dense"
 
     def validate(self) -> None:
         if self.image_l2_weight < 0:
@@ -219,28 +227,38 @@ class ImageAutoencoderLossConfig:
             raise ValueError("energy_l1_weight must be non-negative")
         if self.surrogate_teacher_weight < 0:
             raise ValueError("surrogate_teacher_weight must be non-negative")
+        if self.decoder_source_ce_weight < 0:
+            raise ValueError("decoder_source_ce_weight must be non-negative")
         if self.signed_mass_balance_weight < 0:
             raise ValueError("signed_mass_balance_weight must be non-negative")
         if self.signed_mass_floor_tau <= 0:
             raise ValueError("signed_mass_floor_tau must be positive")
         if self.signed_mass_floor_coef < 0:
             raise ValueError("signed_mass_floor_coef must be non-negative")
+        if self.energy_l1_target not in ("dense", "lpap_buckets"):
+            raise ValueError(
+                f"unsupported loss.energy_l1_target: {self.energy_l1_target!r}"
+            )
         if (
             self.image_l2_weight == 0
             and self.energy_l1_weight == 0
             and self.surrogate_teacher_weight == 0
+            and self.decoder_source_ce_weight == 0
         ):
             raise ValueError("at least one loss weight must be positive")
 
-    def as_dict(self) -> dict[str, float | bool]:
+    def as_dict(self) -> dict[str, float | bool | str]:
         return {
             "image_l2_weight": self.image_l2_weight,
             "energy_l1_weight": self.energy_l1_weight,
             "surrogate_teacher_weight": self.surrogate_teacher_weight,
+            "decoder_source_ce_weight": self.decoder_source_ce_weight,
             "signed_mass_balance_weight": self.signed_mass_balance_weight,
             "signed_mass_floor_tau": self.signed_mass_floor_tau,
             "signed_mass_floor_coef": self.signed_mass_floor_coef,
             "detach_energy_target": self.detach_energy_target,
+            "detach_surrogate_ce_inputs": self.detach_surrogate_ce_inputs,
+            "energy_l1_target": self.energy_l1_target,
         }
 
 
@@ -382,7 +400,9 @@ class ImageAutoencoderPairForward:
     decoded_energy: torch.Tensor
     reconstructed_image: torch.Tensor
     surrogate_logits: torch.Tensor | None
+    surrogate_ce_logits: torch.Tensor | None
     decoder_logits: torch.Tensor
+    decoder_batch: LPAPDecoderBatch
     surrogate_targets: LPAPSurrogateTargets
 
 
@@ -401,7 +421,7 @@ class ImageAutoencoderForward:
         return self.pairs[0].reconstructed_image
 
     @property
-    def surrogate_logits(self) -> torch.Tensor:
+    def surrogate_logits(self) -> torch.Tensor | None:
         return self.pairs[0].surrogate_logits
 
     @property
@@ -430,6 +450,9 @@ class ImageAutoencoderMetrics:
     decoded_energy_rms: float
     reconstructed_image_rms: float
     image_rms: float
+    decoder_source_ce: float = 0.0
+    decoder_accuracy: float = 0.0
+    decoder_weighted_accuracy: float = 0.0
     pair_metrics: dict[str, float] = field(default_factory=dict)
 
 
@@ -476,6 +499,7 @@ class ImageAutoencoderModel(nn.Module):
         energy_to_image_steps: int,
         exact_lpap: bool = False,
         use_triton: bool = False,
+        detach_surrogate_ce_inputs: bool = False,
     ) -> ImageAutoencoderForward:
         if not (
             len(bucket_counts)
@@ -505,6 +529,7 @@ class ImageAutoencoderModel(nn.Module):
             permutation = permutations[index]
             if exact_lpap:
                 surrogate_logits = None
+                surrogate_ce_logits = None
                 decoder_batch = prepare_exact_lpap_decoder_batch(
                     values=values.detach(),
                     bucket_count=bucket_count,
@@ -517,16 +542,22 @@ class ImageAutoencoderModel(nn.Module):
                     values, bucket_count=bucket_count, permutation=permutation
                 )
                 surrogate_logits = surrogate(surrogate_tokens)
+                surrogate_ce_logits = (
+                    surrogate(surrogate_tokens.detach())
+                    if detach_surrogate_ce_inputs
+                    else surrogate_logits
+                )
                 decoder_batch = prepare_lpap_decoder_batch(
                     values=values,
                     surrogate_logits=surrogate_logits,
                     bucket_count=bucket_count,
                     k_max=k_max,
-                    temperature=decoder.frontend_temperature(),
                     permutation=permutation,
                     surrogate_tokens=surrogate_tokens,
                 )
-            decoder_logits = decoder(decoder_batch.tokens)
+            decoder_logits = decoder(
+                decoder_batch.amplitudes, decoder_batch.dib_weights
+            )
             decoded_energy = reconstruct_lpap_decoder_values(
                 decoder_logits, decoder_batch
             ).unsqueeze(1)
@@ -543,7 +574,9 @@ class ImageAutoencoderModel(nn.Module):
                     decoded_energy=decoded_energy,
                     reconstructed_image=reconstructed_image,
                     surrogate_logits=surrogate_logits,
+                    surrogate_ce_logits=surrogate_ce_logits,
                     decoder_logits=decoder_logits,
+                    decoder_batch=decoder_batch,
                     surrogate_targets=decoder_batch.surrogate_targets,
                 )
             )
@@ -654,6 +687,9 @@ def image_autoencoder_training_config_from_dict(
             image_l2_weight=float(data["loss"]["image_l2_weight"]),
             energy_l1_weight=float(data["loss"]["energy_l1_weight"]),
             surrogate_teacher_weight=float(data["loss"]["surrogate_teacher_weight"]),
+            decoder_source_ce_weight=float(
+                data["loss"].get("decoder_source_ce_weight", 0.0)
+            ),
             signed_mass_balance_weight=float(
                 data["loss"].get("signed_mass_balance_weight", 0.01)
             ),
@@ -662,6 +698,10 @@ def image_autoencoder_training_config_from_dict(
                 data["loss"].get("signed_mass_floor_coef", 1.0)
             ),
             detach_energy_target=bool(data["loss"]["detach_energy_target"]),
+            detach_surrogate_ce_inputs=bool(
+                data["loss"].get("detach_surrogate_ce_inputs", False)
+            ),
+            energy_l1_target=data["loss"].get("energy_l1_target", "dense"),
         ),
         optimizer=optimizer_config_from_dict(data["optimizer"]),
         validation=validation_config_from_dict(data["validation"]),
@@ -701,6 +741,35 @@ def _set_trainable(module: nn.Module, enabled: bool) -> None:
     module.train(enabled)
     for parameter in module.parameters():
         parameter.requires_grad_(enabled)
+
+
+def _apply_train_modes(session: ImageAutoencoderTrainingSession) -> None:
+    """Set train/eval mode per AE submodule according to ``config.source``."""
+    source = session.config.source
+    session.model.eval()
+    session.model.training = any(
+        (
+            source.train_image_to_energy_flow,
+            source.train_surrogate,
+            source.train_decoder,
+            source.train_energy_to_image_flow,
+        )
+    )
+    session.model.image_to_energy_flow.train(source.train_image_to_energy_flow)
+    for surrogate_module in session.model.surrogates:
+        surrogate_module.train(source.train_surrogate)
+    for decoder_module in session.model.decoders:
+        decoder_module.train(source.train_decoder)
+    session.model.energy_to_image_flow.train(source.train_energy_to_image_flow)
+
+
+def _snapshot_train_modes(model: nn.Module) -> dict[nn.Module, bool]:
+    return {module: module.training for module in model.modules()}
+
+
+def _restore_train_modes(modes: dict[nn.Module, bool]) -> None:
+    for module, was_training in modes.items():
+        module.training = was_training
 
 
 def _optimizer_parameters(model: nn.Module) -> list[nn.Parameter]:
@@ -975,6 +1044,10 @@ def _forward_loss(
 ) -> tuple[torch.Tensor, ImageAutoencoderMetrics, ImageAutoencoderForward]:
     config = session.config
     exact_lpap = config.source.lpap_frontend_mode == "exact"
+    detach_surrogate_ce = bool(
+        config.loss.detach_surrogate_ce_inputs
+        and config.loss.surrogate_teacher_weight > 0.0
+    )
     output = session.model.forward_chain(
         image=image,
         bucket_counts=tuple(
@@ -987,8 +1060,9 @@ def _forward_loss(
         energy_to_image_steps=config.integration.energy_to_image_steps,
         exact_lpap=exact_lpap,
         use_triton=config.source.use_triton,
+        detach_surrogate_ce_inputs=detach_surrogate_ce,
     )
-    energy_target = (
+    dense_energy_target = (
         output.encoded_energy.detach()
         if config.loss.detach_energy_target
         else output.encoded_energy
@@ -996,24 +1070,76 @@ def _forward_loss(
     image_l2_terms: list[torch.Tensor] = []
     energy_l1_terms: list[torch.Tensor] = []
     surrogate_ce_terms: list[torch.Tensor] = []
+    decoder_ce_terms: list[torch.Tensor] = []
     pair_metric_values: dict[str, float] = {}
     weighted_accuracies: list[float] = []
+    decoder_accuracies: list[float] = []
+    decoder_weighted_accuracies: list[float] = []
     decoded_energy_rms_values: list[float] = []
     reconstructed_image_rms_values: list[float] = []
     for runtime, pair_output in zip(session.lpap_pairs, output.pairs, strict=True):
-        if pair_output.surrogate_logits is None:
+        if pair_output.surrogate_ce_logits is None:
             pair_ce = torch.zeros((), device=image.device, dtype=image.dtype)
             pair_weighted_accuracy = 1.0
         else:
             pair_ce, pair_surrogate_metrics = lpap_surrogate_loss(
-                pair_output.surrogate_logits, pair_output.surrogate_targets
+                pair_output.surrogate_ce_logits, pair_output.surrogate_targets
             )
             pair_weighted_accuracy = pair_surrogate_metrics.weighted_accuracy
+
+        decoder_batch = pair_output.decoder_batch
+        probe_logits = pair_output.decoder_logits
+        decoder_weights = decoder_batch.weights.to(dtype=probe_logits.dtype)
+        decoder_weight_total = decoder_weights.sum().clamp_min(
+            torch.finfo(decoder_weights.dtype).eps
+        )
+        dib_match = decoder_batch.dibs.eq(decoder_batch.surrogate_targets.dibs)
+        matched_weights = decoder_weights * dib_match.to(dtype=probe_logits.dtype)
+        matched_weight_total = matched_weights.sum().clamp_min(
+            torch.finfo(decoder_weights.dtype).eps
+        )
+        decoder_ce_per_bucket = torch_functional.cross_entropy(
+            probe_logits.reshape(-1, probe_logits.shape[-1]),
+            decoder_batch.target_probes.reshape(-1),
+            reduction="none",
+        ).reshape_as(decoder_batch.target_probes)
+        pair_decoder_ce = (
+            decoder_ce_per_bucket * matched_weights
+        ).sum() / matched_weight_total
+        predicted_probes = probe_logits.argmax(dim=-1)
+        decoder_correct = dib_match & predicted_probes.eq(decoder_batch.target_probes)
+        pair_decoder_accuracy = float(
+            decoder_correct.to(torch.float32).mean().detach().cpu()
+        )
+        pair_decoder_weighted_accuracy = float(
+            (
+                (decoder_correct.to(decoder_weights.dtype) * decoder_weights).sum()
+                / decoder_weight_total
+            )
+            .detach()
+            .cpu()
+        )
+
         pair_image_l2 = torch_functional.mse_loss(
             pair_output.reconstructed_image, image
         )
+        if config.loss.energy_l1_target == "lpap_buckets":
+            if config.loss.detach_energy_target:
+                pair_energy_target = reconstruct_lpap_bucket_values(
+                    decoder_batch
+                ).unsqueeze(1)
+            else:
+                source_values = output.encoded_energy[:, 0]
+                oracle_buckets = source_values.gather(1, decoder_batch.targets)
+                pair_energy_target = (
+                    torch.zeros_like(source_values)
+                    .scatter_add(1, decoder_batch.targets, oracle_buckets)
+                    .unsqueeze(1)
+                )
+        else:
+            pair_energy_target = dense_energy_target
         pair_energy_l1 = torch_functional.l1_loss(
-            pair_output.decoded_energy, energy_target
+            pair_output.decoded_energy, pair_energy_target
         )
         pair_decoded_energy_rms = float(
             pair_output.decoded_energy.square().mean().sqrt().detach().cpu()
@@ -1024,7 +1150,10 @@ def _forward_loss(
         image_l2_terms.append(pair_image_l2)
         energy_l1_terms.append(pair_energy_l1)
         surrogate_ce_terms.append(pair_ce)
+        decoder_ce_terms.append(pair_decoder_ce)
         weighted_accuracies.append(pair_weighted_accuracy)
+        decoder_accuracies.append(pair_decoder_accuracy)
+        decoder_weighted_accuracies.append(pair_decoder_weighted_accuracy)
         decoded_energy_rms_values.append(pair_decoded_energy_rms)
         reconstructed_image_rms_values.append(pair_reconstructed_image_rms)
         prefix = runtime.name
@@ -1037,7 +1166,14 @@ def _forward_loss(
         pair_metric_values[f"surrogate_teacher_ce/{prefix}"] = float(
             pair_ce.detach().cpu()
         )
+        pair_metric_values[f"decoder_source_ce/{prefix}"] = float(
+            pair_decoder_ce.detach().cpu()
+        )
         pair_metric_values[f"weighted_accuracy/{prefix}"] = pair_weighted_accuracy
+        pair_metric_values[f"decoder_accuracy/{prefix}"] = pair_decoder_accuracy
+        pair_metric_values[f"decoder_weighted_accuracy/{prefix}"] = (
+            pair_decoder_weighted_accuracy
+        )
         pair_metric_values[f"decoded_energy_rms/{prefix}"] = pair_decoded_energy_rms
         pair_metric_values[f"reconstructed_image_rms/{prefix}"] = (
             pair_reconstructed_image_rms
@@ -1046,6 +1182,7 @@ def _forward_loss(
     image_l2 = torch.stack(image_l2_terms).mean()
     energy_l1 = torch.stack(energy_l1_terms).mean()
     surrogate_teacher_ce = torch.stack(surrogate_ce_terms).mean()
+    decoder_source_ce = torch.stack(decoder_ce_terms).mean()
     signed_mass, signed_mass_imbalance, signed_gap, signed_floor = (
         signed_mass_balance_loss(
             output.encoded_energy,
@@ -1057,6 +1194,7 @@ def _forward_loss(
         config.loss.image_l2_weight * image_l2
         + config.loss.energy_l1_weight * energy_l1
         + config.loss.surrogate_teacher_weight * surrogate_teacher_ce
+        + config.loss.decoder_source_ce_weight * decoder_source_ce
         + config.loss.signed_mass_balance_weight * signed_mass
     )
     positive_mass = torch_functional.relu(output.encoded_energy).mean()
@@ -1085,6 +1223,11 @@ def _forward_loss(
             sum(reconstructed_image_rms_values) / len(reconstructed_image_rms_values)
         ),
         image_rms=float(image.square().mean().sqrt().detach().cpu()),
+        decoder_source_ce=float(decoder_source_ce.detach().cpu()),
+        decoder_accuracy=float(sum(decoder_accuracies) / len(decoder_accuracies)),
+        decoder_weighted_accuracy=float(
+            sum(decoder_weighted_accuracies) / len(decoder_weighted_accuracies)
+        ),
         pair_metrics=pair_metric_values,
     )
     return loss, metrics, output
@@ -1095,7 +1238,7 @@ def train_image_autoencoder_step(
     session: ImageAutoencoderTrainingSession,
     images: torch.Tensor,
 ) -> ImageAutoencoderMetrics:
-    session.model.train()
+    _apply_train_modes(session)
     image = prepare_image_sequence(
         images, side=session.config.image.side, device=session.device
     )
@@ -1115,15 +1258,14 @@ def evaluate_image_autoencoder_batch(
     session: ImageAutoencoderTrainingSession,
     images: torch.Tensor,
 ) -> ImageAutoencoderMetrics:
-    was_training = session.model.training
+    train_modes = _snapshot_train_modes(session.model)
     session.model.eval()
     with torch.no_grad():
         image = prepare_image_sequence(
             images, side=session.config.image.side, device=session.device
         )
         _loss, metrics, _output = _forward_loss(session=session, image=image)
-    if was_training:
-        session.model.train()
+    _restore_train_modes(train_modes)
     return metrics
 
 
@@ -1179,6 +1321,14 @@ def average_image_autoencoder_metrics(
         )
         / count,
         image_rms=sum(metrics.image_rms for metrics in metrics_list) / count,
+        decoder_source_ce=sum(metrics.decoder_source_ce for metrics in metrics_list)
+        / count,
+        decoder_accuracy=sum(metrics.decoder_accuracy for metrics in metrics_list)
+        / count,
+        decoder_weighted_accuracy=sum(
+            metrics.decoder_weighted_accuracy for metrics in metrics_list
+        )
+        / count,
         pair_metrics={
             key: sum(metrics.pair_metrics.get(key, 0.0) for metrics in metrics_list)
             / count
@@ -1217,7 +1367,10 @@ def _metrics_dict(metrics: ImageAutoencoderMetrics) -> dict[str, float]:
         "image_reconstruction_l2": metrics.image_reconstruction_l2,
         "energy_reconstruction_l1": metrics.energy_reconstruction_l1,
         "surrogate_teacher_ce": metrics.surrogate_teacher_ce,
+        "decoder_source_ce": metrics.decoder_source_ce,
         "weighted_accuracy": metrics.surrogate_weighted_accuracy,
+        "decoder_accuracy": metrics.decoder_accuracy,
+        "decoder_weighted_accuracy": metrics.decoder_weighted_accuracy,
         "signed_mass_balance": metrics.signed_mass_balance,
         "signed_mass_imbalance": metrics.signed_mass_imbalance,
         "signed_mass_gap": metrics.signed_mass_gap,
@@ -1290,7 +1443,7 @@ def collect_image_autoencoder_gallery(
 ) -> list[ImageAutoencoderGalleryItem]:
     if sample_count <= 0:
         return []
-    was_training = session.model.training
+    train_modes = _snapshot_train_modes(session.model)
     session.model.eval()
     images_iter = cycle_image_batches(session.validation_image_loader)
     images = next(images_iter)[:sample_count]
@@ -1335,8 +1488,7 @@ def collect_image_autoencoder_gallery(
                     pairs=tuple(pair_items),
                 )
             )
-    if was_training:
-        session.model.train()
+    _restore_train_modes(train_modes)
     return items
 
 

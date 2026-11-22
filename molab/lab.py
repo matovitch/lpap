@@ -480,11 +480,10 @@ def ae_energy_latent():
                     surrogate_logits=_slog,
                     bucket_count=_C,
                     k_max=_k,
-                    temperature=_dec.frontend_temperature(),
                     permutation=_rt.permutation,
                     surrogate_tokens=_tok,
                 )
-                _dlog = _dec(_db.tokens)
+                _dlog = _dec(_db.amplitudes, _db.dib_weights)
                 _oracle = _oracle_lpap(_db)[0]
                 _pred_src = _local_to_src(
                     _slog.argmax(dim=-1),
@@ -495,7 +494,7 @@ def ae_energy_latent():
                 _hard = _torch.zeros_like(_v[0]).scatter_add(
                     0,
                     _pred_src,
-                    _db.surrogate_targets.buckets[0].to(dtype=_v.dtype),
+                    _db.amplitudes[0].to(dtype=_v.dtype),
                 )
                 _soft = _decoder_soft(_dlog, _db)[0]
                 _surr_acc = float(
@@ -503,7 +502,14 @@ def ae_energy_latent():
                     .float()
                     .mean()
                 )
-                _dec_acc = float((_dlog.argmax(-1) == _db.targets).float().mean())
+                _dec_acc = float(
+                    (
+                        _db.dibs.eq(_db.surrogate_targets.dibs)
+                        & _dlog.argmax(-1).eq(_db.target_probes)
+                    )
+                    .float()
+                    .mean()
+                )
                 _Item = type(
                     "LatentItem",
                     (),
@@ -523,7 +529,7 @@ def ae_energy_latent():
                 _blocks.append(
                     _mo.md(
                         f"**{_rt.name}** · surr_acc=`{_surr_acc:.3f}` · "
-                        f"dec_acc=`{_dec_acc:.3f}` · T=`{float(_dec.frontend_temperature()):.3f}`  \n"
+                        f"dec_acc=`{_dec_acc:.3f}`  \n"
                         f"oracle `{_stats(_oracle, _v[0])}` · "
                         f"hard `{_stats(_hard, _v[0])}` · "
                         f"soft `{_stats(_soft, _v[0])}`"

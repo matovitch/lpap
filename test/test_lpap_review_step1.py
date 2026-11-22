@@ -41,11 +41,10 @@ class LpapInvariantsTest(unittest.TestCase):
             surrogate_logits=oracle_logits,
             bucket_count=4,
             k_max=2,
-            temperature=0.25,
             permutation=perm,
         )
 
-        torch.testing.assert_close(decoder_batch.dibs.long(), targets.dibs)
+        torch.testing.assert_close(decoder_batch.dibs, targets.dibs)
         torch.testing.assert_close(decoder_batch.amplitudes, targets.buckets)
 
     def test_lpap_torch_matches_surrogate_targets_on_same_flat_input(self) -> None:
@@ -132,21 +131,6 @@ class LpapInvariantsTest(unittest.TestCase):
         bad = torch.tensor([0, 0, 0, 0])
         with self.assertRaises(ValueError):
             invert_permutation_indices(bad)
-
-    def test_prepare_decoder_batch_rejects_non_positive_tensor_temperature(
-        self,
-    ) -> None:
-        """Tensor temperatures <= 0 raise ValueError like scalar temperatures."""
-        values = torch.randn(1, 8)
-        logits = torch.randn(1, 4, 4)
-        with self.assertRaises(ValueError):
-            prepare_lpap_decoder_batch(
-                values=values,
-                surrogate_logits=logits,
-                bucket_count=4,
-                k_max=2,
-                temperature=torch.tensor(-1.0),
-            )
 
     def test_decoder_dibs_validates_bucket_count_matches_logits_dim1(self) -> None:
         """Mismatched bucket_count and logits.shape[1] raises ValueError."""
@@ -267,7 +251,6 @@ class LpapEdgeCasesTest(unittest.TestCase):
         # Local logits: (B=2, C=4, k_max * P = 2 * 4 = 8).
         logits = torch.randn(2, 4, 8, generator=torch.Generator().manual_seed(29))
         logits.requires_grad_(True)
-        temp = torch.tensor(0.25, requires_grad=True)
         perm = make_permutation_indices(value_count=16, seed=42)
 
         batch = prepare_lpap_decoder_batch(
@@ -275,20 +258,18 @@ class LpapEdgeCasesTest(unittest.TestCase):
             surrogate_logits=logits,
             bucket_count=4,
             k_max=2,
-            temperature=temp,
             permutation=perm,
         )
         self.assertFalse(batch.dibs.requires_grad)
+        self.assertFalse(batch.entropy.requires_grad)
         self.assertTrue(batch.amplitudes.requires_grad)
-        self.assertTrue(batch.entropy.requires_grad)
+        self.assertTrue(batch.dib_weights.requires_grad)
 
-        batch.tokens.sum().backward()
+        (batch.amplitudes.sum() + (batch.dib_weights * torch.tensor([1.0, 2.0])).sum()).backward()
         assert values.grad is not None
         assert logits.grad is not None
-        assert temp.grad is not None
         self.assertGreater(float(values.grad.abs().sum()), 0.0)
         self.assertGreater(float(logits.grad.abs().sum()), 0.0)
-        self.assertGreater(float(temp.grad.abs()), 0.0)
 
     def test_determinism_under_deterministic_algorithms(self) -> None:
         torch.use_deterministic_algorithms(True)

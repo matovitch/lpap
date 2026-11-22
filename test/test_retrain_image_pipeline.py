@@ -93,7 +93,8 @@ display_every = 1
 log_every = 1
 
 [decoder]
-frontend_initial_temperature = 0.25
+frontend_mode = "exact"
+use_triton = false
 hidden_dim = 16
 layer_count = 1
 head_count = 4
@@ -102,7 +103,7 @@ source_ce_weight = 0.1
 source_ce_l1_reference = 0.05
 source_ce_power = 2.0
 load_best = true
-require_checkpoint = true
+require_checkpoint = false
 
 [decoder.validation]
 enabled = true

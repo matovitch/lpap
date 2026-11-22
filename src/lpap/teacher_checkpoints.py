@@ -139,7 +139,6 @@ def _decoder_model_config_from_checkpoint(
         "bucket_count",
         "probe_count",
         "k_max",
-        "frontend_initial_temperature",
         "hidden_dim",
         "layer_count",
         "head_count",
@@ -166,10 +165,9 @@ def load_decoder_source(
 ) -> tuple[LPAPDecoderTransformer, dict[str, object], torch.Tensor | None]:
     model_config, payload = _decoder_model_config_from_checkpoint(path)
     decoder = LPAPDecoderTransformer(
-        value_count=int(model_config["value_count"]),
-        frontend_initial_temperature=float(
-            model_config["frontend_initial_temperature"]
-        ),
+        bucket_count=int(model_config["bucket_count"]),
+        probe_count=int(model_config["probe_count"]),
+        k_max=int(model_config["k_max"]),
         hidden_dim=int(model_config["hidden_dim"]),
         layer_count=int(model_config["layer_count"]),
         head_count=int(model_config["head_count"]),

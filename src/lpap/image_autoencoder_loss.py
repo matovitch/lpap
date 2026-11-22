@@ -178,7 +178,11 @@ def probe_image_autoencoder_loss(
     images: torch.Tensor | None = None,
 ) -> ImageAutoencoderLossProbe:
     """Evaluate loss-component magnitudes on one batch (no grad)."""
-    from lpap.image_autoencoder_training import _forward_loss
+    from lpap.image_autoencoder_training import (
+        _forward_loss,
+        _restore_train_modes,
+        _snapshot_train_modes,
+    )
 
     config = session.config
     if images is None:
@@ -186,7 +190,7 @@ def probe_image_autoencoder_loss(
         images = next(cycle_image_batches(loader))
     if batch_size is not None:
         images = images[:batch_size]
-    was_training = session.model.training
+    train_modes = _snapshot_train_modes(session.model)
     session.model.eval()
     with torch.no_grad():
         image = prepare_image_sequence(
@@ -200,13 +204,13 @@ def probe_image_autoencoder_loss(
         )
         positive_mass = float(torch_functional.relu(output.encoded_energy).mean().cpu())
         negative_mass = float(torch_functional.relu(-output.encoded_energy).mean().cpu())
-    if was_training:
-        session.model.train()
+    _restore_train_modes(train_modes)
 
     weights = {
         "image_l2_weight": config.loss.image_l2_weight,
         "energy_l1_weight": config.loss.energy_l1_weight,
         "surrogate_teacher_weight": config.loss.surrogate_teacher_weight,
+        "decoder_source_ce_weight": config.loss.decoder_source_ce_weight,
         "signed_mass_balance_weight": config.loss.signed_mass_balance_weight,
         "signed_mass_floor_tau": config.loss.signed_mass_floor_tau,
         "signed_mass_floor_coef": config.loss.signed_mass_floor_coef,
@@ -215,6 +219,7 @@ def probe_image_autoencoder_loss(
         "image_reconstruction_l2": metrics.image_reconstruction_l2,
         "energy_reconstruction_l1": metrics.energy_reconstruction_l1,
         "surrogate_teacher_ce": metrics.surrogate_teacher_ce,
+        "decoder_source_ce": metrics.decoder_source_ce,
         "signed_mass_balance": float(signed_loss.detach().cpu()),
         "signed_mass_gap": float(gap_loss.detach().cpu()),
         "signed_mass_floor": float(floor_loss.detach().cpu()),
@@ -226,6 +231,8 @@ def probe_image_autoencoder_loss(
         * unweighted["energy_reconstruction_l1"],
         "surrogate_teacher_ce": weights["surrogate_teacher_weight"]
         * unweighted["surrogate_teacher_ce"],
+        "decoder_source_ce": weights["decoder_source_ce_weight"]
+        * unweighted["decoder_source_ce"],
         "signed_mass_balance": weights["signed_mass_balance_weight"]
         * unweighted["signed_mass_balance"],
     }

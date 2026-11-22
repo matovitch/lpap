@@ -46,29 +46,31 @@ In the learned stack this splits into three parts:
   the circularly preceding source lane `(bucket - dib) mod C` and the probe slot
   `probe`.
 - **Decoder frontend** (`prepare_lpap_decoder_batch`) gathers the `k_max * P`
-  visible candidates for each bucket, softmax-reduces the local logits at a
-  learned positive temperature into per-bucket tokens
-  `(amplitude, normalized DIB, entropy)`:
-  - `amplitude` is the soft expectation over the `k_max * P` visible candidates.
-  - `dib = argmax(local_logits) // P`, normalized by `max(k_max - 1, 1)` via
-    `normalize_lpap_dibs`.
-  - `entropy` measures residual uncertainty over the `k_max * P` local classes.
-  - Exact-LPAP inference and decoder-only fine-tuning use
-    `prepare_exact_lpap_decoder_batch`, which feeds exact
-    `(buckets, normalize_lpap_dibs(dibs), 0)` directly from `lpap_tokens_torch`
-    or `lpap_tokens_triton`.
-- **Decoder** (`LPAPDecoderTransformer`) rebuilds the length-`N` energy from
-  that compact table. Source-index cross-entropy is an adaptive regularizer
-  on global indices from `local_classes_to_source_indices`; its bucket weights
-  are stop-gradient. See [Decoder loss](#decoder-loss).
+  visible candidates for each bucket and applies categorical straight-through
+  `p_st = one_hot(argmax(z)) + (p - p.detach())` with `p = softmax(z)`:
+  - `amplitudes = (p_st * visible).sum(dim=-1)` selects the hard candidate
+    amplitude in the forward pass while routing straight-through gradients to
+    the surrogate logits and exact zero-smear gradients to the selected source
+    element.
+  - `dib_weights = p_st.reshape(B, C, k_max, P).sum(dim=-1)` supplies a
+    bit-exact one-hot DIB vector in the forward pass with live marginal DIB
+    gradients in the backward pass.
+  - Exact-LPAP training and inference use `prepare_exact_lpap_decoder_batch`,
+    which feeds exact `(buckets, one_hot(dibs, k_max))` directly from
+    `lpap_tokens_torch` or `lpap_tokens_triton`.
+- **Decoder** (`LPAPDecoderTransformer`) embeds each bucket's amplitude,
+  expected source-bucket identity `(b - d) mod C` via `dib_weights`, DIB
+  embedding, and learned bucket position embedding, runs circular-RoPE
+  `TransformerBlock` layers (`circular=True`), and predicts `P`-way probe
+  logits `(B, C, P)` restricted to the `P`-element collision set `S(b, d)`.
+  See [Decoder loss](#decoder-loss).
 
 ## Current Model Context
 
 The training stack uses LPAP as the supervised target for the surrogate and as
-the recipe for the decoder's compact `(amplitude, normalized DIB, entropy)`
-tokens. The diagram shows the image-autoencoder forward path. Teacher training
-runs the same inner LPAP block on length-`N` rows from an empirical i2e energy
-bank.
+the recipe for the decoder's compact `(amplitude, dib_weights)` inputs. The
+diagram shows the image-autoencoder forward path. Teacher training runs the
+same inner LPAP block on length-`N` rows from an empirical i2e energy bank.
 
 ```mermaid
 flowchart TD
@@ -81,7 +83,7 @@ flowchart TD
     teacher[Exact LPAP teacher]
     logits["Local (dib, probe) logits (k_max × P)"]
     frontend[Decoder frontend]
-    tokens["(amplitude, normalized DIB, entropy) tokens"]
+    tokens["(amplitude, dib_weights) inputs"]
     decoder[Decoder transformer]
     recon[Decoded length-N energy]
     e2i[Energy→image flow]
@@ -107,10 +109,9 @@ assembly.
   Weighted cross-entropy compares exact LPAP local targets
   `local_class = dib * P + probe` against the surrogate's `k_max * P` local
   logits, weighted by `|bucket|`.
-- The decoder transformer consumes frontend tokens
-  `(amplitude, normalized DIB, entropy)`. Amplitudes are a soft expectation over
-  the `k_max * P` visible candidates under the surrogate distribution (or exact
-  LPAP amplitudes with zero entropy in exact mode).
+- The decoder transformer consumes `(amplitudes, dib_weights)` and outputs
+  `P`-way probe logits scattered strictly onto the `P` valid collision-set
+  indices `pi(p * C + ((b - d) mod C))`.
 - Surrogate/decoder teacher runs end at decoded energy. Image L2 and `e2i`
   belong to the autoencoder. The bidirectional flow prior at `t=0` is signed
   log-normal (`σ`, `scale`) when training `image_energy_flow`.
@@ -123,28 +124,28 @@ fold order on resume.
 
 ## Decoder loss
 
-`lpap_decoder_loss` scatters the frontend amplitude through a softmax over
-source indices, then adds a weighted source-index cross-entropy. For bucket
-`b`, `a_b` is the soft input amplitude
-`Σ_c softmax(z_b / τ)_c · visible_{b,c}` (exact LPAP bucket value in exact
-mode), `ℓ_b` are the decoder logits, `s_b` is the target source index, and
+`lpap_decoder_loss` scatters each bucket's amplitude over its `P`-element
+collision set weighted by `dib_weights * softmax(probe_logits)`, then adds a
+weighted probe cross-entropy masked to buckets whose predicted DIB matches the
+oracle DIB (`dib_match`). For bucket `b`, `a_b` is the bucket amplitude,
+`ℓ_b` are the `P`-way probe logits, `p_b*` is the oracle probe index, and
 `x` is the energy:
 
 ```text
-ê  = Σ_b softmax(ℓ_b) · a_b
+ê  = scatter_add_{b,d,p}(dib_weights[b,d] · softmax(ℓ_b)_p · a_b → pi(p·C + (b - d) mod C))
 L1 = mean(|ê − x|)
-w_b = |a_b|.detach()          # exact mode: w_b = |a_b| on the exact amplitude
-CE = Σ_b w_b · CE(ℓ_b, s_b) / Σ_b w_b
+w_b = |a_b|.detach()
+m_b = w_b · 1[dib_b == dib_b*]
+CE = Σ_b m_b · CE(ℓ_b, p_b*) / Σ_b m_b
 λ  = λ_0 · clamp(L1.detach() / L1_ref, 0, 1) ^ p
 loss = L1 + λ · CE
 ```
 
-`w_b` only rescales the CE. On the soft frontend it is detached, so the CE
-term does not train `a_b` (temperature or surrogate logits). The amplitude
-token and the reconstruction scatter still carry gradient. Teacher TOMLs set
-`λ_0 = source_ce_weight = 0.1`, `L1_ref = 0.05`, `p = 2`.
+`w_b` only rescales the CE. It is detached so the CE term trains probe logits
+without pulling amplitudes. Teacher TOMLs set `λ_0 = source_ce_weight = 0.1`,
+`L1_ref = 0.05`, `p = 2`.
 
-## Surrogate attention
+## Surrogate and decoder attention
 
 The surrogate model consumes `C` tokens of dimension `P = N // C`. Its
 attention mask is circular-backward: bucket token `i` attends to the rolled
@@ -153,16 +154,12 @@ Surrogate and decoder blocks attend with `scaled_dot_product_attention`.
 The boolean mask uses `True` = may attend, and every LPAP mask keeps the
 diagonal.
 
-Surrogate blocks (`circular=True`) use periodic circular RoPE. With `N = C`
-tokens and rotary pairs `m = 1 .. head_dim // 2`, the frequencies are
-`2π m / N`, so a shift of `N` positions is the identity and a circular lane
-shift stays equivariant with the mask. Cosine and sine tables are
+Both surrogate and decoder blocks (`circular=True`) use periodic circular RoPE.
+With `N = C` tokens and rotary pairs `m = 1 .. head_dim // 2`, the frequencies
+are `2π m / N`, so a shift of `N` positions is the identity and a circular lane
+shift stays equivariant with the ring topology. Cosine and sine tables are
 non-persistent buffers, rebuilt on the forward from token count, dtype, and
-device; checkpoints do not store them. Surrogate and autoencoder weights
-trained for a different frequency schedule load with no missing-key error
-and then run under these frequencies, so their outputs are wrong. Regenerate
-those checkpoints with the circular schedule. The decoder transformer keeps
-the standard RoPE base `10000` (`circular=False`).
+device; checkpoints do not store them.
 
 ## Tensor View (Column-Major Fold)
 
